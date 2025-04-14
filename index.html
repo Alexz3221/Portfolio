@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive 3D Portfolio</title>
+    <link rel="stylesheet" href="css/style.css">
+    <!-- Loading screen styles -->
+    <style>
+        #loading-screen {
+            position: fixed;
+            width: 100%;
+            height: 100%;
+            top: 0;
+            left: 0;
+            background: #000;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 9999;
+            color: #0ff;
+            font-family: 'Orbitron', sans-serif;
+        }
+        #loading-bar-container {
+            width: 50%;
+            height: 10px;
+            background: #111;
+            border-radius: 5px;
+            margin-top: 20px;
+            overflow: hidden;
+            border: 1px solid #0ff;
+        }
+        #loading-bar {
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(90deg, #0ff, #f0f);
+            transition: width 0.3s ease;
+        }
+        #loading-text {
+            margin-top: 10px;
+            font-size: 14px;
+        }
+    </style>
+    <!-- Preload fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Roboto:wght@300;400;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <!-- Loading Screen -->
+    <div id="loading-screen">
+        <h1>LOADING PORTFOLIO</h1>
+        <div id="loading-bar-container">
+            <div id="loading-bar"></div>
+        </div>
+        <div id="loading-text">Initializing 3D Environment...</div>
+    </div>
+
+    <!-- UI Overlay -->
+    <div id="ui-overlay">
+        <div id="top-bar">
+            <div id="logo">PORTFOLIO</div>
+            <div id="nav-buttons">
+                <button class="nav-button" data-target="intro">INTRO</button>
+                <button class="nav-button" data-target="projects">PROJECTS</button>
+                <button class="nav-button" data-target="skills">SKILLS</button>
+                <button class="nav-button" data-target="leadership">LEADERSHIP</button>
+                <button class="nav-button" data-target="contact">CONTACT</button>
+            </div>
+            <div id="controls-info">
+                <span>WASD: Move</span>
+                <span>MOUSE: Look</span>
+                <span>SPACE: Interact</span>
+            </div>
+        </div>
+        
+        <div id="project-info" class="info-panel">
+            <div class="close-button">×</div>
+            <h2 id="project-title">Project Title</h2>
+            <div id="project-description">Project description will appear here.</div>
+            <div id="project-tech">Technologies used will appear here.</div>
+        </div>
+        
+        <div id="skills-panel" class="info-panel">
+            <div class="close-button">×</div>
+            <h2>SKILLS</h2>
+            <div class="skills-container">
+                <div class="skill-category">
+                    <h3>Languages</h3>
+                    <div class="skill-items">
+                        <div class="skill-item">Java</div>
+                        <div class="skill-item">Python</div>
+                        <div class="skill-item">C++</div>
+                        <div class="skill-item">JavaScript</div>
+                        <div class="skill-item">Swift</div>
+                    </div>
+                </div>
+                <div class="skill-category">
+                    <h3>Frameworks</h3>
+                    <div class="skill-items">
+                        <div class="skill-item">React</div>
+                        <div class="skill-item">Node.js</div>
+                        <div class="skill-item">Express.js</div>
+                        <div class="skill-item">PyTorch</div>
+                        <div class="skill-item">TensorFlow</div>
+                    </div>
+                </div>
+                <div class="skill-category">
+                    <h3>Tools</h3>
+                    <div class="skill-items">
+                        <div class="skill-item">AWS</div>
+                        <div class="skill-item">Docker</div>
+                        <div class="skill-item">Firebase</div>
+                        <div class="skill-item">Git</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div id="leadership-panel" class="info-panel">
+            <div class="close-button">×</div>
+            <h2>LEADERSHIP</h2>
+            <div class="leadership-item">
+                <h3>Boulder Launchpad SaaS Lead Researcher</h3>
+                <p>Led research initiatives connecting students with industry experts in the Boulder startup ecosystem.</p>
+            </div>
+            <div class="leadership-item">
+                <h3>Tau Beta Pi Officer</h3>
+                <p>Served as an officer in the prestigious engineering honor society, organizing events and mentoring fellow students.</p>
+            </div>
+        </div>
+        
+        <div id="contact-panel" class="info-panel">
+            <div class="close-button">×</div>
+            <h2>CONTACT</h2>
+            <div class="contact-form">
+                <div class="contact-item">
+                    <label>Email</label>
+                    <p>email@example.com</p>
+                </div>
+                <div class="contact-item">
+                    <label>LinkedIn</label>
+                    <p>linkedin.com/in/yourprofile</p>
+                </div>
+                <div class="contact-item">
+                    <label>GitHub</label>
+                    <p>[GitHub placeholder]</p>
+                </div>
+            </div>
+        </div>
+        
+        <div id="intro-panel" class="info-panel">
+            <div class="close-button">×</div>
+            <h2>INTRODUCTION</h2>
+            <p>Computer science and mathematics professional with a passion for innovative projects and creative coding. Experienced in developing interactive web experiences and applications that blend functionality with engaging design.</p>
+            <p>My academic achievements and technical expertise drive my approach to problem-solving, allowing me to create solutions that are both technically sound and visually impressive.</p>
+        </div>
+        
+        <div id="mobile-controls" class="mobile-only">
+            <div id="joystick-area">
+                <div id="joystick-base">
+                    <div id="joystick-thumb"></div>
+                </div>
+            </div>
+            <div id="action-buttons">
+                <button id="interact-button">INTERACT</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Canvas -->
+    <canvas id="scene-canvas"></canvas>
+
+    <!-- Scripts -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/DRACOLoader.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/libs/stats.min.js"></script>
+    <script src="js/main.js"></script>
+    <script src="js/car.js"></script>
+    <script src="js/environment.js"></script>
+    <script src="js/projects.js"></script>
+    <script src="js/ui.js"></script>
+    <script src="js/skills.js"></script>
+    <script src="js/leadership.js"></script>
+    <script src="js/contact.js"></script>
+    <script src="js/introduction.js"></script>
+    <script src="js/responsive.js"></script>
+    <script src="js/performance.js"></script>
+</body>
+</html>
