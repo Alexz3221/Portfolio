@@ -216,14 +216,14 @@ class Car {
         // Left headlight beam
         const leftHeadlightBeam = new THREE.Mesh(headlightBeamGeometry, headlightBeamMaterial);
         leftHeadlightBeam.position.set(1.5, 1, 4);
-        leftHeadlightBeam.rotation.x = Math.PI / 2;
+        leftHeadlightBeam.rotation.x = 0;
         leftHeadlightBeam.position.z += 7.5; // Position in front of car
         this.model.add(leftHeadlightBeam);
         
         // Right headlight beam
         const rightHeadlightBeam = new THREE.Mesh(headlightBeamGeometry, headlightBeamMaterial);
         rightHeadlightBeam.position.set(-1.5, 1, 4);
-        rightHeadlightBeam.rotation.x = Math.PI / 2;
+        rightHeadlightBeam.rotation.x = 0;
         rightHeadlightBeam.position.z += 7.5; // Position in front of car
         this.model.add(rightHeadlightBeam);
         
