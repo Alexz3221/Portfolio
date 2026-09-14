@@ -1,175 +1,205 @@
-// Main.js - Core application functionality
+(() => {
+  "use strict";
 
-// Global variables
-let scene, camera, renderer, clock, mixer;
-let stats, controls;
-let car, environment;
-let loadingManager, loadingScreen, loadingBar, loadingText;
-let isLoading = true;
-let isMobile = window.innerWidth < 768;
+  const sandbox = document.querySelector(".sandbox");
+  const canvas = document.querySelector("#scene");
+  const context = canvas.getContext("2d", { alpha: false });
+  const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 
-// Initialize the application
-function init() {
-    initLoading();
-    initThree();
-    initStats();
-    initLights();
-    
-    // Initialize components
-    environment = new Environment(scene);
-    car = new Car(scene, camera);
-    initProjects();
-    initUI();
-    
-    // Start loading assets
-    environment.load().then(() => {
-        return car.load();
-    }).then(() => {
-        loadProjects().then(() => {
-            // All assets loaded
-            setTimeout(() => {
-                isLoading = false;
-                document.getElementById('loading-screen').style.display = 'none';
-            }, 1000); // Add a small delay for smoother transition
-        });
-    });
-    
-    // Start animation loop
-    animate();
-}
+  const pointer = {
+    x: 0.5,
+    y: 0.42,
+    targetX: 0.5,
+    targetY: 0.42
+  };
 
-// Initialize loading screen
-function initLoading() {
-    loadingScreen = document.getElementById('loading-screen');
-    loadingBar = document.getElementById('loading-bar');
-    loadingText = document.getElementById('loading-text');
-    
-    loadingManager = new THREE.LoadingManager();
-    
-    loadingManager.onProgress = function(url, itemsLoaded, itemsTotal) {
-        const progress = (itemsLoaded / itemsTotal) * 100;
-        loadingBar.style.width = progress + '%';
-        loadingText.textContent = `Loading assets... ${Math.round(progress)}%`;
-    };
-    
-    loadingManager.onError = function(url) {
-        console.error('Error loading: ' + url);
-        loadingText.textContent = 'Error loading assets. Please refresh.';
-    };
-}
+  const particles = Array.from({ length: 96 }, (_, index) => ({
+    angle: ((index * 137.508) % 360) * (Math.PI / 180),
+    radius: 0.08 + ((index * 47) % 89) / 100,
+    depth: ((index * 29) % 97) / 97,
+    speed: 0.04 + ((index * 11) % 17) / 250
+  }));
 
-// Initialize Three.js core components
-function initThree() {
-    clock = new THREE.Clock();
-    
-    // Create scene
-    scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x050510);
-    scene.fog = new THREE.FogExp2(0x050510, 0.002);
-    
-    // Create camera
-    camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-    camera.position.set(0, 5, 10);
-    camera.lookAt(0, 0, 0);
-    
-    // Create renderer
-    renderer = new THREE.WebGLRenderer({
-        canvas: document.getElementById('scene-canvas'),
-        antialias: true,
-        alpha: true
-    });
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // Limit pixel ratio for performance
-    renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    renderer.outputEncoding = THREE.sRGBEncoding;
-    
-    // Handle window resize
-    window.addEventListener('resize', onWindowResize);
-}
+  let width = 0;
+  let height = 0;
+  let pixelRatio = 1;
+  let hue = 188;
+  let frame = 0;
+  let previousTime = performance.now();
 
-// Initialize performance stats
-function initStats() {
-    stats = new Stats();
-    stats.showPanel(0); // 0: fps, 1: ms, 2: mb, 3+: custom
-    document.body.appendChild(stats.dom);
-    stats.dom.style.cssText = 'position:absolute;top:0;right:0;cursor:pointer;opacity:0.9;z-index:10000';
-}
+  function resize() {
+    pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+    width = window.innerWidth;
+    height = window.innerHeight;
+    canvas.width = Math.round(width * pixelRatio);
+    canvas.height = Math.round(height * pixelRatio);
+    canvas.style.width = `${width}px`;
+    canvas.style.height = `${height}px`;
+    context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+    draw(performance.now(), 0);
+  }
 
-// Initialize scene lighting
-function initLights() {
-    // Ambient light
-    const ambientLight = new THREE.AmbientLight(0x333333, 0.5);
-    scene.add(ambientLight);
-    
-    // Directional light (sun)
-    const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
-    directionalLight.position.set(5, 10, 7.5);
-    directionalLight.castShadow = true;
-    
-    // Configure shadow properties
-    directionalLight.shadow.mapSize.width = 2048;
-    directionalLight.shadow.mapSize.height = 2048;
-    directionalLight.shadow.camera.near = 0.5;
-    directionalLight.shadow.camera.far = 50;
-    directionalLight.shadow.camera.left = -20;
-    directionalLight.shadow.camera.right = 20;
-    directionalLight.shadow.camera.top = 20;
-    directionalLight.shadow.camera.bottom = -20;
-    directionalLight.shadow.bias = -0.0005;
-    
-    scene.add(directionalLight);
-    
-    // Add some colored point lights for the techno/neon effect
-    const colors = [0x00ffff, 0xff00ff, 0xffff00];
-    const positions = [
-        new THREE.Vector3(-10, 5, 10),
-        new THREE.Vector3(10, 5, -10),
-        new THREE.Vector3(0, 5, -15)
-    ];
-    
-    for (let i = 0; i < colors.length; i++) {
-        const pointLight = new THREE.PointLight(colors[i], 1, 50);
-        pointLight.position.copy(positions[i]);
-        scene.add(pointLight);
-        
-        // Add light helper for debugging (comment out in production)
-        // const pointLightHelper = new THREE.PointLightHelper(pointLight, 1);
-        // scene.add(pointLightHelper);
+  function updatePointer(event) {
+    pointer.targetX = event.clientX / Math.max(width, 1);
+    pointer.targetY = event.clientY / Math.max(height, 1);
+  }
+
+  function resetPointer() {
+    pointer.targetX = 0.5;
+    pointer.targetY = 0.42;
+  }
+
+  function drawBackground(vanishingX, horizon) {
+    const wash = context.createRadialGradient(
+      vanishingX,
+      horizon,
+      0,
+      vanishingX,
+      horizon,
+      Math.max(width, height) * 0.82
+    );
+
+    wash.addColorStop(0, `hsl(${hue} 30% 13%)`);
+    wash.addColorStop(0.35, "#090a10");
+    wash.addColorStop(1, "#030305");
+    context.fillStyle = wash;
+    context.fillRect(0, 0, width, height);
+
+    const glow = context.createLinearGradient(0, horizon - 40, 0, horizon + 100);
+    glow.addColorStop(0, "transparent");
+    glow.addColorStop(0.5, `hsl(${hue} 75% 62% / 0.08)`);
+    glow.addColorStop(1, "transparent");
+    context.fillStyle = glow;
+    context.fillRect(0, horizon - 40, width, 140);
+  }
+
+  function drawGrid(vanishingX, horizon, elapsed) {
+    const lowerHeight = height - horizon;
+    const drift = reducedMotion.matches ? 0 : (elapsed * 0.00008) % 1;
+
+    context.save();
+    context.lineWidth = 1;
+
+    for (let index = -18; index <= 18; index += 1) {
+      const endX = vanishingX + index * Math.max(width / 12, 64);
+      const gradient = context.createLinearGradient(vanishingX, horizon, endX, height);
+      gradient.addColorStop(0, `hsl(${hue} 80% 68% / 0)`);
+      gradient.addColorStop(1, `hsl(${hue} 70% 58% / 0.16)`);
+      context.strokeStyle = gradient;
+      context.beginPath();
+      context.moveTo(vanishingX, horizon);
+      context.lineTo(endX, height);
+      context.stroke();
     }
-}
 
-// Handle window resize
-function onWindowResize() {
-    isMobile = window.innerWidth < 768;
-    
-    camera.aspect = window.innerWidth / window.innerHeight;
-    camera.updateProjectionMatrix();
-    
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-}
-
-// Animation loop
-function animate() {
-    requestAnimationFrame(animate);
-    
-    stats.begin();
-    
-    const delta = clock.getDelta();
-    
-    // Update components if loading is complete
-    if (!isLoading) {
-        car.update(delta);
-        environment.update(delta);
-        updateProjects(delta);
+    for (let index = 0; index < 24; index += 1) {
+      const progress = ((index / 24) + drift) % 1;
+      const eased = progress * progress;
+      const y = horizon + lowerHeight * eased;
+      context.strokeStyle = `hsl(${hue} 70% 62% / ${0.02 + eased * 0.13})`;
+      context.beginPath();
+      context.moveTo(0, y);
+      context.lineTo(width, y);
+      context.stroke();
     }
-    
-    // Render scene
-    renderer.render(scene, camera);
-    
-    stats.end();
-}
 
-// Initialize the application when the DOM is ready
-document.addEventListener('DOMContentLoaded', init);
+    context.restore();
+  }
+
+  function drawParticles(vanishingX, horizon, delta) {
+    const scale = Math.min(width, height);
+
+    context.save();
+    context.globalCompositeOperation = "screen";
+
+    particles.forEach((particle, index) => {
+      if (!reducedMotion.matches) {
+        particle.depth = (particle.depth + particle.speed * delta) % 1;
+      }
+
+      const expansion = 0.15 + particle.depth * particle.depth * 1.15;
+      const x = vanishingX + Math.cos(particle.angle) * particle.radius * scale * expansion;
+      const y = horizon + Math.sin(particle.angle) * particle.radius * scale * expansion * 0.56;
+      const alpha = Math.sin(particle.depth * Math.PI) * 0.42;
+      const size = 0.35 + particle.depth * 1.7;
+
+      context.fillStyle = `hsl(${hue + (index % 3) * 18} 75% 72% / ${alpha})`;
+      context.beginPath();
+      context.arc(x, y, size, 0, Math.PI * 2);
+      context.fill();
+    });
+
+    context.restore();
+  }
+
+  function drawSignal(vanishingX, horizon, elapsed) {
+    const pulse = reducedMotion.matches ? 0.35 : 0.22 + Math.sin(elapsed * 0.001) * 0.08;
+
+    context.save();
+    context.globalCompositeOperation = "screen";
+    context.strokeStyle = `hsl(${hue} 80% 70% / ${pulse})`;
+    context.lineWidth = 1;
+    context.beginPath();
+    context.arc(vanishingX, horizon, 18, 0, Math.PI * 2);
+    context.stroke();
+
+    context.strokeStyle = `hsl(${hue + 28} 80% 68% / ${pulse * 0.5})`;
+    context.beginPath();
+    context.arc(vanishingX, horizon, 34, 0, Math.PI * 2);
+    context.stroke();
+    context.restore();
+  }
+
+  function draw(time, delta) {
+    pointer.x += (pointer.targetX - pointer.x) * 0.045;
+    pointer.y += (pointer.targetY - pointer.y) * 0.045;
+
+    const vanishingX = width * (0.47 + pointer.x * 0.06);
+    const horizon = height * (0.37 + pointer.y * 0.1);
+
+    drawBackground(vanishingX, horizon);
+    drawGrid(vanishingX, horizon, time);
+    drawParticles(vanishingX, horizon, delta);
+    drawSignal(vanishingX, horizon, time);
+  }
+
+  function animate(time) {
+    const delta = Math.min((time - previousTime) / 1000, 0.1);
+    previousTime = time;
+    draw(time, delta);
+    frame = requestAnimationFrame(animate);
+  }
+
+  function updateMotionPreference() {
+    cancelAnimationFrame(frame);
+    previousTime = performance.now();
+
+    if (reducedMotion.matches) {
+      draw(previousTime, 0);
+    } else {
+      frame = requestAnimationFrame(animate);
+    }
+  }
+
+  function cycleHue() {
+    hue = (hue + 47) % 360;
+    draw(performance.now(), 0);
+  }
+
+  function handleKeydown(event) {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      cycleHue();
+    }
+  }
+
+  window.addEventListener("resize", resize);
+  window.addEventListener("pointermove", updatePointer, { passive: true });
+  document.documentElement.addEventListener("pointerleave", resetPointer);
+  window.addEventListener("pointerdown", cycleHue);
+  sandbox.addEventListener("keydown", handleKeydown);
+  reducedMotion.addEventListener("change", updateMotionPreference);
+
+  resize();
+  updateMotionPreference();
+})();
