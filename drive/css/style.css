@@ -1,0 +1,84 @@
+:root {
+  color-scheme: dark;
+  background: #050508;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: #050508;
+}
+
+#drive-scene {
+  display: block;
+  width: 100%;
+  height: 100%;
+  outline: none;
+}
+
+#drive-scene:focus-visible {
+  outline: 1px solid rgb(120 220 235 / 50%);
+  outline-offset: -3px;
+}
+
+.site-header {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 2;
+  display: flex;
+  width: 100%;
+  min-height: 4.5rem;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid rgb(255 255 255 / 16%);
+  padding: 0 1.5rem;
+  background: rgb(5 5 8 / 42%);
+  backdrop-filter: blur(14px);
+  color: #fff;
+  font-size: 0.68rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+
+.site-header a {
+  color: rgb(255 255 255 / 62%);
+  text-decoration: none;
+  pointer-events: auto;
+}
+
+.site-header a:hover,
+.site-header a:focus-visible {
+  color: #fff;
+}
+
+.controls {
+  position: fixed;
+  right: 1.5rem;
+  bottom: 1.5rem;
+  z-index: 2;
+  color: rgb(255 255 255 / 42%);
+  font-size: 0.62rem;
+  letter-spacing: 0.14em;
+}
+
+@media (max-width: 42rem) {
+  .site-header {
+    min-height: 4rem;
+    padding: 0 1rem;
+  }
+
+  .controls {
+    right: 1rem;
+    bottom: 1rem;
+  }
+}

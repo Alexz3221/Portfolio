@@ -1,7 +1,6 @@
 (() => {
   "use strict";
 
-  const sandbox = document.querySelector(".sandbox");
   const canvas = document.querySelector("#scene");
   const context = canvas.getContext("2d", { alpha: false });
   const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -196,8 +195,8 @@
   window.addEventListener("resize", resize);
   window.addEventListener("pointermove", updatePointer, { passive: true });
   document.documentElement.addEventListener("pointerleave", resetPointer);
-  window.addEventListener("pointerdown", cycleHue);
-  sandbox.addEventListener("keydown", handleKeydown);
+  canvas.addEventListener("pointerdown", cycleHue);
+  canvas.addEventListener("keydown", handleKeydown);
   reducedMotion.addEventListener("change", updateMotionPreference);
 
   resize();

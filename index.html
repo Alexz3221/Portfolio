@@ -5,14 +5,27 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#050508">
   <meta name="description" content="An experimental visual sandbox.">
-  <title>Visual Sandbox</title>
-  <link rel="stylesheet" href="css/style.css">
+  <title>Sandbox</title>
+  <link rel="stylesheet" href="css/style.css?v=2">
 </head>
 <body>
-  <main class="sandbox" tabindex="0" aria-label="Visual sandbox. Move the pointer to shift perspective. Press Enter or Space to change color.">
-    <canvas id="scene" aria-hidden="true"></canvas>
+  <div class="sandbox">
+    <canvas id="scene" tabindex="0" aria-label="Visual background. Move the pointer to shift perspective. Press Enter or Space to change color."></canvas>
+
+    <header class="site-header">
+      <a class="mark" href="./" aria-label="Sandbox home">S/</a>
+      <nav aria-label="Primary navigation">
+        <a href="./" aria-current="page">Index</a>
+        <a href="drive/">Drive</a>
+      </nav>
+    </header>
+
+    <main class="landing">
+      <h1>Sandbox</h1>
+    </main>
+
     <noscript>This visual experiment requires JavaScript.</noscript>
-  </main>
-  <script src="js/main.js"></script>
+  </div>
+  <script src="js/main.js?v=2"></script>
 </body>
 </html>
