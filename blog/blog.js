@@ -4,7 +4,7 @@
   const validSlug = slug => /^[a-z0-9-]+$/.test(slug);
 
   async function posts() {
-    const response = await fetch('posts.json');
+    const response = await fetch('posts.json?v=2', {cache: 'no-store'});
     if (!response.ok) throw new Error('Could not load the notes.');
     const entries = await response.json();
     return entries.filter(entry => entry && validSlug(entry.slug));
@@ -105,7 +105,7 @@
     try {
       const entry = (await posts()).find(item => item.slug === slug);
       if (!entry) throw new Error('Note not found.');
-      const response = await fetch('posts/' + slug + '.md');
+      const response = await fetch('posts/' + slug + '.md', {cache: 'no-store'});
       if (!response.ok) throw new Error('Note not found.');
       document.title = entry.title + ' / Unnecessary Lore';
       document.querySelector('#postTitle').textContent = entry.title;
