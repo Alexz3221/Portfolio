@@ -33,7 +33,7 @@ jobs:
         run: |
           mkdir _site
           cp index.html _site/
-          cp -R css js drive projects _site/
+          cp -R css js drive projects lab _site/
           touch _site/.nojekyll
 
       - name: Upload Pages artifact
