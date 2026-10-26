@@ -1,14 +1,15 @@
-# Alexz3221 portfolio
+# alex / stuff
 
-A static project hub published with GitHub Pages.
+A small static home for projects and experiments.
 
 ## Routes
 
-- `/` — portfolio landing, featured projects, and steering interface preview
-- `/drive/` — playable Three.js driving experiment
-- `/projects/local-ai/` — overview of Adventure Studio and Image Studio
+- `/` — a hello and a short project list
+- `/drive/` — the playable Three.js driving experiment
+- `/projects/local-ai/` — Adventure Studio and Image Studio
+- `/lab/` — a steering interface sketch
 
-The steering controls on the public page are an **interface preview**. They update a diagram and do not run model inference. Adventure Studio and Image Studio run locally on a Windows workstation, so the public site describes them without claiming that visitors can access their models.
+The sliders in `/lab/` move a drawing. They do not run model inference. Adventure Studio and Image Studio run on a local Windows workstation; the public portfolio links to their project page rather than exposing the local models.
 
 ## Run locally
 
@@ -18,13 +19,8 @@ From the repository root:
 python -m http.server 8000
 ```
 
-Open `http://localhost:8000/Portfolio/` only when serving from a parent directory named `Portfolio`; when serving from the repository root, open `http://localhost:8000/`.
+Open `http://localhost:8000/`.
 
-## Next steps
+## Next
 
-1. Give the local Adventure Studio app a project-neutral home screen and navigation to Story, Image Studio, and a separate Steering Lab.
-2. Build Steering Lab against a hook-capable local text backend, beginning with baseline and steered comparisons on the same prompt and seed.
-3. Add model-specific vector and neuron interventions, activation readouts, saved experiment settings, and honest model availability states.
-4. Add screenshots, source links, or downloadable builds to these project pages when they are ready to share.
-
-The public portfolio stays static; local model inference stays on the workstation.
+Give the local Adventure Studio app a simple home screen, then build a separate Steering Lab using a hook-capable local text backend. The first functional experiment should compare baseline and steered responses with the same prompt and seed. Later work can add model-specific vectors and neurons, activation views, and saved settings.
