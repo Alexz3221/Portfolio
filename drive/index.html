@@ -3,22 +3,20 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#050508">
-  <meta name="description" content="A small browser-based driving experiment.">
-  <title>Drive — Sandbox</title>
-  <link rel="stylesheet" href="css/style.css?v=1">
+  <meta name="theme-color" content="#090e16">
+  <meta name="description" content="A small nighttime driving playground with three cars.">
+  <title>Car Go Vroom / Alex</title>
+  <link rel="stylesheet" href="css/style.css?v=2">
 </head>
 <body>
-  <canvas id="drive-scene" tabindex="0" aria-label="3D driving experiment. Use W A S D or the arrow keys to drive."></canvas>
-
-  <header class="site-header">
-    <a href="../">Index</a>
-    <span aria-current="page">Drive</span>
-  </header>
-
-  <div class="controls" aria-hidden="true">WASD / ARROWS</div>
-
+  <canvas id="drive-scene" tabindex="0" aria-label="3D driving playground. Use W A S D or the arrow keys to drive."></canvas>
+  <header class="drive-header"><a href="../">alex.</a><span>CAR GO VROOM</span><button id="cameraButton" type="button" title="Change camera (C)">CAMERA / CHASE</button></header>
+  <aside class="drive-hud" aria-live="polite"><span class="hud-label">SPEED</span><strong><span id="speedValue">0</span> <small>km/h</small></strong><span id="surfaceValue">on the road</span></aside>
+  <section class="garage" aria-label="Choose a car"><p>pick a car <span>1 / 2 / 3</span></p><div class="garage-options"><button class="active" data-car="comet" type="button"><i class="swatch comet"></i><span>Comet<small>low and quick</small></span></button><button data-car="rally" type="button"><i class="swatch rally"></i><span>Rally<small>takes the dirt</small></span></button><button data-car="pickup" type="button"><i class="swatch pickup"></i><span>Pickup<small>big little truck</small></span></button></div></section>
+  <div class="drive-help">WASD / ARROWS TO DRIVE <span>·</span> SPACE TO BRAKE <span>·</span> C FOR CAMERA</div>
+  <div class="touch-controls" aria-label="Touch driving controls"><div><button data-key="arrowleft" type="button" aria-label="Steer left">←</button><button data-key="arrowright" type="button" aria-label="Steer right">→</button></div><div><button data-key="arrowdown" type="button" aria-label="Reverse">↓</button><button data-key="arrowup" type="button" aria-label="Accelerate">↑</button></div></div>
+  <div class="load-message" id="loadMessage">Loading the road…</div>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
-  <script src="js/main.js?v=1"></script>
+  <script src="js/main.js?v=2"></script>
 </body>
 </html>
