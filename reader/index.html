@@ -3,11 +3,75 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101316">
   <meta name="robots" content="noindex">
-  <meta http-equiv="refresh" content="0;url=https://alex-novel-reader.clinkballer.chatgpt.site/">
-  <title>Opening little library…</title>
-  <style>body{min-height:100vh;display:grid;place-items:center;margin:0;background:#101316;color:#e9ece6;font:16px Arial,sans-serif}a{color:#b9e5c4}</style>
+  <meta name="description" content="A private home for context-aware translated novels.">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https://alex-novel-reader.clinkballer.chatgpt.site http://127.0.0.1:8765; style-src 'self'; script-src 'self'; img-src 'self' data:; base-uri 'self'">
+  <title>little library / alex</title>
+  <link rel="stylesheet" href="reader.css">
+  <script src="reader.js" defer></script>
 </head>
-<body><p>Opening the private reader… <a href="https://alex-novel-reader.clinkballer.chatgpt.site/">Continue to little library →</a></p></body>
+<body>
+  <header class="topbar">
+    <a class="brand" href="../">alex<span>.</span> <em>/ little library</em></a>
+    <span class="privacy"><span class="privacy-dot"></span> password protected</span>
+    <button id="logout" class="text-button" type="button" hidden>Lock ↗</button>
+  </header>
+  <main>
+    <section id="gate" class="gate" aria-labelledby="gateTitle">
+      <div class="gate-mark">✳</div>
+      <p class="eyebrow">PRIVATE SHELF / 01</p>
+      <h1 id="gateTitle">your next chapter<br><i>is waiting.</i></h1>
+      <p id="gateIntro">Unlock your novels, translations, and continuity notes.</p>
+      <form id="gateForm">
+        <label id="setupSecretLabel" for="setupSecret" hidden>Secret word<input id="setupSecret" type="password" autocomplete="off" placeholder="Enter secret word"></label>
+        <label for="password">Reader password</label>
+        <div class="gate-input"><input id="password" type="password" autocomplete="current-password" required placeholder="Enter password"><button type="submit">Unlock <span>→</span></button></div>
+      </form>
+      <p id="gateHint" class="hint"></p>
+      <a id="resetLink" class="reset-link" href="reset/">Forgot password? Reset it →</a>
+    </section>
+    <section id="resetPage" class="gate" aria-labelledby="resetTitle" hidden>
+      <div class="gate-mark">✳</div>
+      <p class="eyebrow">PRIVATE SHELF / RESET</p>
+      <h1 id="resetTitle">a fresh<br><i>start.</i></h1>
+      <p>Enter your secret word and choose a new reader password.</p>
+      <form id="resetForm">
+        <label for="secretWord">Secret word</label>
+        <div class="gate-input"><input id="secretWord" type="password" autocomplete="off" required placeholder="Enter secret word"></div>
+        <label for="newPassword">New password</label>
+        <div class="gate-input"><input id="newPassword" type="password" autocomplete="new-password" required placeholder="Choose a new password"></div>
+        <button class="primary reset-submit" type="submit">Reset password →</button>
+      </form>
+      <p id="resetHint" class="hint"></p>
+      <a class="reset-link" href="../">← Back to reader</a>
+    </section>
+    <div id="app" class="app" hidden>
+      <aside class="shelf" aria-label="Library">
+        <div class="shelf-head"><p class="eyebrow">YOUR LIBRARY</p><button id="newNovel" class="icon-button" type="button" title="Add a novel" aria-label="Add a novel">＋</button></div>
+        <div id="novelList" class="novel-list"></div>
+        <div class="shelf-foot"><span>Local Qwen for translation<br>Private cloud shelf for reading</span><span class="asterisk">✳</span></div>
+      </aside>
+      <section class="workspace">
+        <div class="bookbar">
+          <button id="shelfToggle" class="text-button mobile-only" type="button">☰ Library</button>
+          <div><p class="eyebrow" id="bookEyebrow">SELECT A BOOK</p><h1 id="bookTitle">Make yourself at home.</h1></div>
+          <button id="addChapter" class="secondary" type="button" hidden>＋ Chapter</button>
+        </div>
+        <div id="emptyState" class="empty-state"><span>✳</span><h2>Stories belong here.</h2><p>Add a raw novel or a single chapter. Translate on your PC, then read it anywhere.</p><button id="emptyAdd" class="primary" type="button">Add a novel <span>→</span></button></div>
+        <div id="bookView" hidden>
+          <div class="chapterbar"><div class="chapter-picker"><label for="chapterSelect">CHAPTER</label><select id="chapterSelect"></select></div><span id="chapterStatus" class="chapter-status"></span><div class="chapter-actions"><button id="previous" class="nav-button" type="button" aria-label="Previous chapter">←</button><button id="next" class="nav-button" type="button" aria-label="Next chapter">→</button></div></div>
+          <div class="reading-layout">
+            <article class="paper"><div class="paper-head"><span id="chapterNumber">01 / CHAPTER</span><div><button id="sourceToggle" class="text-button" type="button">View original</button><button id="fontDown" class="text-button" type="button" aria-label="Decrease font size">A−</button><button id="fontUp" class="text-button" type="button" aria-label="Increase font size">A＋</button></div></div><h2 id="chapterTitle"></h2><div id="chapterText" class="chapter-text"></div><div class="paper-end">✳</div></article>
+            <aside class="context" aria-label="Translation tools"><div class="context-head"><p class="eyebrow">THE THREAD</p><p>Names, places, powers, and the little things that matter.</p></div><div class="context-tools"><button id="translateOne" class="primary" type="button">Translate chapter <span>→</span></button><button id="translateAll" class="secondary" type="button">Translate remaining</button><p id="translateStatus" class="hint">Run AI Studio on this PC to translate.</p></div><div class="glossary-head"><h3>Continuity</h3><button id="addTerm" class="text-button" type="button">＋ Term</button></div><div id="glossaryList" class="glossary-list"></div><details class="notes"><summary>Story so far</summary><p id="contextNotes"></p></details></aside>
+          </div>
+        </div>
+      </section>
+    </div>
+    <dialog id="importDialog"><form id="importForm" class="dialog-form"><div class="dialog-top"><p class="eyebrow">NEW ON THE SHELF</p><button class="icon-button close" type="button" data-close="importDialog" aria-label="Close">×</button></div><h2>Add a novel</h2><label>Title<input id="novelTitle" required maxlength="200" placeholder="The story's title"></label><label>Source language<select id="novelLanguage"><option value="auto">Detect automatically</option><option value="chinese">Chinese</option><option value="japanese">Japanese</option><option value="korean">Korean</option></select></label><label>Raw text or chapters<textarea id="novelText" rows="8" placeholder="Paste a full novel with chapter headings, or one chapter…" required></textarea></label><label class="upload">or upload a UTF-8 .txt file<input id="novelFile" type="file" accept=".txt,text/plain"></label><p class="hint">Chapter headings such as Chapter 1, 第1章, 第1話, or 1화 are detected. Review the chapter count before saving. Up to 30,000 characters per chapter.</p><p id="importPreview" class="preview-count"></p><button class="primary" type="submit">Add to library <span>→</span></button></form></dialog>
+    <dialog id="chapterDialog"><form id="chapterForm" class="dialog-form"><div class="dialog-top"><p class="eyebrow">KEEP READING</p><button class="icon-button close" type="button" data-close="chapterDialog" aria-label="Close">×</button></div><h2>Add a chapter</h2><label>Chapter title<input id="newChapterTitle" maxlength="200" placeholder="Optional"></label><label>Original text<textarea id="newChapterText" rows="10" required maxlength="30000"></textarea></label><button class="primary" type="submit">Save chapter <span>→</span></button></form></dialog>
+    <dialog id="termDialog"><form id="termForm" class="dialog-form"><div class="dialog-top"><p class="eyebrow">CONTINUITY NOTE</p><button class="icon-button close" type="button" data-close="termDialog" aria-label="Close">×</button></div><h2>Pin a term</h2><label>Original term<input id="termSource" required maxlength="100"></label><label>English form<input id="termEnglish" required maxlength="100"></label><label>Type<select id="termCategory"><option value="character">Character</option><option value="title">Title or nickname</option><option value="place">Place</option><option value="power">Power</option><option value="organization">Organization</option><option value="item">Item</option><option value="other">Other</option></select></label><label>Gender / pronouns<input id="termGender" maxlength="40" placeholder="Optional"></label><label>Details<textarea id="termDetails" rows="3" maxlength="400" placeholder="Relationships, powers, context…"></textarea></label><button class="primary" type="submit">Save term <span>→</span></button></form></dialog>
+  </main>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+</body>
 </html>
-

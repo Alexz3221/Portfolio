@@ -9,7 +9,7 @@ A small static home for projects, experiments, and notes.
 - `/projects/local-ai/` — the local creative tools
 - `/lab/` — the separate interpretability project
 - `/blog/` — notes and story scraps
-- `/reader/` — link to the private hosted novel reader
+- `/reader/` — password protected novel reader; its API stores chapters on a separate hosted service
 
 The local tool links point to the visitor's own `127.0.0.1`. No model or GPU endpoint is exposed by GitHub Pages.
 
