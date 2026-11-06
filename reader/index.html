@@ -8,8 +8,8 @@
   <meta name="description" content="A private home for context-aware translated novels.">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https://alex-novel-reader.clinkballer.chatgpt.site http://127.0.0.1:8765; style-src 'self'; script-src 'self'; img-src 'self' data:; base-uri 'self'">
   <title>little library / alex</title>
-  <link rel="stylesheet" href="reader.css?v=2">
-  <script src="reader.js?v=2" defer></script>
+  <link rel="stylesheet" href="reader.css?v=3">
+  <script src="reader.js?v=3" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -62,7 +62,7 @@
         <div id="bookView" hidden>
           <div class="chapterbar"><div class="chapter-picker"><label for="chapterSelect">CHAPTER</label><select id="chapterSelect"></select></div><span id="chapterStatus" class="chapter-status"></span><div class="chapter-actions"><button id="previous" class="nav-button" type="button" aria-label="Previous chapter">←</button><button id="next" class="nav-button" type="button" aria-label="Next chapter">→</button></div></div>
           <div class="reading-layout">
-            <article class="paper"><div class="paper-head"><span id="chapterNumber">01 / CHAPTER</span><div><button id="sourceToggle" class="text-button" type="button">View original</button><button id="fontDown" class="text-button" type="button" aria-label="Decrease font size">A−</button><button id="fontUp" class="text-button" type="button" aria-label="Increase font size">A＋</button></div></div><h2 id="chapterTitle"></h2><div id="chapterText" class="chapter-text"></div><div class="paper-end">✳</div></article>
+            <article class="reader-page"><div class="reader-page-head"><span id="chapterNumber">01 / CHAPTER</span><div><button id="sourceToggle" class="text-button" type="button">View original</button><button id="fontDown" class="text-button" type="button" aria-label="Decrease font size">A−</button><button id="fontUp" class="text-button" type="button" aria-label="Increase font size">A＋</button></div></div><h2 id="chapterTitle"></h2><div id="chapterText" class="chapter-text"></div><div class="reader-page-end">✳</div></article>
             <aside class="context" aria-label="Translation tools"><div class="context-head"><p class="eyebrow">THE THREAD</p><p>Names, places, powers, and the little things that matter.</p></div><div class="context-tools"><button id="translateOne" class="primary" type="button">Translate chapter <span>→</span></button><button id="translateAll" class="secondary" type="button">Translate remaining</button><p id="translateStatus" class="hint">Run AI Studio on this PC to translate.</p></div><div class="glossary-head"><h3>Continuity</h3><button id="addTerm" class="text-button" type="button">＋ Term</button></div><div id="glossaryList" class="glossary-list"></div><details class="notes"><summary>Story so far</summary><p id="contextNotes"></p></details></aside>
           </div>
         </div>
