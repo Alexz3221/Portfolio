@@ -5,3 +5,4 @@
 .reset-submit{margin-top:22px}
 #resetPage form{margin-top:32px}
 #resetPage form label:not(:first-child){margin-top:20px}
+#setupSecretLabel input{display:block;width:100%;max-width:530px;margin-top:12px;border:1px solid #58685e;border-radius:3px;background:#1c2521;color:var(--text);padding:18px 20px}
