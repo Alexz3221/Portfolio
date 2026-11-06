@@ -43,7 +43,8 @@ async function openNovel(id,preferredIndex){
   $("#bookEyebrow").textContent=state.detail.chapters.length+" CHAPTERS / "+state.detail.novel.sourceLanguage.toUpperCase();
   $("#emptyState").hidden=true;$("#bookView").hidden=false;$("#addChapter").hidden=false;$(".shelf").classList.remove("open");
   const select=$("#chapterSelect");select.replaceChildren();state.detail.chapters.forEach((chapter,i)=>{const option=element("option","",String(i+1).padStart(2,"0")+"  "+chapter.title+(chapter.status==="translated"?"  ✓":""));option.value=String(i);select.append(option)});
-  renderGlossary();await openChapter(Math.min(Math.max(preferredIndex??Number(localStorage.getItem("readerChapter:"+id)||0),0),state.detail.chapters.length-1));
+  $("#continuityLink").href="continuity/?novel="+encodeURIComponent(id);
+  await openChapter(Math.min(Math.max(preferredIndex??Number(localStorage.getItem("readerChapter:"+id)||0),0),state.detail.chapters.length-1));
   await loadLibraryListOnly();
 }
 async function loadLibraryListOnly(){
@@ -65,14 +66,6 @@ function renderChapter(){
   $("#chapterText").classList.toggle("untranslated",!text);
   $("#previous").disabled=state.chapterIndex===0;$("#next").disabled=state.chapterIndex>=state.detail.chapters.length-1;
   $("#translateOne").textContent=chapter.status==="translated"?"Retranslate chapter →":"Translate chapter →";
-  $("#contextNotes").textContent=state.detail.novel.contextNotes||"No continuity notes yet.";
-}
-function renderGlossary(){
-  const list=$("#glossaryList");list.replaceChildren();const entries=state.detail?.glossary||[];
-  if(!entries.length){list.append(element("p","no-terms","Terms and facts found during translation appear here. You can also pin one yourself."));return}
-  for(const entry of entries){const item=element("div","term");const line=element("div");line.append(element("strong","",entry.englishTerm),element("span","source",entry.sourceTerm));item.append(line,element("small","",entry.category+(entry.gender?" · "+entry.gender:"")),element("p","",entry.details||""));
-    item.tabIndex=0;item.setAttribute("role","button");item.setAttribute("aria-label","Edit "+entry.englishTerm);
-    item.addEventListener("click",()=>editTerm(entry));item.addEventListener("keydown",e=>{if(e.key==="Enter")editTerm(entry)});list.append(item)}
 }
 function parseChapters(raw){
   const text=raw.replace(/\r\n?/g,"\n").trim();if(!text)return[];
@@ -83,10 +76,6 @@ function parseChapters(raw){
   flush();return chapters.length?chapters:[{title:"Chapter 1",sourceText:text}];
 }
 function updateImportPreview(){const chapters=parseChapters($("#novelText").value);$("#importPreview").textContent=chapters.length?chapters.length+" chapter"+(chapters.length===1?"":"s")+" detected"+(chapters.some(c=>c.sourceText.length>30000)?" · one or more exceed 30,000 characters":""):""}
-function editTerm(entry){
-  $("#termForm").reset();if(entry){$("#termSource").value=entry.sourceTerm;$("#termSource").readOnly=true;$("#termEnglish").value=entry.englishTerm;$("#termCategory").value=entry.category;$("#termGender").value=entry.gender;$("#termDetails").value=entry.details}else $("#termSource").readOnly=false;
-  $("#termDialog").showModal();
-}
 async function translate(index){
   const meta=state.detail.chapters[index],chapter=(await api("/api/chapters/"+meta.id)).chapter;
   let previousEnding="";if(index>0){const previous=(await api("/api/chapters/"+state.detail.chapters[index-1].id)).chapter;previousEnding=previous.translatedText.slice(-1200)}
@@ -113,7 +102,7 @@ $("#gateForm").addEventListener("submit",async e=>{e.preventDefault();try{const 
 $("#resetForm").addEventListener("submit",async e=>{e.preventDefault();try{const result=await post("/api/auth/reset",{secretWord:$("#secretWord").value,password:$("#newPassword").value});localStorage.setItem(TOKEN_KEY,result.token);$("#secretWord").value="";$("#newPassword").value="";location.href="../"}catch(error){$("#resetHint").textContent=error.message}});
 $("#logout").addEventListener("click",async()=>{try{await post("/api/auth/logout",{});localStorage.removeItem(TOKEN_KEY);location.reload()}catch(error){toast(error.message)}});
 $("#newNovel").addEventListener("click",()=>$("#importDialog").showModal());$("#emptyAdd").addEventListener("click",()=>$("#importDialog").showModal());
-$("#addChapter").addEventListener("click",()=>$("#chapterDialog").showModal());$("#addTerm").addEventListener("click",()=>editTerm(null));
+$("#addChapter").addEventListener("click",()=>$("#chapterDialog").showModal());
 document.querySelectorAll("[data-close]").forEach(button=>button.addEventListener("click",()=>$("#"+button.dataset.close).close()));
 $("#novelFile").addEventListener("change",async e=>{const file=e.target.files?.[0];if(!file)return;if(file.size>30000000){toast("Keep text files under 30 MB");return}$("#novelText").value=await file.text();if(!$("#novelTitle").value)$("#novelTitle").value=file.name.replace(/\.txt$/i,"");updateImportPreview()});
 $("#novelText").addEventListener("input",updateImportPreview);
@@ -125,7 +114,6 @@ $("#importForm").addEventListener("submit",async e=>{e.preventDefault();const ch
   catch(error){$("#importPreview").textContent=novelId?saved+" chapters saved. The remaining chapters were not imported.":"";toast(error.message)}
   finally{submit.disabled=false}});
 $("#chapterForm").addEventListener("submit",async e=>{e.preventDefault();try{await post("/api/chapters",{novelId:state.detail.novel.id,title:$("#newChapterTitle").value,sourceText:$("#newChapterText").value});$("#chapterDialog").close();$("#chapterForm").reset();await openNovel(state.detail.novel.id,state.detail.chapters.length);toast("Chapter added")}catch(error){toast(error.message)}});
-$("#termForm").addEventListener("submit",async e=>{e.preventDefault();try{await post("/api/glossary",{novelId:state.detail.novel.id,sourceTerm:$("#termSource").value,englishTerm:$("#termEnglish").value,category:$("#termCategory").value,gender:$("#termGender").value,details:$("#termDetails").value});$("#termDialog").close();await openNovel(state.detail.novel.id,state.chapterIndex);toast("Term pinned for future chapters")}catch(error){toast(error.message)}});
 $("#chapterSelect").addEventListener("change",e=>openChapter(Number(e.target.value)));$("#previous").addEventListener("click",()=>openChapter(state.chapterIndex-1));$("#next").addEventListener("click",()=>openChapter(state.chapterIndex+1));
 $("#sourceToggle").addEventListener("click",()=>{state.showSource=!state.showSource;renderChapter()});
 $("#fontDown").addEventListener("click",()=>{state.fontSize=Math.max(15,state.fontSize-1);localStorage.setItem("readerFontSize",state.fontSize);document.documentElement.style.setProperty("--reader-size",state.fontSize+"px")});

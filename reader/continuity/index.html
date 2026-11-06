@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101316">
+  <meta name="robots" content="noindex">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https://alex-novel-reader.clinkballer.chatgpt.site; style-src 'self'; script-src 'self'; base-uri 'self'">
+  <title>continuity / little library</title>
+  <link rel="stylesheet" href="../reader.css?v=5">
+  <link rel="stylesheet" href="continuity.css?v=1">
+  <script src="continuity.js?v=1" defer></script>
+</head>
+<body>
+  <header class="topbar"><a class="brand" href="../">alex<span>.</span> <em>/ little library</em></a><a class="text-button" href="../">← Back to reader</a></header>
+  <main class="continuity-page">
+    <p class="eyebrow">SEPARATE SHELF / CONTINUITY</p>
+    <div class="continuity-top"><div><h1>Names worth remembering.</h1><p class="hint">This dictionary and story summary can reveal events from later translated chapters.</p></div><button id="addTerm" class="primary" type="button" disabled>＋ Pin a term</button></div>
+    <div class="continuity-controls"><label>Novel<select id="novelSelect" aria-label="Novel"></select></label><label>Find a term<input id="termSearch" type="search" placeholder="Name, nickname, place, power…" autocomplete="off"></label><label>Type<select id="categoryFilter" aria-label="Type"><option value="all">All types</option><option value="character">Characters</option><option value="title">Titles and nicknames</option><option value="place">Places</option><option value="power">Powers</option><option value="organization">Organizations</option><option value="item">Items</option><option value="other">Other</option></select></label></div>
+    <p id="message" class="hint" role="status" aria-live="polite">Loading your library…</p>
+    <details class="continuity-notes"><summary>Story so far</summary><p id="contextNotes"></p></details>
+    <div id="glossaryList" class="glossary-list continuity-list"></div>
+  </main>
+  <dialog id="termDialog"><form id="termForm" class="dialog-form"><div class="dialog-top"><p class="eyebrow">CONTINUITY NOTE</p><button id="closeDialog" class="icon-button close" type="button" aria-label="Close">×</button></div><h2>Pin a term</h2><label>Original term<input id="termSource" required maxlength="100"></label><label>English form<input id="termEnglish" required maxlength="100"></label><label>Type<select id="termCategory"><option value="character">Character</option><option value="title">Title or nickname</option><option value="place">Place</option><option value="power">Power</option><option value="organization">Organization</option><option value="item">Item</option><option value="other">Other</option></select></label><label>Gender / pronouns<input id="termGender" maxlength="40" placeholder="Optional"></label><label>Details<textarea id="termDetails" rows="3" maxlength="400" placeholder="Relationships, powers, context…"></textarea></label><button class="primary" type="submit">Save term <span>→</span></button></form></dialog>
+</body>
+</html>
