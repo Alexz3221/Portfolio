@@ -1,6 +1,7 @@
 const $=selector=>document.querySelector(selector);
 const API_BASE="https://alex-novel-reader.clinkballer.chatgpt.site";
 const TOKEN_KEY="novelReaderToken";
+const accent=localStorage.getItem("readerAccentColor");if(/^#[0-9a-f]{6}$/i.test(accent||"")){const rgb=[1,3,5].map(index=>parseInt(accent.slice(index,index+2),16));document.documentElement.style.setProperty("--accent",accent);document.documentElement.style.setProperty("--accent-ink",(rgb[0]*299+rgb[1]*587+rgb[2]*114)/1000>150?"#102117":"#fff")}
 const state={novels:[],detail:null};
 async function api(path,options={}){
   const token=localStorage.getItem(TOKEN_KEY);

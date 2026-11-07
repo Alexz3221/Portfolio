@@ -1,8 +1,17 @@
 const $=selector=>document.querySelector(selector);
 const API_BASE="https://alex-novel-reader.clinkballer.chatgpt.site";
 const TOKEN_KEY="novelReaderToken";
+const ACCENT_KEY="readerAccentColor";
+const DEFAULT_ACCENT="#b9e5c4";
 const state={novels:[],detail:null,chapter:null,chapterIndex:0,showSource:false,translating:false,fontSize:Number(localStorage.getItem("readerFontSize")||19)};
 let toastTimer;
+function applyAccent(color){
+  if(!/^#[0-9a-f]{6}$/i.test(color))color=DEFAULT_ACCENT;
+  const rgb=[1,3,5].map(index=>parseInt(color.slice(index,index+2),16));
+  document.documentElement.style.setProperty("--accent",color);
+  document.documentElement.style.setProperty("--accent-ink",(rgb[0]*299+rgb[1]*587+rgb[2]*114)/1000>150?"#102117":"#fff");
+  $("#accentColor").value=color;
+}
 function toast(message){const el=$("#toast");el.textContent=message;el.classList.add("show");clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove("show"),4500)}
 async function api(path,options={}){
   const token=localStorage.getItem(TOKEN_KEY);
@@ -16,6 +25,7 @@ function element(tag,className,text){const node=document.createElement(tag);if(c
 function showApp(){ $("#gate").hidden=true;$("#app").hidden=false;$("#logout").hidden=false;loadLibrary().catch(error=>toast(error.message)) }
 async function initialize(){
   document.documentElement.style.setProperty("--reader-size",state.fontSize+"px");
+  applyAccent(localStorage.getItem(ACCENT_KEY)||DEFAULT_ACCENT);
   try{const info=await api("/api/session");if(/\/reset\/?$/.test(location.pathname)){
     if(info.needsSetup){location.href="../";return}
     $("#gate").hidden=true;$("#resetPage").hidden=false;return
@@ -55,6 +65,10 @@ async function openChapter(index){
   if(!state.detail?.chapters.length)return;state.chapterIndex=index;localStorage.setItem("readerChapter:"+state.detail.novel.id,String(index));
   const meta=state.detail.chapters[index];state.chapter=(await api("/api/chapters/"+meta.id)).chapter;state.showSource=false;renderChapter();
 }
+async function navigateChapter(delta){
+  const target=state.chapterIndex+delta;if(target<0||target>=state.detail.chapters.length)return;
+  try{await openChapter(target);window.scrollTo({top:0,behavior:"instant"})}catch(error){toast(error.message)}
+}
 function renderChapter(){
   const chapter=state.chapter;if(!chapter)return;$("#chapterSelect").value=String(state.chapterIndex);
   $("#chapterNumber").textContent=String(chapter.chapterNumber).padStart(2,"0")+" / CHAPTER";
@@ -64,7 +78,7 @@ function renderChapter(){
   const text=state.showSource?chapter.sourceText:chapter.translatedText;
   $("#chapterText").textContent=text||"This chapter is waiting for translation. Start AI Studio on this PC and use the button at right.";
   $("#chapterText").classList.toggle("untranslated",!text);
-  $("#previous").disabled=state.chapterIndex===0;$("#next").disabled=state.chapterIndex>=state.detail.chapters.length-1;
+  $("#previous").disabled=state.chapterIndex===0;const last=state.chapterIndex>=state.detail.chapters.length-1;$("#next").disabled=last;$("#nextBottom").disabled=last;$("#nextBottom").textContent=last?"End of book":"Next chapter →";
   $("#translateOne").textContent=chapter.status==="translated"?"Retranslate chapter →":"Translate chapter →";
 }
 function parseChapters(raw){
@@ -114,7 +128,8 @@ $("#importForm").addEventListener("submit",async e=>{e.preventDefault();const ch
   catch(error){$("#importPreview").textContent=novelId?saved+" chapters saved. The remaining chapters were not imported.":"";toast(error.message)}
   finally{submit.disabled=false}});
 $("#chapterForm").addEventListener("submit",async e=>{e.preventDefault();try{await post("/api/chapters",{novelId:state.detail.novel.id,title:$("#newChapterTitle").value,sourceText:$("#newChapterText").value});$("#chapterDialog").close();$("#chapterForm").reset();await openNovel(state.detail.novel.id,state.detail.chapters.length);toast("Chapter added")}catch(error){toast(error.message)}});
-$("#chapterSelect").addEventListener("change",e=>openChapter(Number(e.target.value)));$("#previous").addEventListener("click",()=>openChapter(state.chapterIndex-1));$("#next").addEventListener("click",()=>openChapter(state.chapterIndex+1));
+$("#chapterSelect").addEventListener("change",e=>openChapter(Number(e.target.value)));$("#previous").addEventListener("click",()=>navigateChapter(-1));$("#next").addEventListener("click",()=>navigateChapter(1));$("#nextBottom").addEventListener("click",()=>navigateChapter(1));
+$("#accentColor").addEventListener("input",event=>{applyAccent(event.target.value);localStorage.setItem(ACCENT_KEY,event.target.value)});
 $("#sourceToggle").addEventListener("click",()=>{state.showSource=!state.showSource;renderChapter()});
 $("#fontDown").addEventListener("click",()=>{state.fontSize=Math.max(15,state.fontSize-1);localStorage.setItem("readerFontSize",state.fontSize);document.documentElement.style.setProperty("--reader-size",state.fontSize+"px")});
 $("#fontUp").addEventListener("click",()=>{state.fontSize=Math.min(28,state.fontSize+1);localStorage.setItem("readerFontSize",state.fontSize);document.documentElement.style.setProperty("--reader-size",state.fontSize+"px")});
