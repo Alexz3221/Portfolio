@@ -13,7 +13,7 @@ function harness() {
     matches() { return false; }
   }
   const elements = new Map();
-  const cars = ['comet','rally','pickup'].map(car => new Element({car}));
+  const cars = ['comet','rally','pickup','hypercar'].map(car => new Element({car}));
   const controls = ['arrowleft','arrowright','arrowdown','arrowup',' '].map(key => new Element({key}));
   const document = {
     querySelector: id => { if (!elements.has(id)) elements.set(id, new Element()); return elements.get(id); },
@@ -85,4 +85,37 @@ test('all maps have bounded tiled textures and switching disposes them', () => {
     sim.chooseMap(id==='course'?'lakeside':'course');
     assert.equal(disposed,textures.size);
   }
+});
+
+
+test('sky follows distant cameras and cannot cross the far clipping plane', () => {
+  const {sim} = harness();
+  for (const map of ['lakeside','desert','alpine']) {
+    sim.chooseMap(map);
+    for (const [x,z] of [[0,200],[158,-65],[250,250],[-250,-250]]) {
+      sim.vehicle.position.set(x,0,z);sim.updateCamera(1);
+      assert.ok(sim.sky.position.distanceTo(sim.camera.position)<1e-8);
+      const positions=sim.sky.geometry.attributes.position;
+      for(let i=0;i<positions.count;i++) {
+        const vertex=new THREE.Vector3().fromBufferAttribute(positions,i);
+        assert.ok(vertex.length()<sim.camera.far);
+      }
+    }
+  }
+});
+
+test('scenic maps have distinct terrain detail and bounded instanced roadside scenery', () => {
+  const {sim}=harness(), signatures=new Set();
+  for (const map of ['lakeside','desert','alpine']) {
+    sim.chooseMap(map);
+    const ground=sim.world.children[0];
+    assert.equal(ground.material.bumpMap,ground.material.map);
+    signatures.add(Buffer.from(ground.material.map.image.data).toString('base64'));
+    const detail=sim.world.getObjectByName('roadside-detail');
+    assert.ok(detail.isInstancedMesh && detail.count>100 && detail.count<=360);
+    const textures=new Set();sim.world.traverse(mesh=>{if(mesh.material)Object.values(mesh.material).forEach(value=>{if(value?.isTexture)textures.add(value);});});
+    let disposed=0;textures.forEach(t=>t.addEventListener('dispose',()=>disposed++));
+    sim.chooseMap('course');assert.equal(disposed,textures.size);
+  }
+  assert.equal(signatures.size,3);
 });

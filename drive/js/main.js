@@ -12,9 +12,10 @@
   const vehicle = new THREE.Group();
   const motion = {speed: 0, heading: 0};
   const carSpecs = {
-    comet: {name: 'Comet', color: 0xfd7653, length: 5.2, width: 2.25, wheelZ: 1.7, wheelRadius: .52, maxSpeed: 220 / 3.6, acceleration: 24, turn: 1.75},
-    rally: {name: 'Rally', color: 0x64d9dc, length: 4.85, width: 2.35, wheelZ: 1.55, wheelRadius: .58, maxSpeed: 180 / 3.6, acceleration: 21, turn: 2.05},
-    pickup: {name: 'Pickup', color: 0xecc77a, length: 5.7, width: 2.55, wheelZ: 1.85, wheelRadius: .64, maxSpeed: 155 / 3.6, acceleration: 17, turn: 1.55},
+    comet: {name: 'Comet', color: 0xfd7653, length: 5.2, width: 2.25, wheelX: 0.736, wheelZ: 1.346, wheelRadius: .52, maxSpeed: 220 / 3.6, acceleration: 24, turn: 1.75},
+    rally: {name: 'Rally', color: 0x64d9dc, length: 4.85, width: 2.35, wheelX: 0.768, wheelZ: 1.378, wheelRadius: .58, maxSpeed: 180 / 3.6, acceleration: 21, turn: 2.05},
+    hypercar: {name: 'Hypercar', color: 0xae8aff, length: 5.0, width: 2.3, wheelX: 0.863, wheelZ: 1.429, wheelRadius: .48, maxSpeed: 320 / 3.6, acceleration: 32, turn: 1.65},
+    pickup: {name: 'Pickup', color: 0xecc77a, length: 5.7, width: 2.55, wheelX: 0.765, wheelZ: 1.474, wheelRadius: .64, maxSpeed: 155 / 3.6, acceleration: 17, turn: 1.55},
   };
   const maps = {
     course: {name: 'Physics proving ground', caption: 'Hills · jump ramp · solid trees', ground: 0x38584c, fog: 0x7196aa, skyLow: 0xb6d5df, skyHigh: 0x315579, mountain: 0x789187, seed: 28473, points: [[0,-28],[0,10],[0,65],[45,95],[80,25],[40,-50]]},
@@ -93,7 +94,15 @@
     for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
       const grain = random();
       const broad = Math.sin(x * Math.PI / 16) * Math.sin(y * Math.PI / 32);
-      const shade = kind === 'asphalt' ? 185 + grain * 55 : 170 + grain * 60 + broad * 20;
+      let shade = 170 + grain * 60 + broad * 20;
+      if (kind === 'asphalt') shade = grain > .97 ? 245 : 145 + grain * 75;
+      if (kind === 'ground' && selectedMap === 'desert') shade = 165 + 45 * Math.sin(y * Math.PI / 8 + 2 * Math.sin(x * Math.PI / 64)) + grain * 40;
+      if (kind === 'ground' && selectedMap === 'alpine') shade = grain > .78 ? 245 : 125 + grain * 90 + broad * 25;
+      if (kind === 'ground' && selectedMap === 'lakeside') shade = 105 + grain * 100 + broad * 35;
+      if (kind === 'rock') shade = 145 + grain * 65 + 35 * Math.sin(y * Math.PI / 8 + Math.sin(x * Math.PI / 16));
+      if (kind === 'bark') shade = 125 + grain * 55 + 60 * Math.sin(x * Math.PI / 8);
+      if (kind === 'water') shade = 190 + 35 * Math.sin(y * Math.PI / 4 + Math.sin(x * Math.PI / 16)) + grain * 20;
+      if (kind === 'windows') shade = x % 32 > 7 && x % 32 < 24 && y % 24 > 6 && y % 24 < 17 ? 235 : 85;
       const i = (y * size + x) * 4;
       pixels[i] = shade; pixels[i + 1] = shade; pixels[i + 2] = shade; pixels[i + 3] = 255;
     }
@@ -113,7 +122,7 @@
     const geometries = new Set(), materials = new Set(), textures = new Set();
     world.traverse(object => {
       if (object.geometry) geometries.add(object.geometry);
-      if (object.material) { materials.add(object.material); if (object.material.map) textures.add(object.material.map); }
+      if (object.material) { materials.add(object.material); for (const value of Object.values(object.material)) if (value?.isTexture) textures.add(value); }
     });
     world.clear();
     geometries.forEach(geometry => geometry.dispose());
@@ -123,10 +132,12 @@
     physics = DrivePhysics.create({map:selectedMap, car:selectedCar, distanceToRoad});
     const config = maps[selectedMap];
     scene.fog.color.setHex(config.fog);
+    scene.background = new THREE.Color(config.fog);
     sky.material.uniforms.low.value.setHex(config.skyLow);
     sky.material.uniforms.high.value.setHex(config.skyHigh);
     renderer.toneMappingExposure = selectedMap === 'desert' ? 1.05 : .9;
-    const ground = new THREE.Mesh(new THREE.PlaneGeometry(course ? 320 : 500, course ? 320 : 500, course ? 160 : 1, course ? 160 : 1), new THREE.MeshStandardMaterial({color: config.ground, roughness: 1, map: surfaceTexture('ground', selectedMap === 'course' ? 40 : 62.5)}));
+    const groundDetail = surfaceTexture('ground', course ? 40 : 62.5);
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(course ? 320 : 500, course ? 320 : 500, course ? 160 : 1, course ? 160 : 1), new THREE.MeshStandardMaterial({color: config.ground, roughness: 1, map: groundDetail, bumpMap: groundDetail, bumpScale: selectedMap === 'desert' ? .22 : .12}));
     if (course) {
       const pos = ground.geometry.attributes.position;
       for (let i=0;i<pos.count;i++) pos.setZ(i, DrivePhysics.terrainHeight(pos.getX(i), -pos.getY(i)));
@@ -140,11 +151,12 @@
       buildCourse();
       return;
     }
-    const lake = new THREE.Mesh(new THREE.CircleGeometry(37, 64), new THREE.MeshStandardMaterial({color: 0x0e2633, metalness: .55, roughness: .27}));
+    const waterDetail = surfaceTexture('water', 12);
+    const lake = new THREE.Mesh(new THREE.CircleGeometry(37, 64), new THREE.MeshStandardMaterial({color: 0x0e2633, metalness: .55, roughness: .27, bumpMap: waterDetail, bumpScale: .12}));
     lake.rotation.x = -Math.PI / 2;
     lake.position.set(8, .01, 4);
     if (selectedMap === 'lakeside') world.add(lake);
-    else { lake.geometry.dispose(); lake.material.dispose(); }
+    else { lake.geometry.dispose(); lake.material.dispose(); waterDetail.dispose(); }
 
     const path = new THREE.CatmullRomCurve3(config.points.map(([x, z]) => new THREE.Vector3(x, 0, z)), true, 'centripetal');
     samples = Array.from({length: 480}, (_, index) => ({
@@ -191,7 +203,8 @@
     }
 
     const rand = (() => { let seed = config.seed; return () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296); })();
-    const bark = new THREE.MeshStandardMaterial({color: 0x394140, roughness: 1});
+    const barkDetail = surfaceTexture('bark', 2);
+    const bark = new THREE.MeshStandardMaterial({color: 0x68513d, roughness: 1, map: barkDetail, bumpMap: barkDetail, bumpScale: .08});
     const pine = [
       new THREE.MeshStandardMaterial({color: 0x24464b, roughness: 1, flatShading: true}),
       new THREE.MeshStandardMaterial({color: 0x365a57, roughness: 1, flatShading: true}),
@@ -216,9 +229,10 @@
       world.add(top);
     }
 
+    const rockDetail = surfaceTexture('rock', 3);
     const stoneMaterials = [
-      new THREE.MeshStandardMaterial({color: 0x38464c, roughness: 1, flatShading: true}),
-      new THREE.MeshStandardMaterial({color: 0x56605c, roughness: 1, flatShading: true})
+      new THREE.MeshStandardMaterial({color: 0x53636a, roughness: 1, flatShading: true, map: rockDetail, bumpMap: rockDetail, bumpScale: .18}),
+      new THREE.MeshStandardMaterial({color: 0x78817a, roughness: 1, flatShading: true, map: rockDetail, bumpMap: rockDetail, bumpScale: .18})
     ];
     for (let index = 0; index < 52; index += 1) {
       const x = (rand() - .5) * 350;
@@ -236,12 +250,32 @@
       const radius = 205 + rand() * 38;
       const mountain = new THREE.Mesh(
         new THREE.ConeGeometry(20 + rand() * 20, 55 + rand() * 75, 5),
-        new THREE.MeshStandardMaterial({color: config.mountain, roughness: 1, flatShading: true})
+        new THREE.MeshStandardMaterial({color: config.mountain, roughness: 1, flatShading: true, map: rockDetail, bumpMap: rockDetail, bumpScale: .35})
       );
       mountain.position.set(Math.cos(angle) * radius, 18, Math.sin(angle) * radius);
       mountain.rotation.y = rand() * Math.PI;
       world.add(mountain);
     }
+
+    // Small roadside detail uses one instanced draw call, with no per-frame work.
+    const detail = new THREE.InstancedMesh(new THREE.DodecahedronGeometry(1, 0),
+      new THREE.MeshStandardMaterial({color: selectedMap === 'desert' ? 0xcfa678 : selectedMap === 'alpine' ? 0xbac8bf : 0x749365, roughness: 1}), 360);
+    detail.name = 'roadside-detail';
+    const dummy = new THREE.Object3D();
+    let count = 0;
+    for (let i = 0; i < 720 && count < 360; i++) {
+      const sample = samples[Math.floor(rand() * samples.length)];
+      const normal = new THREE.Vector3(-sample.tangent.z, 0, sample.tangent.x);
+      const side = rand() < .5 ? -1 : 1;
+      dummy.position.copy(sample.point).addScaledVector(normal, side * (9 + rand() * 19));
+      if (distanceToRoad(dummy.position.x, dummy.position.z) < 8 || (selectedMap === 'lakeside' && Math.hypot(dummy.position.x - 8, dummy.position.z - 4) < 38)) continue;
+      const size = .1 + rand() * .45;
+      dummy.position.y = size * .2;
+      dummy.scale.set(size, selectedMap === 'lakeside' ? size * 2 : size * .5, size);
+      dummy.rotation.set(rand(), rand() * Math.PI, 0);
+      dummy.updateMatrix(); detail.setMatrixAt(count++, dummy.matrix);
+    }
+    detail.count = count; detail.receiveShadow = true; world.add(detail);
 
     function addGate(index, color) {
       const sample = samples[index];
@@ -271,10 +305,12 @@
     addGate(156, 0xffc286);
     addGate(316, 0x89bdff);
 
+    const windowDetail = surfaceTexture('windows', 2);
     const townMaterials = [
-      new THREE.MeshStandardMaterial({color: 0x3a4c54, roughness: .8}),
-      new THREE.MeshStandardMaterial({color: 0x4e565b, roughness: .8})
+      new THREE.MeshStandardMaterial({color: 0x6c8389, roughness: .8, map: windowDetail}),
+      new THREE.MeshStandardMaterial({color: 0x8b8f91, roughness: .8, map: windowDetail})
     ];
+    if (selectedMap !== 'lakeside') { windowDetail.dispose(); townMaterials.forEach(material => material.dispose()); }
     for (let index = 0; index < (selectedMap === 'lakeside' ? 14 : 0); index += 1) {
       const x = (rand() - .5) * 44 + 8;
       const z = (rand() - .5) * 36 + 4;
@@ -330,7 +366,7 @@
     const radius = spec.wheelRadius;
     part(group, new THREE.BoxGeometry(spec.width, .52, spec.length), paint, 0, 1.05, 0);
     part(group, new THREE.BoxGeometry(spec.width + .12, .18, spec.length - .35), trim, 0, .73, 0);
-    if (type === 'comet') {
+    if ((type === 'comet' || type === 'hypercar')) {
       const nose = part(group, new THREE.BoxGeometry(spec.width * .96, .35, 1.6), paint, 0, 1.27, 1.63);
       nose.rotation.x = -.1;
       const cabin = part(group, new THREE.BoxGeometry(spec.width * .72, .66, 2.12), glass, 0, 1.62, -.45);
@@ -363,8 +399,8 @@
     part(group, new THREE.BoxGeometry(.48, .16, .04), chrome, 0, .93, -front - .07);
     [-1, 1].forEach(side => {
       const cabinZ = type === 'pickup' ? .68 : -.32;
-      const cabinTop = type === 'comet' ? 1.97 : 2.27;
-      const pillarX = spec.width * (type === 'comet' ? .36 : .425);
+      const cabinTop = (type === 'comet' || type === 'hypercar') ? 1.97 : 2.27;
+      const pillarX = spec.width * ((type === 'comet' || type === 'hypercar') ? .36 : .425);
       [-.78, .65].forEach(z => part(group, new THREE.BoxGeometry(.1, cabinTop - 1.35, .12), paint, side * pillarX, (cabinTop + 1.35) / 2, cabinZ + z));
       part(group, new THREE.BoxGeometry(.36, .18, .32), paint, side * (spec.width / 2 + .18), 1.64, .65);
       part(group, new THREE.BoxGeometry(.3, .11, .03), chrome, side * (spec.width / 2 + .18), 1.65, .48);
@@ -373,7 +409,7 @@
       const exhaust = part(group, new THREE.CylinderGeometry(.09, .09, .3, 12), chrome, side * .7, .7, -front);
       exhaust.rotation.x = Math.PI / 2;
     });
-    if (type === 'comet') {
+    if ((type === 'comet' || type === 'hypercar')) {
       part(group, new THREE.BoxGeometry(spec.width * .7, .09, 1.1), paint, 0, 1.99, -.5);
       [-.65, .65].forEach(x => part(group, new THREE.BoxGeometry(.08, .37, .14), trim, x, 1.7, -2.15));
       [-.35, .35].forEach(x => part(group, new THREE.BoxGeometry(.15, .025, 1.3), trim, x, 1.46, 1.5));
@@ -403,7 +439,7 @@
         }
         const pivot = new THREE.Group();
         pivot.add(wheel);
-        pivot.position.set(side * (spec.width / 2 + .05), radius + .08, z);
+        pivot.position.set(side * spec.wheelX, radius + .08, z);
         group.add(pivot);
         wheels.push({pivot, wheel, front: z > 0});
       });
@@ -418,6 +454,34 @@
   }
 
   Object.entries(carSpecs).forEach(([type, spec]) => { carModels[type] = buildCar(type, spec); });
+  // Load only the selected car. Keep a playable fallback if an asset fails.
+  function loadCarAsset(type) {
+    const model = carModels[type];
+    if (model.assetState) return;
+    if (typeof DriveVehicleAssets === 'undefined') { model.assetState = 'failed'; return; }
+    model.assetState = 'loading';
+    DriveVehicleAssets.load(type, carSpecs[type], imported => {
+      const pivots = new Set(model.wheels.map(w => w.pivot));
+      const oldGeometry = new Set(), oldMaterials = new Set();
+      model.group.traverse(mesh => { if(mesh.geometry) oldGeometry.add(mesh.geometry); if(mesh.material) oldMaterials.add(mesh.material); });
+      [...model.group.children].forEach(child => { if(!pivots.has(child)) model.group.remove(child); });
+      model.group.add(imported.body);
+      model.wheels.forEach((entry,i) => {entry.wheel.clear();entry.wheel.add(imported.wheels[i]);});
+      oldGeometry.forEach(geometry => geometry.dispose());
+      oldMaterials.forEach(material => material.dispose());
+      // Brake lamps stay independent of the source atlas and light up on braking.
+      const rearLamp = new THREE.MeshBasicMaterial({color:0xff354e});
+      model.rearLamp = rearLamp;
+      const bodyBounds = new THREE.Box3().setFromObject(imported.body);
+      [-1,1].forEach(side => part(model.group,new THREE.BoxGeometry(.32,.1,.04),rearLamp,side*carSpecs[type].width*.32,.8,bodyBounds.min.z-.02));
+      model.assetState = 'ready';
+      if(selectedCar === type) document.querySelector('#modelStatus').textContent = 'Kenney CC0 model';
+    }, error => {
+      model.assetState = 'failed';
+      console.warn('Vehicle asset could not load:', type, error);
+      if(selectedCar === type) document.querySelector('#modelStatus').textContent = 'Model unavailable · fallback car';
+    });
+  }
   scene.add(vehicle);
   function resetVehicle() {
     resetOrbit();
@@ -459,6 +523,8 @@
       document.querySelectorAll('[data-key]').forEach(button=>button.classList.remove('pressed'));
     }
     selectedCar = type;
+    loadCarAsset(type);
+    document.querySelector('#modelStatus').textContent = carModels[type].assetState === 'ready' ? 'Kenney CC0 model' : carModels[type].assetState === 'failed' ? 'Model unavailable · fallback car' : 'Loading car model…';
     Object.entries(carModels).forEach(([name, model]) => { model.group.visible = name === type; });
     motion.speed = THREE.MathUtils.clamp(motion.speed, -carSpecs[type].maxSpeed * .45, carSpecs[type].maxSpeed);
     document.querySelectorAll('[data-car]').forEach(button => {
@@ -485,7 +551,7 @@
     if (event.target.matches('select, input, textarea') || (event.target.matches('button') && [' ', 'Enter'].includes(event.key))) return;
     const key = event.key.toLowerCase();
     if (drivingKeys.has(key)) { event.preventDefault(); keys.add(key); }
-    if (!event.repeat && ['1', '2', '3'].includes(key)) chooseCar(['comet', 'rally', 'pickup'][Number(key) - 1]);
+    if (!event.repeat && ['1', '2', '3', '4'].includes(key)) chooseCar(['comet', 'rally', 'pickup', 'hypercar'][Number(key) - 1]);
     if (!event.repeat && key === 'c') setCameraMode();
     if (!event.repeat && key === 'r') resetVehicle();
   });
@@ -571,7 +637,7 @@
     const lookHeading = motion.heading + orbit.yaw;
     if (cameraMode === 2) {
       const hoodOffset = carSpecs[selectedCar].length * .4;
-      desired.set(Math.sin(motion.heading) * hoodOffset, selectedCar === 'comet' ? 1.9 : 2.3, Math.cos(motion.heading) * hoodOffset).add(vehicle.position);
+      desired.set(Math.sin(motion.heading) * hoodOffset, selectedCar === 'comet' || selectedCar === 'hypercar' ? 1.9 : 2.3, Math.cos(motion.heading) * hoodOffset).add(vehicle.position);
       target.set(Math.sin(lookHeading) * 22, 2.0 - Math.sin(orbit.pitch) * 22, Math.cos(lookHeading) * 22).add(vehicle.position);
     } else {
       const distance = cameraMode === 1 ? 16 : 7.8;
@@ -585,6 +651,9 @@
     else camera.position.lerp(desired, 1 - Math.exp(-5 * delta));
     if (physics) camera.position.y=Math.max(camera.position.y,physics.terrainHeight(camera.position.x,camera.position.z)+1.5);
     camera.lookAt(target);
+    // The old origin-centered sky crossed far=600 away from the map center,
+    // clipping a circular black hole. Keep every sky vertex within radius 490.
+    sky.position.copy(camera.position);
   }
 
   let firstFrame = true;

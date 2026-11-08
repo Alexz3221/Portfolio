@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const THREE = require('three');
 
-function harness() {
+function harness(assetLoader) {
   class Element {
     constructor(dataset = {}) { this.style = {}; this.dataset = dataset; this.listeners = {}; this.classes = new Set(); this.attributes = {}; this.textContent = ''; this.value = ''; this.classList = {add: x => this.classes.add(x), remove: x => this.classes.delete(x), toggle: (x, on) => on ? this.classes.add(x) : this.classes.delete(x)}; }
     addEventListener(name, fn) { this.listeners[name] = fn; }
@@ -13,7 +13,7 @@ function harness() {
     matches() { return false; }
   }
   const elements = new Map();
-  const cars = ['comet','rally','pickup'].map(car => new Element({car}));
+  const cars = ['comet','rally','pickup','hypercar'].map(car => new Element({car}));
   const controls = ['arrowleft','arrowright','arrowdown','arrowup',' '].map(key => new Element({key}));
   const document = {
     querySelector: id => { if (!elements.has(id)) elements.set(id, new Element()); return elements.get(id); },
@@ -22,7 +22,7 @@ function harness() {
   };
   const window = {THREE, devicePixelRatio: 1, innerWidth: 1280, innerHeight: 800, addEventListener: (name, fn) => { window[name] = fn; }};
   const fakeThree = {...THREE, WebGLRenderer: class {constructor(){this.shadowMap={};} setPixelRatio(){} setSize(){} render(){} }};
-  const context = vm.createContext({window, document, THREE: fakeThree, DrivePhysics: require('../js/physics.js'), requestAnimationFrame() {}, console});
+  const context = vm.createContext({window, document, THREE: fakeThree, DriveVehicleAssets: assetLoader, DrivePhysics: require('../js/physics.js'), requestAnimationFrame() {}, console});
   const source = fs.readFileSync(require.resolve('../js/main.js'), 'utf8');
   vm.runInContext(source.replace(/\}\)\(\);\s*$/, 'globalThis.sim = {physics: () => physics, maps, samples: () => samples, world, vehicle, motion, carSpecs, carModels, keys, chooseMap, chooseCar, resetVehicle, updateVehicle, distanceToRoad, camera, updateCamera, setCameraMode, renderer, sky};})();'), context);
   context.sim.chooseMap('lakeside');
@@ -66,7 +66,7 @@ test('map switching disposes old GPU resources and does not accumulate scenery',
 
 test('each physics car uses mph HUD, accelerates, brakes and switches safely', () => {
   const {sim, document} = harness();
-  for (const [car, expected] of [['comet',137],['rally',112],['pickup',96]]) {
+  for (const [car, expected] of [['comet',137],['rally',112],['pickup',96],['hypercar',199]]) {
     sim.chooseCar(car); sim.resetVehicle();
     assert.equal(sim.physics().body.mass, require('../js/physics').vehicles[car].mass);
     assert.equal(document.querySelector('#topSpeedValue').textContent, `${expected} mph target top speed`);
@@ -124,4 +124,29 @@ test('hood camera stays on the car at high speed rather than trailing behind', (
   sim.resetVehicle();assert.equal(sim.keys.size,0);assert.ok(Math.abs(sim.vehicle.position.z+28)<.01);
   sim.chooseMap('alpine');assert.equal(document.querySelector('.garage').style.display,'');sim.chooseCar('pickup');assert.equal(sim.carModels.pickup.group.visible,true);
   sim.chooseMap('course');assert.equal(document.querySelector('.garage').style.display,'');assert.equal(sim.carModels.pickup.group.visible,true);
+});
+
+
+test('fourth garage option selects Hypercar using button and key 4',()=>{
+  const {sim,window,cars,document}=harness();
+  cars[3].listeners.click();assert.equal(cars[3].attributes['aria-pressed'],'true');
+  assert.equal(document.querySelector('#topSpeedValue').textContent,'199 mph target top speed');
+  sim.chooseCar('comet');window.keydown({key:'4',target:{matches:()=>false},repeat:false});
+  assert.equal(sim.physics().body.mass,1450);assert.equal(cars[3].attributes['aria-pressed'],'true');
+});
+
+
+test('lazy models cache once, late completion never changes selection, and failures retain fallback',()=>{
+  const pending={},calls={};
+  const {sim,document}=harness({load(type,spec,success,failure){calls[type]=(calls[type]||0)+1;pending[type]={success,failure};}});
+  assert.equal(calls.comet,1);assert.equal(calls.hypercar,undefined);
+  sim.chooseCar('hypercar');sim.chooseCar('rally');
+  const imported=()=>({body:new THREE.Mesh(new THREE.BoxGeometry(2,1,5),new THREE.MeshBasicMaterial()),wheels:Array.from({length:4},()=>new THREE.Group())});
+  pending.hypercar.success(imported());assert.equal(sim.carModels.hypercar.group.visible,false);
+  pending.rally.failure(new Error('test network failure'));
+  assert.equal(sim.carModels.rally.assetState,'failed');assert.ok(sim.carModels.rally.group.children.length>4);
+  assert.match(document.querySelector('#modelStatus').textContent,/fallback/);
+  sim.chooseCar('hypercar');assert.equal(calls.hypercar,1);assert.equal(sim.carModels.hypercar.group.visible,true);
+  assert.equal(document.querySelector('#modelStatus').textContent,'Kenney CC0 model');
+  sim.chooseMap('desert');sim.chooseMap('alpine');assert.equal(calls.hypercar,1);
 });
