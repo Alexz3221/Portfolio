@@ -7,9 +7,10 @@
   const terrainHeight = (x,z) => 7 * Math.exp(-((x-37)**2/420 + (z-32)**2/700)) + 4 * Math.exp(-((x+35)**2/380 + (z-65)**2/280));
   const ramp = {x:0,y:2.02,z:26,halfWidth:4,halfLength:10,angle:-.22};
   const vehicles = {
-    comet: {mass:1200,width:2.25,length:5.2,wheelZ:1.7,radius:.52,maxSpeed:220/3.6,engine:2100,grip:3.2},
-    rally: {mass:1350,width:2.35,length:4.85,wheelZ:1.55,radius:.58,maxSpeed:180/3.6,engine:2250,grip:3.6},
-    pickup: {mass:1850,width:2.55,length:5.7,wheelZ:1.85,radius:.64,maxSpeed:155/3.6,engine:2800,grip:3.0}
+    hypercar: {mass:1450,width:2.3,length:5.0,wheelX:0.863,wheelZ:1.429,radius:.48,maxSpeed:320/3.6,engine:3300,grip:3.5},
+    comet: {mass:1200,width:2.25,length:5.2,wheelX:0.736,wheelZ:1.346,radius:.52,maxSpeed:220/3.6,engine:2100,grip:3.2},
+    rally: {mass:1350,width:2.35,length:4.85,wheelX:0.768,wheelZ:1.378,radius:.58,maxSpeed:180/3.6,engine:2250,grip:3.6},
+    pickup: {mass:1850,width:2.55,length:5.7,wheelX:0.765,wheelZ:1.474,radius:.64,maxSpeed:155/3.6,engine:2800,grip:3.0}
   };
   function create(options={}) {
     const course = !options.map || options.map === 'course';
@@ -33,7 +34,7 @@
     const body=new C.Body({mass:spec.mass,linearDamping:.015,angularDamping:.25});
     body.addShape(new C.Box(new C.Vec3(spec.width/2-.05,.47,spec.length/2-.15))); world.addBody(body);
     const car=new C.RaycastVehicle({chassisBody:body,indexRightAxis:0,indexUpAxis:1,indexForwardAxis:2});
-    [-1,1].forEach(side=>[-spec.wheelZ,spec.wheelZ].forEach(z=>car.addWheel({radius:spec.radius,directionLocal:new C.Vec3(0,-1,0),axleLocal:new C.Vec3(-1,0,0),chassisConnectionPointLocal:new C.Vec3(side*(spec.width/2+.05),-.15,z),suspensionStiffness:32,suspensionRestLength:.42,frictionSlip:spec.grip,dampingRelaxation:3.5,dampingCompression:4.5,maxSuspensionForce:45000,rollInfluence:.15,maxSuspensionTravel:.3,customSlidingRotationalSpeed:-30,useCustomSlidingRotationalSpeed:true})));
+    [-1,1].forEach(side=>[-spec.wheelZ,spec.wheelZ].forEach(z=>car.addWheel({radius:spec.radius,directionLocal:new C.Vec3(0,-1,0),axleLocal:new C.Vec3(-1,0,0),chassisConnectionPointLocal:new C.Vec3(side*spec.wheelX,-.15,z),suspensionStiffness:32,suspensionRestLength:.42,frictionSlip:spec.grip,dampingRelaxation:3.5,dampingCompression:4.5,maxSuspensionForce:45000,rollInfluence:.15,maxSuspensionTravel:.3,customSlidingRotationalSpeed:-30,useCustomSlidingRotationalSpeed:true})));
     car.addToWorld(world);
     let accumulator=0,steer=0,grounded=0,airTime=0;
     function reset(x=0,z=-28,heading=0){body.position.set(x,height(x,z)+spec.radius+.6,z);body.quaternion.setFromEuler(0,heading,0);body.velocity.setZero();body.angularVelocity.setZero();body.force.setZero();body.torque.setZero();body.wakeUp();accumulator=0;steer=0;grounded=0;airTime=0;car.wheelInfos.forEach(w=>{w.rotation=0;w.deltaRotation=0;});}

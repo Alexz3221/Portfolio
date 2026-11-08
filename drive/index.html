@@ -4,22 +4,24 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#090e16">
-  <meta name="description" content="Three suspension-driven cars, hills and jumps, plus three scenic driving routes.">
+  <meta name="description" content="Four suspension-driven cars, hills and jumps, plus three scenic driving routes.">
   <title>Car Go Vroom / Alex</title>
-  <link rel="stylesheet" href="css/style.css?v=4">
+  <link rel="stylesheet" href="css/style.css?v=5">
 </head>
 <body>
   <canvas id="drive-scene" tabindex="0" aria-label="3D driving playground. Use W A S D or the arrow keys to drive."></canvas>
   <header class="drive-header"><a href="https://www.linkedin.com/in/alex-zhou2/" target="_blank" rel="noopener noreferrer" aria-label="Alex on LinkedIn">alex.</a><a class="drive-home" href="../">home ↗</a><span>CAR GO VROOM</span><button id="cameraButton" type="button" title="Change camera (C)">CAMERA / CHASE</button></header>
   <section class="route-picker" aria-label="Choose a map"><label for="mapSelect">EXPLORE A ROUTE</label><select id="mapSelect"><option value="course">Physics proving ground</option><option value="lakeside">Lakeside loop</option><option value="desert">Desert highway</option><option value="alpine">Alpine pass</option></select><p id="mapDescription">Twilight · flowing bends</p><button id="resetButton" type="button" title="Return to the road (R)">↺ BACK TO ROAD</button></section>
-  <aside class="drive-hud"><span class="hud-label">SPEED</span><strong><span id="speedValue">0</span> <small>mph</small></strong><span id="topSpeedValue">137 mph target top speed</span><span id="surfaceValue">on the road</span></aside>
-  <section class="garage" aria-label="Choose a car"><p>pick a car <span>1 / 2 / 3</span></p><div class="garage-options"><button class="active" data-car="comet" type="button"><i class="swatch comet"></i><span>Comet<small>137 mph</small></span></button><button data-car="rally" type="button"><i class="swatch rally"></i><span>Rally<small>112 mph</small></span></button><button data-car="pickup" type="button"><i class="swatch pickup"></i><span>Pickup<small>96 mph</small></span></button></div></section>
+  <aside class="drive-hud"><span class="hud-label">SPEED</span><strong><span id="speedValue">0</span> <small>mph</small></strong><span id="topSpeedValue">137 mph target top speed</span><span id="modelStatus" role="status">Loading car model…</span><span id="surfaceValue">on the road</span></aside>
+  <section class="garage" aria-label="Choose a car"><p>pick a car <span>1 / 2 / 3 / 4</span></p><div class="garage-options"><button class="active" data-car="comet" type="button"><i class="swatch comet"></i><span>Comet<small>137 mph</small></span></button><button data-car="rally" type="button"><i class="swatch rally"></i><span>Rally<small>112 mph</small></span></button><button data-car="pickup" type="button"><i class="swatch pickup"></i><span>Pickup<small>96 mph</small></span></button><button data-car="hypercar" type="button"><i class="swatch hypercar"></i><span>Hypercar<small>199 mph</small></span></button></div></section>
   <div class="drive-help">WASD / ARROWS TO DRIVE <span>·</span> SPACE TO BRAKE <span>·</span> C FOR CAMERA · DRAG TO LOOK (RETURNS AFTER 4s) <span>·</span> R TO RESET <span>·</span> IN AIR: ↑↓ PITCH / ←→ ROLL</div>
   <div class="touch-controls" aria-label="Touch driving controls"><div><button data-key="arrowleft" type="button" aria-label="Steer left">←</button><button data-key="arrowright" type="button" aria-label="Steer right">→</button></div><div><button data-key=" " type="button" aria-label="Brake">■</button><button data-key="arrowdown" type="button" aria-label="Reverse">↓</button><button data-key="arrowup" type="button" aria-label="Accelerate">↑</button></div></div>
   <div class="load-message" id="loadMessage">Loading the road…</div>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+  <script src="js/vendor/GLTFLoader.js"></script>
+  <script src="js/vehicle-assets.js?v=1"></script>
   <script src="js/vendor/cannon.min.js"></script>
-  <script src="js/physics.js?v=2"></script>
-  <script src="js/main.js?v=5"></script>
+  <script src="js/physics.js?v=3"></script>
+  <script src="js/main.js?v=6"></script>
 </body>
 </html>
