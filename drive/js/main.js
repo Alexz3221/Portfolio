@@ -22,7 +22,7 @@
   const maps = {
     mountain: {name: 'Cliffside mountain', caption: 'Narrow ledge · sheer drops · winding ascent', ground: 0x817969, fog: 0x9caeae, skyLow: 0xcbd8d2, skyHigh: 0x416b92, mountain: 0x83908b, seed: 93217,
       roadHalfWidth: 3.5, shoulderWidth: .5, points: DrivePhysics.mountainPoints},
-    racetrack: {name: 'Racetrack / obstacle course', caption: 'Long circuit · slalom blocks · jump crests', ground: 0x47634a, fog: 0x9dbac7, skyLow: 0xd3e4e7, skyHigh: 0x386e9d, mountain: 0x7f9290, seed: 59221,
+    racetrack: {name: 'Racetrack / stunt course', caption: '12 rollers & jumps · 2 overpasses · cross-track shortcuts', ground: 0x47634a, fog: 0x9dbac7, skyLow: 0xd3e4e7, skyHigh: 0x386e9d, mountain: 0x7f9290, seed: 59221,
       points: [[-164,-138],[-164,-65],[-164,35],[-150,135],[-65,163],[50,163],[145,135],[163,55],[155,-65],[120,-145],[65,-150],[48,-90],[55,0],[35,70],[-25,80],[-55,30],[-48,-55],[-65,-125],[-110,-156]]},
     lakeside: {name: 'Lakeside loop', caption: 'Twilight · rolling shoreline bends', ground: 0x1b2b2d, fog: 0x172633, skyLow: 0x50434f, skyHigh: 0x041020, mountain: 0x33434a, seed: 28473,
       points: [[-58,-49],[-17,-83],[40,-72],[87,-42],[104,-5],[76,34],[70,68],[22,91],[-51,70],[-93,28],[-91,-12]]},
@@ -87,6 +87,10 @@
       const dx = b.x - a.x, dz = b.z - a.z;
       const t = THREE.MathUtils.clamp(((x - a.x) * dx + (z - a.z) * dz) / (dx * dx + dz * dz || 1), 0, 1);
       nearest = Math.min(nearest, (x - a.x - t * dx) ** 2 + (z - a.z - t * dz) ** 2);
+    }
+    if(selectedMap==='racetrack') for(const bridge of DrivePhysics.overpasses) {
+      const dx=Math.max(0,Math.abs(x)-170),dz=z-bridge.z;
+      nearest=Math.min(nearest,dx*dx+dz*dz);
     }
     return Math.sqrt(nearest);
   }
@@ -226,6 +230,54 @@
       geometry.setIndex([0,1,2,1,3,2]); geometry.computeVertexNormals();
       const dash = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({color:0xd9b876,side:THREE.DoubleSide,polygonOffset:true,polygonOffsetFactor:-2,polygonOffsetUnits:-2}));
       world.add(dash);
+    }
+
+    // Two optional cross-track routes join the outer circuit, rise over the
+    // infield, and rejoin on the opposite side. The original lower road remains.
+    // Batch all bridge solids, paint and approaches into three meshes total.
+    if(selectedMap==='racetrack') {
+      const solidPositions=[],solidColors=[],paintPositions=[],paintColors=[],approachPositions=[];
+      const triangle=(positions,colors,a,b,c,color)=>{
+        const shade=new THREE.Color(color);
+        for(const p of [a,b,c]){positions.push(p.x,p.y,p.z);if(colors)colors.push(shade.r,shade.g,shade.b);}
+      };
+      const quad=(positions,colors,points,color)=>{
+        triangle(positions,colors,points[0],points[1],points[2],color);
+        triangle(positions,colors,points[0],points[2],points[3],color);
+      };
+      for(const bridge of physics.bridges) {
+        for(const segment of bridge.segments) {
+          const vertices=segment.vertices.map(v=>new THREE.Vector3(v.x+segment.body.position.x,v.y+segment.body.position.y,v.z+bridge.z));
+          segment.faces.forEach((face,i)=>quad(solidPositions,solidColors,face.map(k=>vertices[k]),i===1?0x354047:0x677984));
+          // Narrow edge stripes make the unguarded stunt deck legible.
+          for(const side of [-1,1]) {
+            const z=bridge.z+side*(bridge.halfWidth-.25),a=segment.x0,b=segment.x1;
+            quad(paintPositions,paintColors,[new THREE.Vector3(a,segment.y0+.025,z-.10),new THREE.Vector3(a,segment.y0+.025,z+.10),new THREE.Vector3(b,segment.y1+.025,z+.10),new THREE.Vector3(b,segment.y1+.025,z-.10)],bridge.id===1?0xffcd58:0x7ee7e0);
+          }
+          // Center chevrons point onto / across each overpass without text textures.
+          if(segment.x1-segment.x0<20) {
+            const x=(segment.x0+segment.x1)/2,y=(segment.y0+segment.y1)/2+.035,z=bridge.z;
+            const rise=(segment.y1-segment.y0)/(segment.x1-segment.x0);
+            triangle(paintPositions,paintColors,new THREE.Vector3(x-1.4,y-rise*1.4,z-1),new THREE.Vector3(x-1.4,y-rise*1.4,z+1),new THREE.Vector3(x+1.4,y+rise*1.4,z),0xf5eee1);
+          }
+        }
+        for(const p of bridge.supports) {
+          const v=[];for(const y of [-p.hy,p.hy])for(const [x,z] of [[-p.hx,-p.hz],[p.hx,-p.hz],[p.hx,p.hz],[-p.hx,p.hz]])v.push(new THREE.Vector3(p.x+x,p.y+y,p.z+z));
+          for(const face of [[0,1,2,3],[7,6,5,4],[4,5,1,0],[5,6,2,1],[6,7,3,2],[7,4,0,3]])quad(solidPositions,solidColors,face.map(k=>v[k]),0x52636c);
+        }
+        for(const side of [-1,1])for(let x=bridge.rampEnd;x<170;x+=1)for(let z=-6;z<6;z+=1) {
+          const corners=[[x,z],[x,z+1],[x+1,z+1],[x+1,z]].map(([a,b])=>new THREE.Vector3(side*a,physics.terrainHeight(side*a,bridge.z+b)+.08,bridge.z+b));
+          quad(approachPositions,null,corners,0);
+        }
+      }
+      function batch(name,positions,colors,material) {
+        const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));
+        if(colors)geometry.setAttribute('color',new THREE.Float32BufferAttribute(colors,3));
+        geometry.computeVertexNormals();const mesh=new THREE.Mesh(geometry,material);mesh.name=name;mesh.receiveShadow=true;world.add(mesh);return mesh;
+      }
+      batch('stunt-overpass-solids',solidPositions,solidColors,new THREE.MeshStandardMaterial({vertexColors:true,roughness:.9})).castShadow=true;
+      batch('stunt-overpass-markings',paintPositions,paintColors,new THREE.MeshBasicMaterial({vertexColors:true,side:THREE.DoubleSide,polygonOffset:true,polygonOffsetFactor:-2,polygonOffsetUnits:-2}));
+      batch('stunt-overpass-approaches',approachPositions,null,new THREE.MeshStandardMaterial({color:0x354047,roughness:.95,side:THREE.DoubleSide,polygonOffset:true,polygonOffsetFactor:-1,polygonOffsetUnits:-1}));
     }
 
     // Solid slalom blocks share their exact dimensions with the physics world.
@@ -697,6 +749,7 @@
     camera.updateProjectionMatrix();
     renderer.setSize(width, height, false);
   }
+  window.DriveMobileUI?.setup({document, window, canvas, controls:document.querySelectorAll('[data-key]'), releaseControls, resize});
   window.addEventListener('resize', resize);
   window.visualViewport?.addEventListener('resize', resize);
 

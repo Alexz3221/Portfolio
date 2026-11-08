@@ -1,0 +1,10 @@
+{
+  "id": "./",
+  "name": "Car Go Vroom",
+  "short_name": "Car Go Vroom",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#090e16",
+  "theme_color": "#090e16"
+}
