@@ -29,7 +29,7 @@ function harness(assetLoader) {
   return {sim: context.sim, document, window, cars, controls};
 }
 
-test('all three maps have distinct drivable, finite closed routes and safe spawns', () => {
+test('all five maps have distinct drivable, finite closed routes and safe spawns', () => {
   const {sim} = harness();
   const shapes = new Set();
   for (const id of Object.keys(sim.maps).filter(id => id !== 'course')) {
@@ -48,7 +48,7 @@ test('all three maps have distinct drivable, finite closed routes and safe spawn
       if (mesh.geometry) assert.ok(Array.from(mesh.geometry.attributes.position.array).every(Number.isFinite));
     });
   }
-  assert.equal(shapes.size, 3);
+  assert.equal(shapes.size, 5);
 });
 
 test('map switching disposes old GPU resources and does not accumulate scenery', () => {
@@ -57,7 +57,7 @@ test('map switching disposes old GPU resources and does not accumulate scenery',
   let disposed = false;
   sim.world.children[0].geometry.addEventListener('dispose', () => { disposed = true; });
   for (let i = 0; i < 12; i++) {
-    const id = Object.keys(sim.maps).filter(id => id !== 'course')[i % 3]; sim.chooseMap(id);
+    const id = Object.keys(sim.maps).filter(id => id !== 'course')[i % 5]; sim.chooseMap(id);
     counts[id] ??= sim.world.children.length;
     assert.equal(sim.world.children.length, counts[id]);
   }
@@ -118,12 +118,12 @@ test('hood camera stays on the car at high speed rather than trailing behind', (
   }
 });
 
- test('all cars integrate with course controls, reset and map switching', () => {
-  const {sim,document}=harness();sim.chooseMap('course');sim.chooseCar('pickup');assert.equal(sim.carModels.comet.group.visible,false);assert.equal(sim.carModels.pickup.group.visible,true);
-  sim.keys.add('w');for(let i=0;i<240;i++)sim.updateVehicle(1/60);assert.ok(sim.vehicle.position.z>-20);assert.ok(sim.vehicle.position.toArray().every(Number.isFinite));
-  sim.resetVehicle();assert.equal(sim.keys.size,0);assert.ok(Math.abs(sim.vehicle.position.z+28)<.01);
+ test('all cars integrate with circuit controls, reset and map switching', () => {
+  const {sim,document}=harness();sim.chooseMap('racetrack');sim.chooseCar('pickup');assert.equal(sim.carModels.comet.group.visible,false);assert.equal(sim.carModels.pickup.group.visible,true);
+  sim.keys.add('w');for(let i=0;i<240;i++)sim.updateVehicle(1/60);assert.ok(sim.vehicle.position.z>-95);assert.ok(sim.vehicle.position.toArray().every(Number.isFinite));
+  sim.resetVehicle();assert.equal(sim.keys.size,0);assert.ok(Math.abs(sim.vehicle.position.z+105)<.01);
   sim.chooseMap('alpine');assert.equal(document.querySelector('.garage').style.display,'');sim.chooseCar('pickup');assert.equal(sim.carModels.pickup.group.visible,true);
-  sim.chooseMap('course');assert.equal(document.querySelector('.garage').style.display,'');assert.equal(sim.carModels.pickup.group.visible,true);
+  sim.chooseMap('racetrack');assert.equal(document.querySelector('.garage').style.display,'');assert.equal(sim.carModels.pickup.group.visible,true);
 });
 
 
