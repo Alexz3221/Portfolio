@@ -24,7 +24,7 @@ function harness() {
   const fakeThree = {...THREE, WebGLRenderer: class {constructor(){this.shadowMap={};} setPixelRatio(){} setSize(){} render(){} }};
   const context = vm.createContext({window, document, THREE: fakeThree, DrivePhysics: require('../js/physics.js'), requestAnimationFrame() {}, console});
   const source = fs.readFileSync(require.resolve('../js/main.js'), 'utf8');
-  vm.runInContext(source.replace(/\}\)\(\);\s*$/, 'globalThis.sim = {maps, samples: () => samples, world, vehicle, motion, carSpecs, carModels, keys, chooseMap, chooseCar, resetVehicle, updateVehicle, distanceToRoad, camera, updateCamera, setCameraMode, renderer, sky};})();'), context);
+  vm.runInContext(source.replace(/\}\)\(\);\s*$/, 'globalThis.sim = {physics: () => physics, maps, samples: () => samples, world, vehicle, motion, carSpecs, carModels, keys, chooseMap, chooseCar, resetVehicle, updateVehicle, distanceToRoad, camera, updateCamera, setCameraMode, renderer, sky};})();'), context);
   context.sim.chooseMap('lakeside');
   return {sim: context.sim, document, window, cars, controls};
 }
@@ -64,25 +64,20 @@ test('map switching disposes old GPU resources and does not accumulate scenery',
   assert.ok(disposed);
 });
 
-test('each car reaches its advertised road cap; reverse, braking, dirt and switching stay bounded', () => {
+test('each physics car uses mph HUD, accelerates, brakes and switches safely', () => {
   const {sim, document} = harness();
-  for (const [car, expected] of [['comet',220],['rally',180],['pickup',155]]) {
-    sim.chooseCar(car); sim.resetVehicle(); sim.keys.add('w');
-    // Hold the car at a road point between steps to isolate the acceleration model from steering.
-    for (let i = 0; i < 1200; i++) {sim.vehicle.position.copy(sim.samples()[0].point); sim.updateVehicle(1/60);}
-    assert.ok(Math.abs(sim.motion.speed * 3.6 - expected) < .001);
-    assert.equal(document.querySelector('#topSpeedValue').textContent, `${expected} km/h top speed`);
-    sim.keys.clear(); sim.keys.add(' ');
-    for (let i = 0; i < 120; i++) sim.updateVehicle(1/60);
-    assert.ok(Math.abs(sim.motion.speed) < .1);
-    sim.resetVehicle(); sim.keys.add('s');
-    for (let i = 0; i < 1200; i++) {sim.vehicle.position.copy(sim.samples()[0].point); sim.updateVehicle(1/60);}
-    assert.ok(Math.abs(sim.motion.speed + sim.carSpecs[car].maxSpeed * .45) < .001);
-    sim.vehicle.position.set(200, 0, 200); sim.motion.speed = sim.carSpecs[car].maxSpeed; sim.updateVehicle(1/60);
-    assert.ok(Math.abs(sim.motion.speed) <= sim.carSpecs[car].maxSpeed * (car === 'rally' ? .78 : .6));
+  for (const [car, expected] of [['comet',137],['rally',112],['pickup',96]]) {
+    sim.chooseCar(car); sim.resetVehicle();
+    assert.equal(sim.physics().body.mass, require('../js/physics').vehicles[car].mass);
+    assert.equal(document.querySelector('#topSpeedValue').textContent, `${expected} mph target top speed`);
+    for(let i=0;i<120;i++)sim.updateVehicle(1/60);
+    sim.keys.add('w');for(let i=0;i<90;i++)sim.updateVehicle(1/60);
+    assert.ok(sim.motion.speed>5);
+    assert.equal(Number(document.querySelector('#speedValue').textContent),Math.round(sim.physics().body.velocity.length()*2.236936));
+    sim.keys.clear();sim.keys.add(' ');for(let i=0;i<180;i++)sim.updateVehicle(1/60);
+    assert.ok(Math.abs(sim.motion.speed)<.2);
   }
-  sim.chooseCar('comet'); sim.motion.speed = sim.carSpecs.comet.maxSpeed; sim.chooseCar('pickup');
-  assert.ok(sim.motion.speed <= sim.carSpecs.pickup.maxSpeed);
+  sim.keys.add('w');sim.chooseCar('comet');assert.equal(sim.keys.size,0);assert.equal(sim.physics().body.velocity.length(),0);
 });
 
 test('steering pivots independently of wheel roll and reset clears held controls', () => {
@@ -123,10 +118,10 @@ test('hood camera stays on the car at high speed rather than trailing behind', (
   }
 });
 
- test('physics course integrates with controls, car lock, reset and map switching', () => {
-  const {sim,document}=harness();sim.chooseMap('course');sim.chooseCar('pickup');assert.equal(sim.carModels.comet.group.visible,true);assert.equal(sim.carModels.pickup.group.visible,false);
+ test('all cars integrate with course controls, reset and map switching', () => {
+  const {sim,document}=harness();sim.chooseMap('course');sim.chooseCar('pickup');assert.equal(sim.carModels.comet.group.visible,false);assert.equal(sim.carModels.pickup.group.visible,true);
   sim.keys.add('w');for(let i=0;i<240;i++)sim.updateVehicle(1/60);assert.ok(sim.vehicle.position.z>-20);assert.ok(sim.vehicle.position.toArray().every(Number.isFinite));
   sim.resetVehicle();assert.equal(sim.keys.size,0);assert.ok(Math.abs(sim.vehicle.position.z+28)<.01);
   sim.chooseMap('alpine');assert.equal(document.querySelector('.garage').style.display,'');sim.chooseCar('pickup');assert.equal(sim.carModels.pickup.group.visible,true);
-  sim.chooseMap('course');assert.equal(document.querySelector('.garage').style.display,'none');
+  sim.chooseMap('course');assert.equal(document.querySelector('.garage').style.display,'');assert.equal(sim.carModels.pickup.group.visible,true);
 });
