@@ -697,6 +697,7 @@
     camera.updateProjectionMatrix();
     renderer.setSize(width, height, false);
   }
+  window.DriveMobileUI?.setup({document, window, canvas, controls:document.querySelectorAll('[data-key]'), releaseControls, resize});
   window.addEventListener('resize', resize);
   window.visualViewport?.addEventListener('resize', resize);
 
