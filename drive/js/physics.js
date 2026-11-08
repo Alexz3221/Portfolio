@@ -5,17 +5,48 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function(C) {
   'use strict';
   const terrainHeight = (x,z) => 7 * Math.exp(-((x-37)**2/420 + (z-32)**2/700)) + 4 * Math.exp(-((x+35)**2/380 + (z-65)**2/280));
-  // Authored terrain rollers: the mesh and heightfield sample this same list.
-  // Broad enough to crawl over; narrow/tall crests launch a fast car.
-  const stuntBumps = [
-    {x:-164,z:-106,h:1.4,run:8}, {x:-164,z:-75,h:1.8,run:9},
-    {x:-164,z:-43,h:1.1,run:7}, {x:-164,z:-22,h:1.8,run:8},
-    {x:-164,z:22,h:2.8,run:11.18}, {x:-160,z:70,h:3.5,run:12},
-    {x:155,z:-93,h:1.7,run:10}, {x:161,z:-27,h:3.2,run:11},
-    {x:164,z:15,h:1.1,run:7}, {x:163,z:40,h:1.6,run:8},
-    {x:157,z:83,h:2.2,run:10}, {x:126,z:147,h:1.4,run:10}
-  ];
-  const overpasses = [-55,55].map((z,i)=>({id:i+1,z,halfWidth:6.2,deckHalfLength:75,rampEnd:130,height:7.5,thickness:.6}));
+  // One ordered physical ribbon. No ground-level shortcut exists beneath a
+  // stunt: the recovery floor is eight metres below the road.
+  const stuntBumps = [], overpasses = [];
+  const stuntRoute=[];
+  function routeLine(a,b) {
+    const n=Math.ceil(Math.hypot(b[0]-a[0],b[1]-a[1])/3);
+    for(let i=0;i<n;i++){const t=i/n;stuntRoute.push({x:a[0]+(b[0]-a[0])*t,z:a[1]+(b[1]-a[1])*t});}
+  }
+  function routeTurn(a,c,b) {
+    const n=20;
+    for(let i=0;i<n;i++){const t=i/n,u=1-t;stuntRoute.push({x:u*u*a[0]+2*u*t*c[0]+t*t*b[0],z:u*u*a[1]+2*u*t*c[1]+t*t*b[1]});}
+  }
+  routeLine([-145,0],[145,0]);routeTurn([145,0],[175,0],[175,30]);
+  routeLine([175,30],[175,110]);routeTurn([175,110],[175,140],[145,140]);
+  routeLine([145,140],[30,140]);routeTurn([30,140],[0,140],[0,110]);
+  // Explicit stations make the launch and landing edges exact.
+  for(const [a,b] of [[110,100],[100,80],[80,72],[72,55],[55,20],[20,-25],[-25,-45],[-45,-55],[-55,-95],[-95,-105],[-105,-110]])routeLine([0,a],[0,b]);
+  routeTurn([0,-110],[0,-140],[-30,-140]);routeLine([-30,-140],[-145,-140]);
+  routeTurn([-145,-140],[-175,-140],[-175,-110]);routeLine([-175,-110],[-175,-30]);
+  routeTurn([-175,-30],[-175,0],[-145,0]);
+  const smooth=t=>{t=Math.max(0,Math.min(1,t));return t*t*(3-2*t);};
+  function stuntProfile(x,z) {
+    let y=0,width=12.4,kind='road';
+    if(Math.abs(z)<.001) {y=9*(1-smooth((Math.abs(x)-85)/60));kind='overpass';}
+    if(Math.abs(x)<.001) {
+      if(z>=80&&z<=110){const d=110-z;y=d<=10?.006*d*d:.6+.12*(d-10);kind='launch';}
+      if(z<80&&z>72){y=2;kind='gap';}
+      if(z<=72&&z>=55){y=2*(z-55)/17;kind='landing';}
+      if(z<=-25&&z>=-110){y=4*Math.min(smooth((-z-25)/20),smooth((110+z)/15));kind='balance';
+        width=12.4-8.8*Math.min(smooth((-z-45)/10),smooth((105+z)/10));}
+    }
+    return {y,width,kind};
+  }
+  stuntRoute.forEach((p,i)=>{
+    Object.assign(p,stuntProfile(p.x,p.z));
+    const a=stuntRoute[(i+stuntRoute.length-1)%stuntRoute.length],b=stuntRoute[(i+1)%stuntRoute.length];
+    const d=Math.hypot(b.x-a.x,b.z-a.z);p.tx=(b.x-a.x)/d;p.tz=(b.z-a.z)/d;
+    // Exact tangent at curve/grade boundaries keeps every solid top planar.
+    if(p.z===0&&Math.abs(p.x)===145){p.tx=1;p.tz=0;}
+    if(p.x===0&&Math.abs(p.z)===110){p.tx=0;p.tz=-1;}
+  });
+  const stuntFeatures={jump:{x:0,launchZ:80,landingZ:72,gap:8,launchY:3,landingY:2,recommendedSpeed:[23,28]},balance:{x:0,z0:-55,z1:-95,width:3.6,height:4},overpass:{z:0,height:9,underpassX:0},floor:-8};
   // Broad waves keep road grades manageable without flattening suspension physics.
   function scenicHeight(map,x,z) {
     if (map === 'mountain') {
@@ -28,17 +59,7 @@
       return 100+Math.min(1,radius/80)*(27*Math.sin(angle)+5*Math.sin(2*angle))
         +55*smooth((-offset-6.5)/6)-60*smooth((offset-6.5)/6);
     }
-    if (map === 'racetrack') {
-      let bumps=stuntBumps.reduce((sum,b)=>sum+b.h*Math.exp(-((x-b.x)**2)/380-((z-b.z)/b.run)**2),0);
-      // Flatten only bridge approach corridors, keeping terrain crests from
-      // protruding through the first deck slab. Outer-circuit bumps stay intact.
-      const smooth=t=>{t=Math.max(0,Math.min(1,t));return t*t*(3-2*t);};
-      const bridgeDistance=Math.min(...overpasses.map(b=>Math.abs(z-b.z)));
-      bumps*=1-(1-smooth((Math.abs(x)-135)/15))*(1-smooth((bridgeDistance-8)/12));
-      // Remove negligible Gaussian tails that make flat grid-edge ray tests
-      // numerically ambiguous in CANNON's heightfield triangle intersection.
-      return bumps<1e-8?0:bumps;
-    }
+    if (map === 'racetrack') return stuntFeatures.floor;
     if (map === 'lakeside') {
       const t=Math.max(0,Math.min(1,(Math.hypot(x-8,z-4)-40)/32));
       return t*t*(3-2*t)*(4.5+2.5*Math.sin(x/65)+2*Math.sin(z/58));
@@ -62,14 +83,15 @@
   function create(options={}) {
     const course = !options.map || options.map === 'course';
     const edge=course?160:(options.map === 'mountain' || options.map === 'racetrack')?200:250, cells=edge;
-    const analyticHeight=course?terrainHeight:(x,z)=>scenicHeight(options.map,x,z);
+    const floorOffset=options.map==='racetrack'?stuntFeatures.floor:0;
+    const analyticHeight=course?terrainHeight:(x,z)=>scenicHeight(options.map,x,z)-floorOffset;
     const data=Array.from({length:cells+1},(_,i)=>Array.from({length:cells+1},(_,j)=>analyticHeight(i*2-edge,edge-j*2)));
     // CANNON 0.6.2 getHeightAt is only an average. Match its actual triangles.
     function height(x,z) {
       const u=Math.max(0,Math.min(cells,(x+edge)/2)), v=Math.max(0,Math.min(cells,(edge-z)/2));
       const i=Math.min(cells-1,Math.floor(u)),j=Math.min(cells-1,Math.floor(v)),a=u-i,b=v-j;
-      if(a+b<=1) return data[i][j]*(1-a-b)+data[i+1][j]*a+data[i][j+1]*b;
-      return data[i+1][j+1]*(a+b-1)+data[i][j+1]*(1-a)+data[i+1][j]*(1-b);
+      if(a+b<=1) return floorOffset+data[i][j]*(1-a-b)+data[i+1][j]*a+data[i][j+1]*b;
+      return floorOffset+data[i+1][j+1]*(a+b-1)+data[i][j+1]*(1-a)+data[i+1][j]*(1-b);
     }
     let selectedCar=options.car || 'comet', spec=vehicles[selectedCar] || vehicles.comet;
     const world = new C.World(); world.gravity.set(0,-9.81,0);
@@ -80,44 +102,51 @@
     // at a landing or triangle seam. Normal impulses still stop solid impacts.
     const chassisMaterial=new C.Material('chassis'), terrainMaterial=new C.Material('terrain');
     world.addContactMaterial(new C.ContactMaterial(chassisMaterial,terrainMaterial,{friction:.01,restitution:0}));
-    const floor=new C.Body({mass:0,material:terrainMaterial}); floor.addShape(new C.Heightfield(data,{elementSize:2})); floor.position.set(-edge,0,edge); floor.quaternion.setFromEuler(-Math.PI/2,0,0); world.addBody(floor);
+    const floor=new C.Body({mass:0,material:terrainMaterial}); floor.addShape(new C.Heightfield(data,{elementSize:2})); floor.position.set(-edge,floorOffset,edge); floor.quaternion.setFromEuler(-Math.PI/2,0,0); world.addBody(floor);
     function box(x,y,z,hx,hy,hz,angle=0) {const body=new C.Body({mass:0,material:terrainMaterial});body.addShape(new C.Box(new C.Vec3(hx,hy,hz)));body.position.set(x,y,z);body.quaternion.setFromEuler(angle,0,0);world.addBody(body);return body;}
     if (course) box(ramp.x,ramp.y,ramp.z,ramp.halfWidth,.18,ramp.halfLength,ramp.angle);
-    // A heightfield cannot have an underpass. These closed convex deck slabs
-    // have real undersides; wheel rays starting below them still hit the ground.
-    // 17 slabs per bridge, shared verbatim with the render mesh, no hidden ramp.
-    const bridges=[];
-    if(options.map==='racetrack') for(const design of overpasses) {
-      const bridge={...design,segments:[],supports:[]};
-      const top=x=>{
-        const t=Math.max(0,Math.min(1,(Math.abs(x)-design.deckHalfLength)/(design.rampEnd-design.deckHalfLength)));
-        const blend=t*t*(3-2*t),end=height(Math.sign(x)*design.rampEnd,design.z);
-        return design.height*(1-blend)+end*blend;
-      };
-      const stations=[];
-      for(let i=0;i<=8;i++)stations.push(-design.rampEnd+i*(design.rampEnd-design.deckHalfLength)/8);
-      stations.push(design.deckHalfLength);
-      for(let i=1;i<=8;i++)stations.push(design.deckHalfLength+i*(design.rampEnd-design.deckHalfLength)/8);
-      for(let i=0;i<stations.length-1;i++) {
-        const x0=stations[i],x1=stations[i+1],y0=top(x0),y1=top(x1),w=design.halfWidth,d=design.thickness;
-        const vertices=[new C.Vec3(x0,y0-d,-w),new C.Vec3(x1,y1-d,-w),new C.Vec3(x1,y1-d,w),new C.Vec3(x0,y0-d,w),
-          new C.Vec3(x0,y0,-w),new C.Vec3(x1,y1,-w),new C.Vec3(x1,y1,w),new C.Vec3(x0,y0,w)];
-        const faces=[[0,1,2,3],[7,6,5,4],[4,5,1,0],[5,6,2,1],[6,7,3,2],[7,4,0,3]];
-        const slab=new C.Body({mass:0,material:terrainMaterial}),cx=(x0+x1)/2,cy=(y0+y1-design.thickness)/2;
-        vertices.forEach(v=>{v.x-=cx;v.y-=cy;});
-        slab.addShape(new C.ConvexPolyhedron(vertices,faces));slab.position.set(cx,cy,design.z);world.addBody(slab);
-        bridge.segments.push({x0,x1,y0,y1,vertices,faces,body:slab});
+    // Every route slab uses the exact same vertices for rendering and collision.
+    const bridges=[],stuntSlabs=[];
+    if(options.map==='racetrack') for(let i=0;i<stuntRoute.length;i++) {
+      const a=stuntRoute[i];let j=i+1,b=stuntRoute[j%stuntRoute.length];
+      // Coalesce flat/constant-grade straight pieces. Curves, width tapers and
+      // grade changes retain their authored samples; the public route is unchanged.
+      while(j+1<stuntRoute.length){
+        const c=stuntRoute[j+1],ab=Math.hypot(b.x-a.x,b.z-a.z),bc=Math.hypot(c.x-b.x,c.z-b.z);
+        if(a.kind==='gap'||b.kind!==c.kind||Math.abs(a.tx-b.tx)>1e-8||Math.abs(a.tz-b.tz)>1e-8||Math.abs(b.tx-c.tx)>1e-8||Math.abs(b.tz-c.tz)>1e-8||Math.abs((b.y-a.y)/ab-(c.y-b.y)/bc)>1e-8||Math.abs((b.width-a.width)/ab-(c.width-b.width)/bc)>1e-8)break;
+        b=c;j++;
       }
-      for(const x of [-82,0,82])for(const side of [-1,1]) {
-        const z=design.z+side*4.9,bottom=height(x,z),h=top(x)-design.thickness-bottom;
-        const support={x,z,y:bottom+h/2,hx:.8,hy:h/2,hz:.8};
-        box(x,support.y,z,support.hx,support.hy,support.hz);bridge.supports.push(support);
-      }
-      bridges.push(bridge);
+      const startIndex=i;i=j-1;
+      if(Math.abs(a.x)<.001&&Math.abs(b.x)<.001&&a.z<=80&&b.z>=72)continue;
+      const vertices=[];
+      for(const bottom of [true,false])for(const [p,side] of [[a,-1],[b,-1],[b,1],[a,1]])
+        vertices.push(new C.Vec3(p.x-p.tz*p.width/2*side,p.y-(bottom?.6:0),p.z+p.tx*p.width/2*side));
+      const faces=[[0,1,2,3],[7,6,5,4],[4,5,1,0],[5,6,2,1],[6,7,3,2],[7,4,0,3]];
+      const body=new C.Body({mass:0,material:terrainMaterial});
+      // Center local geometry to keep broadphase bounds tight.
+      const center=new C.Vec3((a.x+b.x)/2,(a.y+b.y)/2-.3,(a.z+b.z)/2);
+      vertices.forEach(v=>v.vsub(center,v));
+      body.addShape(new C.ConvexPolyhedron(vertices,faces));body.position.copy(center);world.addBody(body);
+      stuntSlabs.push({index:startIndex,endIndex:j,a,b,vertices,faces,body});
+    }
+    const stuntSupports=[];
+    if(options.map==='racetrack')for(const [x,z,top] of [[-65,0,9],[65,0,9],[0,-65,4],[0,-85,4]]){
+      const h=top-.6-stuntFeatures.floor, support={x,z,y:stuntFeatures.floor+h/2,hx:.6,hy:h/2,hz:.6};
+      support.body=box(x,support.y,z,support.hx,support.hy,support.hz);stuntSupports.push(support);
+    }
+    function roadHeight(x,z) {
+      if(options.map!=='racetrack')return height(x,z);
+      // Reset only onto a physical road, never into the recovery floor.
+      let best=Infinity,y=height(x,z),width=0;
+      for(const slab of stuntSlabs){const a=slab.a,b=slab.b,dx=b.x-a.x,dz=b.z-a.z;
+        const t=Math.max(0,Math.min(1,((x-a.x)*dx+(z-a.z)*dz)/(dx*dx+dz*dz)));
+        const d=Math.hypot(x-a.x-t*dx,z-a.z-t*dz);
+        if(d<best){best=d;y=a.y+(b.y-a.y)*t;width=(a.width+(b.width-a.width)*t)/2;}}
+      return best<=width?y:height(x,z);
     }
     const obstacles = [];
     function addObstacle(x,z,hx=1.25,hy=.85,hz=1.25) {
-      const obstacle={x,z,hx,hy,hz,y:height(x,z)+hy};
+      const obstacle={x,z,hx,hy,hz,y:roadHeight(x,z)+hy};
       obstacles.push(obstacle);box(x,obstacle.y,z,hx,hy,hz);return obstacle;
     }
     // Invisible perimeter only at the edge of the matching visible terrain.
@@ -160,7 +189,7 @@
       car.wheelInfos.forEach((w,i)=>{for(const key of ['suspensionLength','steering','rotation'])renderWheels[i][key]=previousWheels[i][key]+(w[key]-previousWheels[i][key])*alpha;});
     }
     function syncRenderState(){snapshot();interpolate(1);}
-    function reset(x=0,z=-28,heading=0){body.position.set(x,height(x,z)+spec.radius+.6,z);body.quaternion.setFromEuler(0,heading,0);body.velocity.setZero();body.angularVelocity.setZero();body.force.setZero();body.torque.setZero();body.wakeUp();accumulator=0;steer=0;grounded=0;airTime=0;car.wheelInfos.forEach(w=>{w.rotation=0;w.deltaRotation=0;w.suspensionLength=w.suspensionRestLength;w.steering=0;});syncRenderState();}
+    function reset(x=0,z=-28,heading=0){body.position.set(x,roadHeight(x,z)+spec.radius+.6,z);body.quaternion.setFromEuler(0,heading,0);body.velocity.setZero();body.angularVelocity.setZero();body.force.setZero();body.torque.setZero();body.wakeUp();accumulator=0;steer=0;grounded=0;airTime=0;car.wheelInfos.forEach(w=>{w.rotation=0;w.deltaRotation=0;w.suspensionLength=w.suspensionRestLength;w.steering=0;});syncRenderState();}
     function step(dt,input={}) {
       accumulator+=Math.min(Math.max(dt,0),.1);
       while(accumulator>=1/120){
@@ -199,7 +228,7 @@
       return {speed:body.velocity.dot(body.quaternion.vmult(new C.Vec3(0,0,1))),grounded};
     }
     function addTree(x,z,r=.45,h=8){return box(x,height(x,z)+h/2,z,r,h/2,r);}
-    reset();return {world,body,car,step,reset,addTree,edge,obstacles,addObstacle,bridges,terrainHeight:height,ramp,spec,renderPosition,renderQuaternion,renderWheels,syncRenderState};
+    reset();return {world,body,car,step,reset,addTree,edge,obstacles,addObstacle,bridges,stuntSlabs,stuntSupports,roadHeight,terrainHeight:height,ramp,spec,renderPosition,renderQuaternion,renderWheels,syncRenderState};
   }
-  return {create,terrainHeight,scenicHeight,ramp,vehicles,mountainPoints,stuntBumps,overpasses};
+  return {create,terrainHeight,scenicHeight,ramp,vehicles,mountainPoints,stuntBumps,overpasses,stuntRoute,stuntFeatures,stuntProfile};
 });

@@ -124,7 +124,7 @@ test('scenic maps have distinct terrain detail and bounded instanced roadside sc
 
 test('scenic roads climb and descend on the matching collider without floating scenery', () => {
   const {sim}=harness();
-  for (const map of ['lakeside','desert','alpine','mountain','racetrack']) {
+  for (const map of ['lakeside','desert','alpine','mountain']) {
     sim.chooseMap(map);
     const physics=sim.physics(), samples=sim.samples();
     const heights=samples.map(s=>s.point.y);
@@ -275,8 +275,8 @@ test('replacement maps have collidable elevation, solid obstacles and bounded te
   assert.equal(sim.world.getObjectByName('terrain').geometry.attributes.position.count,201*201);
   sim.chooseMap('racetrack');
   const p=sim.physics();
-  assert.equal(p.obstacles.length,6);
-  assert.equal(sim.world.children.filter(o=>o.name==='solid-obstacle').length,6);
+  assert.equal(p.obstacles.length,3);
+  assert.equal(sim.world.children.filter(o=>o.name==='solid-obstacle').length,3);
   for(const o of p.obstacles) {
     assert.ok(sim.distanceToRoad(o.x,o.z)<3.9);
     const C=require('cannon'), result=new C.RaycastResult();
@@ -284,12 +284,12 @@ test('replacement maps have collidable elevation, solid obstacles and bounded te
     assert.ok(hit);
     assert.ok(Math.abs(result.hitPointWorld.y-(o.y+o.hy))<.001,'ray hits obstacle top, not ground');
   }
-  assert.ok(p.terrainHeight(-164,22)>2.5);
+  // The stunt route uses independent solid slabs, tested in stunt-course.test.cjs.
 });
 
-test('every car completes both replacement routes with sustained suspension contact', () => {
+test('every car completes the mountain route with sustained suspension contact', () => {
   const {sim}=harness();
-  for(const map of ['mountain','racetrack']) for(const car of ['comet','rally','pickup','hypercar']) {
+  for(const map of ['mountain']) for(const car of ['comet','rally','pickup','hypercar']) {
     sim.chooseMap(map);sim.chooseCar(car);sim.resetVehicle();
     const p=sim.physics(), route=sim.samples();
     let progress=0, maxError=0, airborne=0;
