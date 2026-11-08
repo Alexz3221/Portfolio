@@ -61,8 +61,13 @@
     const world = new C.World(); world.gravity.set(0,-9.81,0);
     world.broadphase = new C.SAPBroadphase(world); world.solver.iterations=15;
     world.defaultContactMaterial.friction=.5; world.defaultContactMaterial.restitution=.08;
-    const floor=new C.Body({mass:0}); floor.addShape(new C.Heightfield(data,{elementSize:2})); floor.position.set(-edge,0,edge); floor.quaternion.setFromEuler(-Math.PI/2,0,0); world.addBody(floor);
-    function box(x,y,z,hx,hy,hz,angle=0) {const body=new C.Body({mass:0});body.addShape(new C.Box(new C.Vec3(hx,hy,hz)));body.position.set(x,y,z);body.quaternion.setFromEuler(angle,0,0);world.addBody(body);return body;}
+    // Chassis scraping is separate from tire traction (RaycastVehicle.frictionSlip).
+    // Low friction lets glancing contacts slide; zero restitution avoids a kick
+    // at a landing or triangle seam. Normal impulses still stop solid impacts.
+    const chassisMaterial=new C.Material('chassis'), terrainMaterial=new C.Material('terrain');
+    world.addContactMaterial(new C.ContactMaterial(chassisMaterial,terrainMaterial,{friction:.01,restitution:0}));
+    const floor=new C.Body({mass:0,material:terrainMaterial}); floor.addShape(new C.Heightfield(data,{elementSize:2})); floor.position.set(-edge,0,edge); floor.quaternion.setFromEuler(-Math.PI/2,0,0); world.addBody(floor);
+    function box(x,y,z,hx,hy,hz,angle=0) {const body=new C.Body({mass:0,material:terrainMaterial});body.addShape(new C.Box(new C.Vec3(hx,hy,hz)));body.position.set(x,y,z);body.quaternion.setFromEuler(angle,0,0);world.addBody(body);return body;}
     if (course) box(ramp.x,ramp.y,ramp.z,ramp.halfWidth,.18,ramp.halfLength,ramp.angle);
     const obstacles = [];
     function addObstacle(x,z,hx=1.25,hy=.85,hz=1.25) {
@@ -72,8 +77,22 @@
     // Invisible perimeter only at the edge of the matching visible terrain.
     const wallHeight=options.map === 'mountain'?60:course?5:35;
     box(-edge,wallHeight-1,0,1,wallHeight,edge);box(edge,wallHeight-1,0,1,wallHeight,edge);box(0,wallHeight-1,-edge,edge,wallHeight,1);box(0,wallHeight-1,edge,edge,wallHeight,1);
-    const body=new C.Body({mass:spec.mass,linearDamping:.015,angularDamping:.25});
-    body.addShape(new C.Box(new C.Vec3(spec.width/2-.05,.47,spec.length/2-.15))); world.addBody(body);
+    const body=new C.Body({mass:spec.mass,material:chassisMaterial,linearDamping:.015,angularDamping:.25});
+    // Bevel the low bumper/side edges instead of a full-length square belly.
+    // The old bottom corners caught shallow grades before the wheels could
+    // compress, turning forward momentum into a large pitch impulse. Keep the
+    // upper footprint solid, with a modest skid-like approach/departure bevel.
+    const hx=spec.width/2-.05,hz=spec.length/2-.15,vertices=[];
+    for(const [x,y,z] of [[hx-.12,-.47,hz-.5],[hx,-.10,hz],[hx,.47,hz]]) {
+      vertices.push(new C.Vec3(-x,y,-z),new C.Vec3(x,y,-z),new C.Vec3(x,y,z),new C.Vec3(-x,y,z));
+    }
+    const faces=[[3,2,1,0],[8,9,10,11]];
+    for(let ring=0;ring<2;ring++)for(let i=0;i<4;i++) {
+      const a=ring*4+i,b=ring*4+(i+1)%4;faces.push([a,b,b+4,a+4]);
+    }
+    // Reverse to outward winding (bottom faces down, top faces up).
+    faces.forEach(face=>face.reverse());
+    body.addShape(new C.ConvexPolyhedron(vertices,faces)); world.addBody(body);
     const car=new C.RaycastVehicle({chassisBody:body,indexRightAxis:0,indexUpAxis:1,indexForwardAxis:2});
     spec.wheelLayout.forEach(wheel=>car.addWheel({radius:wheel.radius,directionLocal:new C.Vec3(0,-1,0),axleLocal:new C.Vec3(-1,0,0),chassisConnectionPointLocal:new C.Vec3(wheel.x,-.15+wheel.y,wheel.z),suspensionStiffness:32,suspensionRestLength:.42,frictionSlip:spec.grip,dampingRelaxation:3.5,dampingCompression:4.5,maxSuspensionForce:45000,rollInfluence:.15,maxSuspensionTravel:.3,customSlidingRotationalSpeed:-30,useCustomSlidingRotationalSpeed:true}));
     car.addToWorld(world);

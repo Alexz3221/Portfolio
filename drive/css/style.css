@@ -76,3 +76,11 @@ html,body{height:100dvh}
   .drive-hud #surfaceValue{display:none}
   .touch-controls button{width:48px;height:48px}
 }
+
+/* UI taps are not camera gestures. Suppress double-tap page zoom on the
+   overlays, including their empty space, but preserve intentional pinch zoom.
+   Only the scene and held driving pedals reserve all touch gestures. */
+.drive-header,.route-picker,.garage,.drive-hud,.drive-help{touch-action:manipulation}
+/* iOS can zoom the page when focusing a native form control below 16px.
+   Keep this after the portrait/landscape rules; do not disable user scaling. */
+.route-picker select{font-size:16px}

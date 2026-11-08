@@ -331,3 +331,47 @@ test('solid obstacle collision stops every car at ordinary driving speed',()=>{
     assert.ok(p.body.velocity.z<5,car+' slowed by physical collision');
   }
 });
+
+// These exercise application gestures with a stubbed renderer. Browser page
+// scaling is a separate CSS/viewport contract below, not simulated by the DOM.
+test('rapid scene taps and extra touch fingers never change camera zoom', () => {
+  const {sim,controls}=harness();
+  sim.chooseMap('lakeside');
+  const send=(target,name,id,extra={})=>target.listeners[name]({pointerType:'touch',pointerId:id,button:0,clientX:100,clientY:100,preventDefault(){},...extra});
+  const throttle=controls.find(c=>c.dataset.key==='arrowup');
+  for(let mode=0;mode<3;mode++) {
+    sim.updateCamera(10);
+    const position=sim.camera.position.clone(),fov=sim.camera.fov,zoom=sim.camera.zoom;
+    send(throttle,'pointerdown',1);
+    for(let i=0;i<30;i++) {
+      send(sim.canvas,'pointerdown',2);
+      send(sim.canvas,'pointerdown',3);
+      send(sim.canvas,'pointermove',3,{clientX:500,clientY:500});
+      send(sim.canvas,'pointerup',3);
+      send(sim.canvas,'pointerup',2);
+      sim.updateCamera(.016);
+    }
+    assert.equal(sim.camera.fov,fov);
+    assert.equal(sim.camera.zoom,zoom);
+    assert.equal(sim.orbit.yaw,0);
+    assert.equal(sim.orbit.pitch,0);
+    assert.ok(sim.camera.position.distanceTo(position)<1e-8);
+    assert.ok(sim.keys.has('arrowup'),'extra scene fingers do not release the pedal');
+    send(throttle,'pointercancel',1);
+    assert.equal(sim.keys.size,0);
+    sim.setCameraMode();
+  }
+});
+
+test('touch policy prevents accidental UI zoom without disabling accessible page scaling', () => {
+  const css=fs.readFileSync(require.resolve('../css/style.css'),'utf8');
+  const html=fs.readFileSync(require.resolve('../index.html'),'utf8');
+  const viewport=html.match(/<meta name="viewport" content="([^"]+)"/)[1];
+  assert.doesNotMatch(viewport,/user-scalable\s*=\s*(no|0)|maximum-scale\s*=/i);
+  assert.match(css,/\.drive-header,\.route-picker,\.garage,\.drive-hud,\.drive-help\{touch-action:manipulation\}/);
+  assert.match(css,/#drive-scene,\.touch-controls,\.touch-controls button\{touch-action:none;/);
+  // The last declaration must also override the short-screen landscape rule.
+  const sizes=[...css.matchAll(/\.route-picker select\{[^}]*font-size:(\d+)px/g)];
+  assert.equal(Number(sizes.at(-1)[1]),16);
+  assert.doesNotMatch(css,/(?:html|body)\s*\{[^}]*touch-action\s*:\s*none/);
+});
