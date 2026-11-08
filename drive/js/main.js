@@ -1,7 +1,7 @@
 (() => {
   'use strict';
   const message = document.querySelector('#loadMessage');
-  if (!window.THREE) { message.textContent = 'Could not load Three.js. Try reloading.'; return; }
+  if (!window.THREE || typeof DrivePhysics === 'undefined') { message.textContent = 'Could not load the driving engine. Try reloading.'; return; }
 
   const canvas = document.querySelector('#drive-scene');
   const scene = new THREE.Scene();
@@ -17,6 +17,7 @@
     pickup: {name: 'Pickup', color: 0xecc77a, length: 5.7, width: 2.55, wheelZ: 1.85, wheelRadius: .64, maxSpeed: 155 / 3.6, acceleration: 17, turn: 1.55},
   };
   const maps = {
+    course: {name: 'Physics proving ground', caption: 'Hills · jump ramp · solid trees', ground: 0x38584c, fog: 0x7196aa, skyLow: 0xb6d5df, skyHigh: 0x315579, mountain: 0x789187, seed: 28473, points: [[0,-28],[0,10],[0,65],[45,95],[80,25],[40,-50]]},
     lakeside: {name: 'Lakeside loop', caption: 'Twilight · flowing bends', ground: 0x1b2b2d, fog: 0x172633, skyLow: 0x50434f, skyHigh: 0x041020, mountain: 0x33434a, seed: 28473,
       points: [[-58,-49],[-17,-78],[52,-65],[91,-22],[75,49],[22,82],[-51,70],[-86,22]]},
     desert: {name: 'Desert highway', caption: 'Golden hour · long straights', ground: 0xa27449, fog: 0xc09a78, skyLow: 0xe8b47a, skyHigh: 0x486d8b, mountain: 0x8e5940, seed: 73452,
@@ -24,6 +25,7 @@
     alpine: {name: 'Alpine pass', caption: 'Blue hour · technical hairpins', ground: 0x3d5554, fog: 0x698994, skyLow: 0x95b9c1, skyHigh: 0x17314f, mountain: 0xa1b2b1, seed: 19482,
       points: [[-120,-100],[-40,-135],[90,-115],[130,-65],[35,-35],[125,25],[95,100],[10,130],[-110,100],[-140,45],[-45,15],[-125,-35]]}
   };
+  let physics = null;
   const world = new THREE.Group();
   scene.add(world);
   let selectedMap = 'lakeside';
@@ -92,16 +94,26 @@
     world.clear();
     geometries.forEach(geometry => geometry.dispose());
     materials.forEach(material => material.dispose());
+    physics = selectedMap === 'course' ? DrivePhysics.create() : null;
     const config = maps[selectedMap];
     scene.fog.color.setHex(config.fog);
     sky.material.uniforms.low.value.setHex(config.skyLow);
     sky.material.uniforms.high.value.setHex(config.skyHigh);
     renderer.toneMappingExposure = selectedMap === 'desert' ? 1.05 : .9;
-    const ground = new THREE.Mesh(new THREE.PlaneGeometry(500, 500), new THREE.MeshStandardMaterial({color: config.ground, roughness: 1}));
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(physics ? 320 : 500, physics ? 320 : 500, physics ? 160 : 1, physics ? 160 : 1), new THREE.MeshStandardMaterial({color: config.ground, roughness: 1}));
+    if (physics) {
+      const pos = ground.geometry.attributes.position;
+      for (let i=0;i<pos.count;i++) pos.setZ(i, DrivePhysics.terrainHeight(pos.getX(i), -pos.getY(i)));
+      ground.geometry.computeVertexNormals();
+    }
     ground.rotation.x = -Math.PI / 2;
-    ground.position.y = -.07;
+    ground.position.y = physics ? 0 : -.07;
     ground.receiveShadow = true;
     world.add(ground);
+    if (physics) {
+      buildCourse();
+      return;
+    }
     const lake = new THREE.Mesh(new THREE.CircleGeometry(37, 64), new THREE.MeshStandardMaterial({color: 0x0e2633, metalness: .55, roughness: .27}));
     lake.rotation.x = -Math.PI / 2;
     lake.position.set(8, -.04, 4);
@@ -251,6 +263,24 @@
 
   }
 
+
+  function buildCourse() {
+    const r = DrivePhysics.ramp;
+    const rampMesh = new THREE.Mesh(new THREE.BoxGeometry(8,.36,20), new THREE.MeshStandardMaterial({color:0xd6a254,roughness:.85}));
+    rampMesh.position.set(r.x,r.y,r.z); rampMesh.rotation.x=r.angle; rampMesh.receiveShadow=true; rampMesh.castShadow=true; world.add(rampMesh);
+    // Clear runway leads from spawn directly onto the ramp; hills sit to either side.
+    const runway = new THREE.Mesh(new THREE.PlaneGeometry(8,44),new THREE.MeshStandardMaterial({color:0x526a63,roughness:1}));
+    runway.rotation.x=-Math.PI/2; runway.position.set(0,.025,-6);world.add(runway);
+    for(let z=-24;z<16;z+=8){const stripe=new THREE.Mesh(new THREE.BoxGeometry(.15,.03,3),new THREE.MeshBasicMaterial({color:0xf4dca5}));stripe.position.set(0,.05,z);world.add(stripe);}
+    const bark=new THREE.MeshStandardMaterial({color:0x71533e});const leaf=new THREE.MeshStandardMaterial({color:0x244a3d,flatShading:true});
+    const positions=[[12,42],[-12,45],[18,62],[-20,72],[58,40],[45,68],[-45,30],[-55,55],[62,-22],[-32,-18],[28,-36],[-65,-45]];
+    positions.forEach(([x,z],i)=>{const h=7+(i%3);const y=DrivePhysics.terrainHeight(x,z);physics.addTree(x,z,.45,h);const trunk=new THREE.Mesh(new THREE.BoxGeometry(.9,h,.9),bark);trunk.position.set(x,y+h/2,z);trunk.castShadow=true;world.add(trunk);const top=new THREE.Mesh(new THREE.ConeGeometry(2.8,h,7),leaf);top.position.set(x,y+h*.85,z);top.castShadow=true;world.add(top);});
+    // Cones mark the map boundary without hiding an invisible wall near the course.
+    const edgeMat=new THREE.MeshStandardMaterial({color:0xdb9958});
+    for(let t=-160;t<=160;t+=20) for(const [x,z] of [[t,-158],[t,158],[-158,t],[158,t]]) {const cone=new THREE.Mesh(new THREE.ConeGeometry(.7,2,6),edgeMat);cone.position.set(x,1,z);world.add(cone);}
+    samples=[{point:new THREE.Vector3(0,0,-28),tangent:new THREE.Vector3(0,0,1)}];
+  }
+
   function part(group, geometry, material, x, y, z) {
     const mesh = new THREE.Mesh(geometry, material);
     mesh.position.set(x, y, z);
@@ -362,26 +392,32 @@
   scene.add(vehicle);
   function resetVehicle() {
     const spawn = samples[0];
+    if (physics) physics.reset();
     keys.clear();
     document.querySelectorAll('[data-key]').forEach(button => button.classList.remove('pressed'));
     motion.speed = 0;
     motion.heading = Math.atan2(spawn.tangent.x, spawn.tangent.z);
     vehicle.position.set(spawn.point.x, .03, spawn.point.z);
-    vehicle.rotation.y = motion.heading;
+    vehicle.rotation.set(0,motion.heading,0);
+    if (physics) vehicle.position.y = physics.body.position.y - 1.05;
     camera.position.set(vehicle.position.x - Math.sin(motion.heading) * 9, 5, vehicle.position.z - Math.cos(motion.heading) * 9);
   }
   function chooseMap(type) {
     if (!maps[type]) return;
     selectedMap = type;
     buildWorld();
+    if (physics) chooseCar('comet');
+    document.querySelector('.garage').style.display = physics ? 'none' : '';
     resetVehicle();
     document.querySelector('#mapDescription').textContent = maps[type].caption;
+    document.querySelector('#resetButton').textContent = physics ? '↺ RESET ON RUNWAY' : '↺ BACK TO ROAD';
+    chooseCar(selectedCar);
     document.querySelector('#mapSelect').value = type;
   }
-  chooseMap('lakeside');
+  chooseMap('course');
 
   function chooseCar(type) {
-    if (!carModels[type]) return;
+    if (!carModels[type] || (physics && type !== 'comet')) return;
     selectedCar = type;
     Object.entries(carModels).forEach(([name, model]) => { model.group.visible = name === type; });
     motion.speed = THREE.MathUtils.clamp(motion.speed, -carSpecs[type].maxSpeed * .45, carSpecs[type].maxSpeed);
@@ -389,7 +425,7 @@
       button.classList.toggle('active', button.dataset.car === type);
       button.setAttribute('aria-pressed', String(button.dataset.car === type));
     });
-    document.querySelector('#topSpeedValue').textContent = Math.round(carSpecs[type].maxSpeed * 3.6) + ' km/h top speed';
+    document.querySelector('#topSpeedValue').textContent = physics ? 'Comet · suspension test' : Math.round(carSpecs[type].maxSpeed * 3.6) + ' km/h top speed';
   }
   chooseCar('comet');
 
@@ -440,6 +476,26 @@
     const spec = carSpecs[selectedCar];
     const throttle = Number(keys.has('w') || keys.has('arrowup')) - Number(keys.has('s') || keys.has('arrowdown'));
     const steering = Number(keys.has('a') || keys.has('arrowleft')) - Number(keys.has('d') || keys.has('arrowright'));
+    if (physics) {
+      const state=physics.step(delta,{throttle,steer:steering,brake:keys.has(' ')});
+      motion.speed=state.speed;
+      vehicle.quaternion.copy(physics.body.quaternion);
+      const offset=new THREE.Vector3(0,-1.05,0).applyQuaternion(vehicle.quaternion);
+      vehicle.position.copy(physics.body.position).add(offset);
+      const forward=new THREE.Vector3(0,0,1).applyQuaternion(vehicle.quaternion);
+      if (Math.hypot(forward.x,forward.z)>.15) motion.heading=Math.atan2(forward.x,forward.z);
+      carModels.comet.wheels.forEach(({wheel,pivot},i)=>{
+        const w=physics.car.wheelInfos[i];
+        pivot.position.y=1.05+w.chassisConnectionPointLocal.y-w.suspensionLength;
+        pivot.rotation.y=w.steering;wheel.rotation.x=w.rotation;
+      });
+      carModels.comet.rearLamp.color.setHex(keys.has(' ')||throttle<0?0xff8090:0xff354e);
+      document.querySelector('#speedValue').textContent=String(Math.round(physics.body.velocity.length()*3.6));
+      const up=new THREE.Vector3(0,1,0).applyQuaternion(vehicle.quaternion);
+      document.querySelector('#surfaceValue').textContent=up.y<.1?'Overturned? Press R / reset':state.grounded?state.grounded+' wheels grounded':'AIRBORNE · ↑↓ pitch / ←→ roll';
+      if(physics.body.position.y < -30) resetVehicle();
+      return;
+    }
     roadDistance = distanceToRoad(vehicle.position.x, vehicle.position.z);
     const onRoad = roadDistance < 7.3;
     const acceleration = onRoad ? spec.acceleration : spec.acceleration * .58;
@@ -478,6 +534,7 @@
     }
     if (cameraMode === 2) camera.position.copy(desired);
     else camera.position.lerp(desired, 1 - Math.exp(-5 * delta));
+    if (physics) camera.position.y=Math.max(camera.position.y,DrivePhysics.terrainHeight(camera.position.x,camera.position.z)+1.5);
     camera.lookAt(target);
   }
 
