@@ -4,19 +4,20 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#090e16">
-  <meta name="description" content="A small nighttime driving playground with three cars.">
+  <meta name="description" content="Three detailed cars, three scenic routes, and an open-road driving playground.">
   <title>Car Go Vroom / Alex</title>
-  <link rel="stylesheet" href="css/style.css?v=2">
+  <link rel="stylesheet" href="css/style.css?v=3">
 </head>
 <body>
   <canvas id="drive-scene" tabindex="0" aria-label="3D driving playground. Use W A S D or the arrow keys to drive."></canvas>
   <header class="drive-header"><a href="https://www.linkedin.com/in/alex-zhou2/" target="_blank" rel="noopener noreferrer" aria-label="Alex on LinkedIn">alex.</a><a class="drive-home" href="../">home ↗</a><span>CAR GO VROOM</span><button id="cameraButton" type="button" title="Change camera (C)">CAMERA / CHASE</button></header>
-  <aside class="drive-hud" aria-live="polite"><span class="hud-label">SPEED</span><strong><span id="speedValue">0</span> <small>km/h</small></strong><span id="surfaceValue">on the road</span></aside>
-  <section class="garage" aria-label="Choose a car"><p>pick a car <span>1 / 2 / 3</span></p><div class="garage-options"><button class="active" data-car="comet" type="button"><i class="swatch comet"></i><span>Comet<small>low and quick</small></span></button><button data-car="rally" type="button"><i class="swatch rally"></i><span>Rally<small>takes the dirt</small></span></button><button data-car="pickup" type="button"><i class="swatch pickup"></i><span>Pickup<small>big little truck</small></span></button></div></section>
-  <div class="drive-help">WASD / ARROWS TO DRIVE <span>·</span> SPACE TO BRAKE <span>·</span> C FOR CAMERA</div>
-  <div class="touch-controls" aria-label="Touch driving controls"><div><button data-key="arrowleft" type="button" aria-label="Steer left">←</button><button data-key="arrowright" type="button" aria-label="Steer right">→</button></div><div><button data-key="arrowdown" type="button" aria-label="Reverse">↓</button><button data-key="arrowup" type="button" aria-label="Accelerate">↑</button></div></div>
+  <section class="route-picker" aria-label="Choose a map"><label for="mapSelect">EXPLORE A ROUTE</label><select id="mapSelect"><option value="lakeside">Lakeside loop</option><option value="desert">Desert highway</option><option value="alpine">Alpine pass</option></select><p id="mapDescription">Twilight · flowing bends</p><button id="resetButton" type="button" title="Return to the road (R)">↺ BACK TO ROAD</button></section>
+  <aside class="drive-hud"><span class="hud-label">SPEED</span><strong><span id="speedValue">0</span> <small>km/h</small></strong><span id="topSpeedValue">220 km/h top speed</span><span id="surfaceValue">on the road</span></aside>
+  <section class="garage" aria-label="Choose a car"><p>pick a car <span>1 / 2 / 3</span></p><div class="garage-options"><button class="active" data-car="comet" type="button"><i class="swatch comet"></i><span>Comet<small>220 km/h</small></span></button><button data-car="rally" type="button"><i class="swatch rally"></i><span>Rally<small>180 km/h</small></span></button><button data-car="pickup" type="button"><i class="swatch pickup"></i><span>Pickup<small>155 km/h</small></span></button></div></section>
+  <div class="drive-help">WASD / ARROWS TO DRIVE <span>·</span> SPACE TO BRAKE <span>·</span> C FOR CAMERA <span>·</span> R TO RESET</div>
+  <div class="touch-controls" aria-label="Touch driving controls"><div><button data-key="arrowleft" type="button" aria-label="Steer left">←</button><button data-key="arrowright" type="button" aria-label="Steer right">→</button></div><div><button data-key=" " type="button" aria-label="Brake">■</button><button data-key="arrowdown" type="button" aria-label="Reverse">↓</button><button data-key="arrowup" type="button" aria-label="Accelerate">↑</button></div></div>
   <div class="load-message" id="loadMessage">Loading the road…</div>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
-  <script src="js/main.js?v=2"></script>
+  <script src="js/main.js?v=3"></script>
 </body>
 </html>
