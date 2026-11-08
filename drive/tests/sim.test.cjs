@@ -66,7 +66,7 @@ test('map switching disposes old GPU resources and does not accumulate scenery',
 
 test('each physics car uses mph HUD, accelerates, brakes and switches safely', () => {
   const {sim, document} = harness();
-  for (const [car, expected] of [['comet',137],['rally',112],['pickup',96],['hypercar',199]]) {
+  for (const [car, expected] of [['comet',141],['rally',115],['pickup',99],['hypercar',205]]) {
     sim.chooseCar(car); sim.resetVehicle();
     assert.equal(sim.physics().body.mass, require('../js/physics').vehicles[car].mass);
     assert.equal(document.querySelector('#topSpeedValue').textContent, `${expected} mph target top speed`);
@@ -120,8 +120,9 @@ test('hood camera stays on the car at high speed rather than trailing behind', (
 
  test('all cars integrate with circuit controls, reset and map switching', () => {
   const {sim,document}=harness();sim.chooseMap('racetrack');sim.chooseCar('pickup');assert.equal(sim.carModels.comet.group.visible,false);assert.equal(sim.carModels.pickup.group.visible,true);
-  sim.keys.add('w');for(let i=0;i<240;i++)sim.updateVehicle(1/60);assert.ok(sim.vehicle.position.z>-95);assert.ok(sim.vehicle.position.toArray().every(Number.isFinite));
-  sim.resetVehicle();assert.equal(sim.keys.size,0);assert.ok(Math.abs(sim.vehicle.position.z+105)<.01);
+  const spawn=sim.samples()[0].point;
+  sim.keys.add('w');for(let i=0;i<240;i++)sim.updateVehicle(1/60);assert.ok(sim.vehicle.position.z>spawn.z+10);assert.ok(sim.vehicle.position.toArray().every(Number.isFinite));
+  sim.resetVehicle();assert.equal(sim.keys.size,0);assert.ok(Math.abs(sim.vehicle.position.z-spawn.z)<.01);
   sim.chooseMap('alpine');assert.equal(document.querySelector('.garage').style.display,'');sim.chooseCar('pickup');assert.equal(sim.carModels.pickup.group.visible,true);
   sim.chooseMap('racetrack');assert.equal(document.querySelector('.garage').style.display,'');assert.equal(sim.carModels.pickup.group.visible,true);
 });
@@ -130,7 +131,7 @@ test('hood camera stays on the car at high speed rather than trailing behind', (
 test('fourth garage option selects Hypercar using button and key 4',()=>{
   const {sim,window,cars,document}=harness();
   cars[3].listeners.click();assert.equal(cars[3].attributes['aria-pressed'],'true');
-  assert.equal(document.querySelector('#topSpeedValue').textContent,'199 mph target top speed');
+  assert.equal(document.querySelector('#topSpeedValue').textContent,'205 mph target top speed');
   sim.chooseCar('comet');window.keydown({key:'4',target:{matches:()=>false},repeat:false});
   assert.equal(sim.physics().body.mass,1450);assert.equal(cars[3].attributes['aria-pressed'],'true');
 });

@@ -275,16 +275,16 @@ test('replacement maps have collidable elevation, solid obstacles and bounded te
   assert.equal(sim.world.getObjectByName('terrain').geometry.attributes.position.count,201*201);
   sim.chooseMap('racetrack');
   const p=sim.physics();
-  assert.equal(p.obstacles.length,4);
-  assert.equal(sim.world.children.filter(o=>o.name==='solid-obstacle').length,4);
+  assert.equal(p.obstacles.length,6);
+  assert.equal(sim.world.children.filter(o=>o.name==='solid-obstacle').length,6);
   for(const o of p.obstacles) {
-    assert.ok(sim.distanceToRoad(o.x,o.z)<3.2);
+    assert.ok(sim.distanceToRoad(o.x,o.z)<3.9);
     const C=require('cannon'), result=new C.RaycastResult();
     const hit=p.world.raycastClosest(new C.Vec3(o.x,20,o.z),new C.Vec3(o.x,-10,o.z),{},result);
     assert.ok(hit);
     assert.ok(Math.abs(result.hitPointWorld.y-(o.y+o.hy))<.001,'ray hits obstacle top, not ground');
   }
-  assert.ok(p.terrainHeight(-110,10)>.5);
+  assert.ok(p.terrainHeight(-164,22)>2.5);
 });
 
 test('every car completes both replacement routes with sustained suspension contact', () => {

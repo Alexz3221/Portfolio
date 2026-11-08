@@ -20,10 +20,10 @@
     pickup: {name:'Pickup',color:0x25975b}
   }).map(([type,style]) => [type,{...DrivePhysics.vehicles[type],...style,wheelRadius:DrivePhysics.vehicles[type].radius}]));
   const maps = {
-    mountain: {name: 'Mountain climb', caption: '48 m summit · switchbacks · take it slow', ground: 0x536351, fog: 0x9caeae, skyLow: 0xcbd8d2, skyHigh: 0x416b92, mountain: 0x83908b, seed: 93217,
-      points: [[-92,-156],[-120,-117],[-48,-85],[-118,-42],[-43,0],[-116,45],[-40,91],[-80,144],[-20,170],[60,148],[96,94],[62,35],[111,-25],[70,-90],[100,-150],[15,-174]]},
-    racetrack: {name: 'Racetrack / obstacle course', caption: 'Closed circuit · slalom blocks · rolling humps', ground: 0x47634a, fog: 0x9dbac7, skyLow: 0xd3e4e7, skyHigh: 0x386e9d, mountain: 0x7f9290, seed: 59221,
-      points: [[-110,-105],[-110,-25],[-110,65],[-90,125],[-30,151],[45,140],[107,96],[120,20],[100,-60],[48,-127],[-35,-145]]},
+    mountain: {name: 'Cliffside mountain', caption: 'Narrow ledge · sheer drops · winding ascent', ground: 0x817969, fog: 0x9caeae, skyLow: 0xcbd8d2, skyHigh: 0x416b92, mountain: 0x83908b, seed: 93217,
+      roadHalfWidth: 3.5, shoulderWidth: .5, points: DrivePhysics.mountainPoints},
+    racetrack: {name: 'Racetrack / obstacle course', caption: 'Long circuit · slalom blocks · jump crests', ground: 0x47634a, fog: 0x9dbac7, skyLow: 0xd3e4e7, skyHigh: 0x386e9d, mountain: 0x7f9290, seed: 59221,
+      points: [[-164,-138],[-164,-65],[-164,35],[-150,135],[-65,163],[50,163],[145,135],[163,55],[155,-65],[120,-145],[65,-150],[48,-90],[55,0],[35,70],[-25,80],[-55,30],[-48,-55],[-65,-125],[-110,-156]]},
     lakeside: {name: 'Lakeside loop', caption: 'Twilight · rolling shoreline bends', ground: 0x1b2b2d, fog: 0x172633, skyLow: 0x50434f, skyHigh: 0x041020, mountain: 0x33434a, seed: 28473,
       points: [[-58,-49],[-17,-83],[40,-72],[87,-42],[104,-5],[76,34],[70,68],[22,91],[-51,70],[-93,28],[-91,-12]]},
     desert: {name: 'Desert highway', caption: 'Golden hour · sweeping dune crests', ground: 0xa27449, fog: 0xc09a78, skyLow: 0xe8b47a, skyHigh: 0x486d8b, mountain: 0x8e5940, seed: 73452,
@@ -134,14 +134,14 @@
     geometries.forEach(geometry => geometry.dispose());
     materials.forEach(material => material.dispose());
     textures.forEach(texture => texture.dispose());
-    physics = DrivePhysics.create({map:selectedMap, car:selectedCar, distanceToRoad});
+    physics = DrivePhysics.create({map:selectedMap, car:selectedCar, distanceToRoad, roadHalfWidth:maps[selectedMap].roadHalfWidth || 6.2});
     const config = maps[selectedMap];
     scene.fog.color.setHex(config.fog);
     scene.background = new THREE.Color(config.fog);
     sky.material.uniforms.low.value.setHex(config.skyLow);
     sky.material.uniforms.high.value.setHex(config.skyHigh);
     renderer.toneMappingExposure = selectedMap === 'desert' ? 1.05 : .9;
-    const groundDetail = surfaceTexture('ground', physics.edge / 4);
+    const groundDetail = surfaceTexture(selectedMap === 'mountain' ? 'rock' : 'ground', physics.edge / 4);
     const ground = new THREE.Mesh(new THREE.PlaneGeometry(physics.edge * 2, physics.edge * 2, physics.edge, physics.edge), new THREE.MeshStandardMaterial({color: config.ground, roughness: 1, map: groundDetail, bumpMap: groundDetail, bumpScale: selectedMap === 'desert' ? .22 : .12}));
     {
       const pos = ground.geometry.attributes.position;
@@ -167,6 +167,8 @@
 
     samples.forEach(sample => { sample.point.y = physics.terrainHeight(sample.point.x, sample.point.z); });
 
+    // Keep long-course triangles short enough to clear its jump crests.
+    const ribbonSamples = selectedMap === 'racetrack' ? Array.from({length:960},(_,i)=>({point:path.getPointAt(i/960),tangent:path.getTangentAt(i/960).normalize()})) : samples;
     function ribbon(offsetA, offsetB, height, material) {
       const positions = [];
       const uvs = [];
@@ -176,14 +178,14 @@
       material.polygonOffset = true;
       material.polygonOffsetFactor = -1;
       material.polygonOffsetUnits = -1;
-      for (let index = 0; index <= samples.length; index += 1) {
-        const sample = samples[index % samples.length];
+      for (let index = 0; index <= ribbonSamples.length; index += 1) {
+        const sample = ribbonSamples[index % ribbonSamples.length];
         const normal = new THREE.Vector3(-sample.tangent.z, 0, sample.tangent.x);
         for (let column = 0; column <= columns; column++) {
           const point = sample.point.clone().addScaledVector(normal, offsetA + (offsetB-offsetA)*column/columns);
           positions.push(point.x, physics.terrainHeight(point.x,point.z) + height, point.z);
           uvs.push(point.x / 8, point.z / 8);
-          if (index < samples.length && column < columns) {
+          if (index < ribbonSamples.length && column < columns) {
             const first = index * (columns + 1) + column;
             indices.push(first, first+1, first+columns+1, first+1, first+columns+2, first+columns+1);
           }
@@ -201,14 +203,15 @@
       world.add(mesh);
     }
 
+    const halfWidth = config.roadHalfWidth || 6.2, shoulderWidth = config.shoulderWidth || 1.5;
     const shoulder = new THREE.MeshStandardMaterial({color:0x58605b,roughness:1,map:surfaceTexture('ground'),side:THREE.DoubleSide});
     // Only draw exposed shoulders, not another almost-coplanar layer under asphalt.
-    ribbon(-7.7,-6.2,.045,shoulder);
-    ribbon(6.2,7.7,.045,shoulder);
-    ribbon(-6.2, 6.2, .075, new THREE.MeshStandardMaterial({color: 0x30383d, roughness: .95, map: surfaceTexture('asphalt'), side: THREE.DoubleSide}));
+    ribbon(-halfWidth-shoulderWidth,-halfWidth,.045,shoulder);
+    ribbon(halfWidth,halfWidth+shoulderWidth,.045,shoulder);
+    ribbon(-halfWidth, halfWidth, .075, new THREE.MeshStandardMaterial({color: 0x30383d, roughness: .95, map: surfaceTexture('asphalt'), side: THREE.DoubleSide}));
     const paint = new THREE.MeshBasicMaterial({color: 0xd0d6cd, side: THREE.DoubleSide});
-    ribbon(-5.96, -5.83, .105, paint);
-    ribbon(5.83, 5.96, .105, paint);
+    ribbon(-halfWidth+.24, -halfWidth+.37, .105, paint);
+    ribbon(halfWidth-.37, halfWidth-.24, .105, paint);
     for (let index = 0; index < samples.length; index += 8) {
       const sample = samples[index];
       const forward = sample.tangent.clone();
@@ -226,9 +229,9 @@
     }
 
     // Solid slalom blocks share their exact dimensions with the physics world.
-    if (selectedMap === 'racetrack') [285,305,325,345].forEach((index,i) => {
+    if (selectedMap === 'racetrack') [205,225,245,310,330,345].forEach((index,i) => {
       const sample=samples[index];
-      const side=i%2?3:-3;
+      const side=i%2?3.7:-3.7;
       physics.addObstacle(sample.point.x-sample.tangent.z*side,sample.point.z+sample.tangent.x*side);
     });
     physics.obstacles.forEach(obstacle => {
@@ -240,31 +243,44 @@
       stripe.position.copy(mesh.position); stripe.position.y += .25; world.add(stripe);
     });
     if (selectedMap === 'racetrack') {
-      // Red/white painted kerbs distinguish the circuit with one extra draw call.
-      const kerbs=new THREE.InstancedMesh(new THREE.PlaneGeometry(.7,1),new THREE.MeshBasicMaterial({side:THREE.DoubleSide}),240);
-      kerbs.name='circuit-kerbs';
-      const marker=new THREE.Object3D();let count=0;
-      for(let i=0;i<samples.length;i+=4) {
-        const sample=samples[i], next=samples[(i+4)%samples.length];
-        const heading=Math.atan2(next.point.x-sample.point.x,next.point.z-sample.point.z);
-        for(const side of [-6.7,6.7]) {
-          marker.position.copy(sample.point).lerp(next.point,.5);
-          marker.position.x-=Math.cos(heading)*side;marker.position.z+=Math.sin(heading)*side;
-          marker.position.y=physics.terrainHeight(marker.position.x,marker.position.z)+.13;
-          marker.rotation.set(-Math.PI/2,0,-heading);
-          marker.scale.set(1,sample.point.distanceTo(next.point),1);marker.updateMatrix();
-          kerbs.setMatrixAt(count,marker.matrix);kerbs.setColorAt(count++,new THREE.Color(i%8?0xf4eee2:0xcc433a));
+      // Terrain-conforming paint, not horizontal tiles cutting into curved hills.
+      // Per-vertex colors batch each marking in one draw call without UV seams.
+      function paintedQuads(name, quads) {
+        const positions=[], colors=[];
+        for (const {points,color} of quads) {
+          const c=new THREE.Color(color);
+          for (const index of [0,1,2,1,3,2]) {
+            const p=points[index];
+            positions.push(p.x,physics.terrainHeight(p.x,p.z)+.16,p.z);
+            colors.push(c.r,c.g,c.b);
+          }
+        }
+        const geometry=new THREE.BufferGeometry();
+        geometry.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));
+        geometry.setAttribute('color',new THREE.Float32BufferAttribute(colors,3));
+        const mesh=new THREE.Mesh(geometry,new THREE.MeshBasicMaterial({vertexColors:true,side:THREE.DoubleSide,polygonOffset:true,polygonOffsetFactor:-3,polygonOffsetUnits:-3}));
+        mesh.name=name;world.add(mesh);
+      }
+      const kerbs=[];
+      for(let i=0;i<samples.length;i++) {
+        const a=samples[i],b=samples[(i+1)%samples.length];
+        for(const side of [-1,1]) {
+          const points=[];
+          for(const sample of [a,b]) for(const offset of [6.2,6.9]) {
+            points.push(sample.point.clone().addScaledVector(new THREE.Vector3(-sample.tangent.z,0,sample.tangent.x),side*offset));
+          }
+          kerbs.push({points,color:Math.floor(i/2)%2?0xf4eee2:0xcc433a});
         }
       }
-      world.add(kerbs);
-      const start = samples[0];
-      const heading = Math.atan2(start.tangent.x,start.tangent.z);
+      paintedQuads('circuit-kerbs',kerbs);
+      const start=samples[0],right=new THREE.Vector3(-start.tangent.z,0,start.tangent.x),tiles=[];
       for(let row=0;row<2;row++) for(let col=0;col<12;col++) {
-        const tile = new THREE.Mesh(new THREE.PlaneGeometry(1,1),new THREE.MeshBasicMaterial({color:(row+col)%2?0x161c23:0xffffff,side:THREE.DoubleSide}));
-        const offset = new THREE.Vector3(col-5.5,0,row-.5).applyAxisAngle(new THREE.Vector3(0,1,0),heading);
-        tile.position.copy(start.point).add(offset); tile.position.y=physics.terrainHeight(tile.position.x,tile.position.z)+.14;
-        tile.rotation.set(-Math.PI/2,0,-heading); world.add(tile);
+        const points=[];
+        for(const along of [row-1,row]) for(const across of [col-6,col-5])
+          points.push(start.point.clone().addScaledVector(right,across).addScaledVector(start.tangent,along));
+        tiles.push({points,color:(row+col)%2?0x161c23:0xffffff});
       }
+      paintedQuads('circuit-start-line',tiles);
     }
 
     const rand = (() => { let seed = config.seed; return () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296); })();
@@ -310,7 +326,7 @@
       rock.castShadow = true;
       world.add(rock);
     }
-    for (let index = 0; index < 19; index += 1) {
+    for (let index = 0; index < (selectedMap === 'mountain' ? 0 : 19); index += 1) {
       const angle = index * Math.PI * 2 / 19;
       const radius = 205 + rand() * 38;
       const mountain = new THREE.Mesh(
@@ -348,8 +364,9 @@
       const group = new THREE.Group();
       const frame = new THREE.MeshStandardMaterial({color: 0x3e5055, metalness: .55, roughness: .42});
       const glow = new THREE.MeshBasicMaterial({color});
-      const gateY = Math.max(...[-7.4,7.4].map(side => physics.terrainHeight(sample.point.x+normal.x*side,sample.point.z+normal.z*side)));
-      [-7.4, 7.4].forEach(side => {
+      const gateSide = halfWidth + 1.2;
+      const gateY = Math.max(...[-gateSide,gateSide].map(side => physics.terrainHeight(sample.point.x+normal.x*side,sample.point.z+normal.z*side)));
+      [-gateSide, gateSide].forEach(side => {
         const foot = sample.point.clone().addScaledVector(normal,side);
         const footY = physics.terrainHeight(foot.x,foot.z);
         const postHeight = gateY + 6.2 - footY;
@@ -363,7 +380,7 @@
         stripe.position.y = gateY + 4.1;
         group.add(stripe);
       });
-      const beam = new THREE.Mesh(new THREE.BoxGeometry(15.2, .28, .4), glow);
+      const beam = new THREE.Mesh(new THREE.BoxGeometry(gateSide*2+.4, .28, .4), glow);
       beam.position.copy(sample.point);
       beam.position.y = gateY + 6.15;
       beam.rotation.y = Math.atan2(sample.tangent.x, sample.tangent.z);
@@ -599,7 +616,12 @@
   document.querySelector('#cameraButton').addEventListener('click', setCameraMode);
   document.querySelectorAll('[data-car]').forEach(button => button.addEventListener('click', () => chooseCar(button.dataset.car)));
 
-  document.querySelector('#mapSelect').addEventListener('change', event => chooseMap(event.target.value));
+  document.querySelector('#mapSelect').addEventListener('change', event => {
+    chooseMap(event.target.value);
+    // A committed native selection otherwise keeps swallowing WASD/arrows.
+    // Leave native navigation alone while the selector is being used.
+    event.target.blur();
+  });
   document.querySelector('#resetButton').addEventListener('click', resetVehicle);
 
   const drivingKeys = new Set(['w', 'a', 's', 'd', 'arrowup', 'arrowleft', 'arrowdown', 'arrowright', ' ']);

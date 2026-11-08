@@ -8,15 +8,22 @@
   // Broad waves keep road grades manageable without flattening suspension physics.
   function scenicHeight(map,x,z) {
     if (map === 'mountain') {
-      const t=Math.max(0,Math.min(1,(z+160)/320));
-      // Broad summit with a continuous 0–48 m climb. Rounded shoulders fall away
-      // beyond the road, without thin ramp meshes or gaps in the heightfield.
-      const shoulder=Math.exp(-(Math.max(0,Math.abs(x)-135)**2)/2400);
-      return 48*t*t*(3-2*t)*shoulder;
+      // A narrow contour ledge cut into a massif, not a painted road on a hill.
+      // The inside climbs 55 m; the outside drops 60 m over six horizontal metres.
+      // Keep the shelf wider than the asphalt to accommodate the 2 m collision grid.
+      const angle=Math.atan2(z/1.12,x), radius=Math.hypot(x,z/1.12);
+      const offset=radius-mountainRadius(angle);
+      const smooth=t=>{t=Math.max(0,Math.min(1,t));return t*t*(3-2*t);};
+      return 100+Math.min(1,radius/80)*(27*Math.sin(angle)+5*Math.sin(2*angle))
+        +55*smooth((-offset-6.5)/6)-60*smooth((offset-6.5)/6);
     }
     if (map === 'racetrack') {
-      // Gentle, fully collidable rolling humps on the western straight.
-      return .55*Math.exp(-((x+110)**2)/180)*(Math.exp(-((z-10)**2)/55)+Math.exp(-((z-40)**2)/55));
+      // Broad low-speed-drivable rollers and a larger launch crest on the long
+      // western straight. These are the collision surface, not decorative ramps.
+      const lane=Math.exp(-((x+164)**2)/380);
+      return lane*(1.0*Math.exp(-((z+75)**2)/120)
+        +1.6*Math.exp(-((z+30)**2)/100)
+        +2.8*Math.exp(-((z-22)**2)/125));
     }
     if (map === 'lakeside') {
       const t=Math.max(0,Math.min(1,(Math.hypot(x-8,z-4)-40)/32));
@@ -26,12 +33,17 @@
     if (map === 'alpine') return 12.5+7.5*Math.sin(x/90)+5*Math.sin(z/75);
     return 0;
   }
+  function mountainRadius(angle) { return 130+12*Math.sin(3*angle)+6*Math.cos(5*angle); }
+  const mountainPoints=Array.from({length:64},(_,i)=>{
+    const angle=-Math.PI/2+i*2*Math.PI/64,r=mountainRadius(angle);
+    return [r*Math.cos(angle),r*Math.sin(angle)*1.12];
+  });
   const ramp = {x:0,y:2.02,z:26,halfWidth:4,halfLength:10,angle:-.22};
   const vehicles = {
-    hypercar: {mass:1450,width:2.25995204,length:5.0,wheelX:0.87605771,wheelZ:1.56672884,radius:0.3937529,maxSpeed:320/3.6,engine:3300,grip:3.5,height:1.328707,wheelLayout:[{"x":-0.86507881,"y":0.01215544,"z":-1.56672923,"radius":0.40465421},{"x":-0.88703661,"y":-0.01215544,"z":1.56672833,"radius":0.38285158},{"x":0.86507944,"y":0.01215544,"z":-1.56672844,"radius":0.40465421},{"x":0.88703598,"y":-0.01215544,"z":1.56672935,"radius":0.38285158}]},
-    comet: {mass:1200,width:2.31127653,length:5.2,wheelX:0.8130705,wheelZ:1.4797948,radius:0.36840471,maxSpeed:220/3.6,engine:2100,grip:3.2,height:1.56735953,wheelLayout:[{"x":-0.81307043,"y":7e-08,"z":-1.47979502,"radius":0.36840471},{"x":-0.81307057,"y":-7e-08,"z":1.47979505,"radius":0.36840471},{"x":0.81307029,"y":7e-08,"z":-1.47979458,"radius":0.36840471},{"x":0.81307072,"y":-7e-08,"z":1.47979455,"radius":0.36840471}]},
-    rally: {mass:1350,width:2.13494821,length:4.85,wheelX:0.8529574,wheelZ:1.47341964,radius:0.36773579,maxSpeed:180/3.6,engine:2250,grip:3.6,height:1.65786409,wheelLayout:[{"x":-0.85295744,"y":1.1e-07,"z":-1.47341981,"radius":0.3677358},{"x":-0.85295736,"y":-1.2e-07,"z":1.47341924,"radius":0.3677358},{"x":0.85295703,"y":7e-08,"z":-1.47341947,"radius":0.36773579},{"x":0.85295776,"y":-6e-08,"z":1.47342004,"radius":0.36773579}]},
-    pickup: {mass:1850,width:2.27514223,length:5.7,wheelX:0.80256749,wheelZ:1.75742617,radius:0.41361299,maxSpeed:155/3.6,engine:2800,grip:3.0,height:1.86798263,wheelLayout:[{"x":-0.80256749,"y":-0.0,"z":-1.75742617,"radius":0.41361299},{"x":-0.80256749,"y":0.0,"z":1.75742617,"radius":0.41361299},{"x":0.80256749,"y":-0.0,"z":-1.75742617,"radius":0.41361299},{"x":0.80256749,"y":0.0,"z":1.75742617,"radius":0.41361299}]}
+    hypercar: {mass:1450,width:2.25995204,length:5.0,wheelX:0.87605771,wheelZ:1.56672884,radius:0.3937529,maxSpeed:329.6/3.6,engine:3465,grip:3.5,height:1.328707,wheelLayout:[{"x":-0.86507881,"y":0.01215544,"z":-1.56672923,"radius":0.40465421},{"x":-0.88703661,"y":-0.01215544,"z":1.56672833,"radius":0.38285158},{"x":0.86507944,"y":0.01215544,"z":-1.56672844,"radius":0.40465421},{"x":0.88703598,"y":-0.01215544,"z":1.56672935,"radius":0.38285158}]},
+    comet: {mass:1200,width:2.31127653,length:5.2,wheelX:0.8130705,wheelZ:1.4797948,radius:0.36840471,maxSpeed:226.6/3.6,engine:2205,grip:3.2,height:1.56735953,wheelLayout:[{"x":-0.81307043,"y":7e-08,"z":-1.47979502,"radius":0.36840471},{"x":-0.81307057,"y":-7e-08,"z":1.47979505,"radius":0.36840471},{"x":0.81307029,"y":7e-08,"z":-1.47979458,"radius":0.36840471},{"x":0.81307072,"y":-7e-08,"z":1.47979455,"radius":0.36840471}]},
+    rally: {mass:1350,width:2.13494821,length:4.85,wheelX:0.8529574,wheelZ:1.47341964,radius:0.36773579,maxSpeed:185.4/3.6,engine:2362.5,grip:3.6,height:1.65786409,wheelLayout:[{"x":-0.85295744,"y":1.1e-07,"z":-1.47341981,"radius":0.3677358},{"x":-0.85295736,"y":-1.2e-07,"z":1.47341924,"radius":0.3677358},{"x":0.85295703,"y":7e-08,"z":-1.47341947,"radius":0.36773579},{"x":0.85295776,"y":-6e-08,"z":1.47342004,"radius":0.36773579}]},
+    pickup: {mass:1850,width:2.27514223,length:5.7,wheelX:0.80256749,wheelZ:1.75742617,radius:0.41361299,maxSpeed:159.65/3.6,engine:2940,grip:3.0,height:1.86798263,wheelLayout:[{"x":-0.80256749,"y":-0.0,"z":-1.75742617,"radius":0.41361299},{"x":-0.80256749,"y":0.0,"z":1.75742617,"radius":0.41361299},{"x":0.80256749,"y":-0.0,"z":-1.75742617,"radius":0.41361299},{"x":0.80256749,"y":0.0,"z":1.75742617,"radius":0.41361299}]}
   };
   function create(options={}) {
     const course = !options.map || options.map === 'course';
@@ -94,7 +106,7 @@
         const throttle=input.throttle||0;
         const opposing=throttle*speed < -.8;
         airTime=grounded?0:airTime+1/120;
-        const offroad=!course && options.distanceToRoad && options.distanceToRoad(body.position.x,body.position.z)>7.3;
+        const offroad=!course && options.distanceToRoad && options.distanceToRoad(body.position.x,body.position.z)>(options.roadHalfWidth || 6.2)+1.1;
         const surface=offroad?(selectedCar==='rally'?.78:.6):1;
         const limit=throttle<0?12:spec.maxSpeed*surface;
         const engine=!input.brake&&!opposing ? -throttle*spec.engine*Math.max(0,1-(Math.abs(speed)/limit)**2):0;
@@ -124,5 +136,5 @@
     function addTree(x,z,r=.45,h=8){return box(x,height(x,z)+h/2,z,r,h/2,r);}
     reset();return {world,body,car,step,reset,addTree,edge,obstacles,addObstacle,terrainHeight:height,ramp,spec,renderPosition,renderQuaternion,renderWheels,syncRenderState};
   }
-  return {create,terrainHeight,scenicHeight,ramp,vehicles};
+  return {create,terrainHeight,scenicHeight,ramp,vehicles,mountainPoints};
 });
