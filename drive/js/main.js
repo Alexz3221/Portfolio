@@ -33,7 +33,8 @@
   const carModels = {};
   let selectedCar = 'comet';
   let cameraMode = 0;
-  let roadDistance = 0;
+  const orbit = {yaw: 0, pitch: 0, idle: 4, pointer: null, x: 0, y: 0};
+  function resetOrbit() { orbit.yaw = 0; orbit.pitch = 0; orbit.idle = 4; orbit.pointer = null; }
   const cameraModes = ['CHASE', 'WIDE', 'HOOD'];
 
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.8));
@@ -84,39 +85,64 @@
     return Math.sqrt(nearest);
   }
 
+  // Small seeded textures add detail without downloads, extra meshes or per-frame work.
+  function surfaceTexture(kind, repeat = 1) {
+    const size = 128, pixels = new Uint8Array(size * size * 4);
+    let seed = maps[selectedMap].seed;
+    const random = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
+    for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+      const grain = random();
+      const broad = Math.sin(x * Math.PI / 16) * Math.sin(y * Math.PI / 32);
+      const shade = kind === 'asphalt' ? 185 + grain * 55 : 170 + grain * 60 + broad * 20;
+      const i = (y * size + x) * 4;
+      pixels[i] = shade; pixels[i + 1] = shade; pixels[i + 2] = shade; pixels[i + 3] = 255;
+    }
+    const texture = new THREE.DataTexture(pixels, size, size, THREE.RGBAFormat);
+    texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+    texture.magFilter = THREE.LinearFilter;
+    texture.minFilter = THREE.LinearMipmapLinearFilter;
+    texture.generateMipmaps = true;
+    texture.encoding = THREE.sRGBEncoding;
+    texture.repeat.set(repeat, repeat);
+    texture.needsUpdate = true;
+    return texture;
+  }
+
   function buildWorld() {
     // Dispose shared resources once when changing maps, never accumulate old scenery.
-    const geometries = new Set(), materials = new Set();
+    const geometries = new Set(), materials = new Set(), textures = new Set();
     world.traverse(object => {
       if (object.geometry) geometries.add(object.geometry);
-      if (object.material) materials.add(object.material);
+      if (object.material) { materials.add(object.material); if (object.material.map) textures.add(object.material.map); }
     });
     world.clear();
     geometries.forEach(geometry => geometry.dispose());
     materials.forEach(material => material.dispose());
-    physics = selectedMap === 'course' ? DrivePhysics.create() : null;
+    textures.forEach(texture => texture.dispose());
+    const course = selectedMap === 'course';
+    physics = DrivePhysics.create({map:selectedMap, car:selectedCar, distanceToRoad});
     const config = maps[selectedMap];
     scene.fog.color.setHex(config.fog);
     sky.material.uniforms.low.value.setHex(config.skyLow);
     sky.material.uniforms.high.value.setHex(config.skyHigh);
     renderer.toneMappingExposure = selectedMap === 'desert' ? 1.05 : .9;
-    const ground = new THREE.Mesh(new THREE.PlaneGeometry(physics ? 320 : 500, physics ? 320 : 500, physics ? 160 : 1, physics ? 160 : 1), new THREE.MeshStandardMaterial({color: config.ground, roughness: 1}));
-    if (physics) {
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(course ? 320 : 500, course ? 320 : 500, course ? 160 : 1, course ? 160 : 1), new THREE.MeshStandardMaterial({color: config.ground, roughness: 1, map: surfaceTexture('ground', selectedMap === 'course' ? 40 : 62.5)}));
+    if (course) {
       const pos = ground.geometry.attributes.position;
       for (let i=0;i<pos.count;i++) pos.setZ(i, DrivePhysics.terrainHeight(pos.getX(i), -pos.getY(i)));
       ground.geometry.computeVertexNormals();
     }
     ground.rotation.x = -Math.PI / 2;
-    ground.position.y = physics ? 0 : -.07;
+    ground.position.y = 0;
     ground.receiveShadow = true;
     world.add(ground);
-    if (physics) {
+    if (course) {
       buildCourse();
       return;
     }
     const lake = new THREE.Mesh(new THREE.CircleGeometry(37, 64), new THREE.MeshStandardMaterial({color: 0x0e2633, metalness: .55, roughness: .27}));
     lake.rotation.x = -Math.PI / 2;
-    lake.position.set(8, -.04, 4);
+    lake.position.set(8, .01, 4);
     if (selectedMap === 'lakeside') world.add(lake);
     else { lake.geometry.dispose(); lake.material.dispose(); }
 
@@ -127,6 +153,7 @@
 
     function ribbon(offsetA, offsetB, height, material) {
       const positions = [];
+      const uvs = [];
       const indices = [];
       for (let index = 0; index <= samples.length; index += 1) {
         const sample = samples[index % samples.length];
@@ -134,6 +161,7 @@
         const a = sample.point.clone().addScaledVector(normal, offsetA);
         const b = sample.point.clone().addScaledVector(normal, offsetB);
         positions.push(a.x, height, a.z, b.x, height, b.z);
+        uvs.push(a.x / 8, a.z / 8, b.x / 8, b.z / 8);
         if (index < samples.length) {
           const first = index * 2;
           indices.push(first, first + 1, first + 2, first + 1, first + 3, first + 2);
@@ -141,6 +169,7 @@
       }
       const geometry = new THREE.BufferGeometry();
       geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+      geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
       geometry.setIndex(indices);
       geometry.computeVertexNormals();
       const mesh = new THREE.Mesh(geometry, material);
@@ -148,8 +177,8 @@
       world.add(mesh);
     }
 
-    ribbon(-7.7, 7.7, .005, new THREE.MeshStandardMaterial({color: 0x58605b, roughness: 1, side: THREE.DoubleSide}));
-    ribbon(-6.2, 6.2, .016, new THREE.MeshStandardMaterial({color: 0x222b31, roughness: .95, side: THREE.DoubleSide}));
+    ribbon(-7.7, 7.7, .005, new THREE.MeshStandardMaterial({color: 0x58605b, roughness: 1, map: surfaceTexture('ground'), side: THREE.DoubleSide}));
+    ribbon(-6.2, 6.2, .016, new THREE.MeshStandardMaterial({color: 0x30383d, roughness: .95, map: surfaceTexture('asphalt'), side: THREE.DoubleSide}));
     const paint = new THREE.MeshBasicMaterial({color: 0xd0d6cd, side: THREE.DoubleSide});
     ribbon(-5.96, -5.83, .024, paint);
     ribbon(5.83, 5.96, .024, paint);
@@ -266,10 +295,10 @@
 
   function buildCourse() {
     const r = DrivePhysics.ramp;
-    const rampMesh = new THREE.Mesh(new THREE.BoxGeometry(8,.36,20), new THREE.MeshStandardMaterial({color:0xd6a254,roughness:.85}));
+    const rampMesh = new THREE.Mesh(new THREE.BoxGeometry(8,.36,20), new THREE.MeshStandardMaterial({color:0xd6a254,roughness:.85,map:surfaceTexture('asphalt',4)}));
     rampMesh.position.set(r.x,r.y,r.z); rampMesh.rotation.x=r.angle; rampMesh.receiveShadow=true; rampMesh.castShadow=true; world.add(rampMesh);
     // Clear runway leads from spawn directly onto the ramp; hills sit to either side.
-    const runway = new THREE.Mesh(new THREE.PlaneGeometry(8,44),new THREE.MeshStandardMaterial({color:0x526a63,roughness:1}));
+    const runway = new THREE.Mesh(new THREE.PlaneGeometry(8,44),new THREE.MeshStandardMaterial({color:0x526a63,roughness:1,map:surfaceTexture('asphalt',6)}));
     runway.rotation.x=-Math.PI/2; runway.position.set(0,.025,-6);world.add(runway);
     for(let z=-24;z<16;z+=8){const stripe=new THREE.Mesh(new THREE.BoxGeometry(.15,.03,3),new THREE.MeshBasicMaterial({color:0xf4dca5}));stripe.position.set(0,.05,z);world.add(stripe);}
     const bark=new THREE.MeshStandardMaterial({color:0x71533e});const leaf=new THREE.MeshStandardMaterial({color:0x244a3d,flatShading:true});
@@ -391,8 +420,9 @@
   Object.entries(carSpecs).forEach(([type, spec]) => { carModels[type] = buildCar(type, spec); });
   scene.add(vehicle);
   function resetVehicle() {
+    resetOrbit();
     const spawn = samples[0];
-    if (physics) physics.reset();
+    if (physics) physics.reset(spawn.point.x,spawn.point.z,Math.atan2(spawn.tangent.x,spawn.tangent.z));
     keys.clear();
     document.querySelectorAll('[data-key]').forEach(button => button.classList.remove('pressed'));
     motion.speed = 0;
@@ -406,18 +436,28 @@
     if (!maps[type]) return;
     selectedMap = type;
     buildWorld();
-    if (physics) chooseCar('comet');
-    document.querySelector('.garage').style.display = physics ? 'none' : '';
+    document.querySelector('.garage').style.display = '';
     resetVehicle();
     document.querySelector('#mapDescription').textContent = maps[type].caption;
-    document.querySelector('#resetButton').textContent = physics ? '↺ RESET ON RUNWAY' : '↺ BACK TO ROAD';
+    document.querySelector('#resetButton').textContent = selectedMap === 'course' ? '↺ RESET ON RUNWAY' : '↺ BACK TO ROAD';
     chooseCar(selectedCar);
     document.querySelector('#mapSelect').value = type;
   }
   chooseMap('course');
 
   function chooseCar(type) {
-    if (!carModels[type] || (physics && type !== 'comet')) return;
+    if (!carModels[type]) return;
+    if (type !== selectedCar && physics) {
+      const previous=physics.body;
+      selectedCar=type;
+      buildWorld();
+      // Keep location and orientation, but stop safely when swapping vehicle mass/size.
+      physics.body.position.copy(previous.position);
+      physics.body.position.y+=.2;
+      physics.body.quaternion.copy(previous.quaternion);
+      keys.clear();motion.speed=0;
+      document.querySelectorAll('[data-key]').forEach(button=>button.classList.remove('pressed'));
+    }
     selectedCar = type;
     Object.entries(carModels).forEach(([name, model]) => { model.group.visible = name === type; });
     motion.speed = THREE.MathUtils.clamp(motion.speed, -carSpecs[type].maxSpeed * .45, carSpecs[type].maxSpeed);
@@ -425,11 +465,12 @@
       button.classList.toggle('active', button.dataset.car === type);
       button.setAttribute('aria-pressed', String(button.dataset.car === type));
     });
-    document.querySelector('#topSpeedValue').textContent = physics ? 'Comet · suspension test' : Math.round(carSpecs[type].maxSpeed * 3.6) + ' km/h top speed';
+    document.querySelector('#topSpeedValue').textContent = Math.round(carSpecs[type].maxSpeed * 2.236936) + ' mph target top speed';
   }
   chooseCar('comet');
 
   function setCameraMode() {
+    resetOrbit();
     cameraMode = (cameraMode + 1) % cameraModes.length;
     document.querySelector('#cameraButton').textContent = 'CAMERA / ' + cameraModes[cameraMode];
   }
@@ -450,6 +491,7 @@
   });
   window.addEventListener('keyup', event => keys.delete(event.key.toLowerCase()));
   function releaseControls() {
+    orbit.pointer = null;
     keys.clear();
     document.querySelectorAll('[data-key]').forEach(button => button.classList.remove('pressed'));
   }
@@ -463,6 +505,25 @@
     button.addEventListener('pointercancel', release);
     button.addEventListener('lostpointercapture', release);
   });
+
+  // Drag only the scene with the primary mouse button. Touch pedals keep their own pointers.
+  canvas.addEventListener('pointerdown', event => {
+    if (event.pointerType !== 'mouse' || event.button !== 0) return;
+    orbit.pointer = event.pointerId; orbit.x = event.clientX; orbit.y = event.clientY; orbit.idle = 0;
+    canvas.setPointerCapture(event.pointerId);
+    event.preventDefault();
+  });
+  canvas.addEventListener('pointermove', event => {
+    if (orbit.pointer !== event.pointerId) return;
+    orbit.yaw -= (event.clientX - orbit.x) * .006;
+    orbit.yaw = Math.atan2(Math.sin(orbit.yaw), Math.cos(orbit.yaw));
+    orbit.pitch = THREE.MathUtils.clamp(orbit.pitch + (event.clientY - orbit.y) * .005, -.4, .8);
+    orbit.x = event.clientX; orbit.y = event.clientY; orbit.idle = 0;
+  });
+  const endOrbit = event => { if (orbit.pointer === event.pointerId) orbit.pointer = null; };
+  canvas.addEventListener('pointerup', endOrbit);
+  canvas.addEventListener('pointercancel', endOrbit);
+  canvas.addEventListener('lostpointercapture', endOrbit);
 
   function resize() {
     const width = window.innerWidth, height = window.innerHeight;
@@ -484,57 +545,45 @@
       vehicle.position.copy(physics.body.position).add(offset);
       const forward=new THREE.Vector3(0,0,1).applyQuaternion(vehicle.quaternion);
       if (Math.hypot(forward.x,forward.z)>.15) motion.heading=Math.atan2(forward.x,forward.z);
-      carModels.comet.wheels.forEach(({wheel,pivot},i)=>{
+      carModels[selectedCar].wheels.forEach(({wheel,pivot},i)=>{
         const w=physics.car.wheelInfos[i];
         pivot.position.y=1.05+w.chassisConnectionPointLocal.y-w.suspensionLength;
         pivot.rotation.y=w.steering;wheel.rotation.x=w.rotation;
       });
-      carModels.comet.rearLamp.color.setHex(keys.has(' ')||throttle<0?0xff8090:0xff354e);
-      document.querySelector('#speedValue').textContent=String(Math.round(physics.body.velocity.length()*3.6));
+      carModels[selectedCar].rearLamp.color.setHex(keys.has(' ')||throttle<0?0xff8090:0xff354e);
+      document.querySelector('#speedValue').textContent=String(Math.round(physics.body.velocity.length()*2.236936));
       const up=new THREE.Vector3(0,1,0).applyQuaternion(vehicle.quaternion);
       document.querySelector('#surfaceValue').textContent=up.y<.1?'Overturned? Press R / reset':state.grounded?state.grounded+' wheels grounded':'AIRBORNE · ↑↓ pitch / ←→ roll';
       if(physics.body.position.y < -30) resetVehicle();
       return;
     }
-    roadDistance = distanceToRoad(vehicle.position.x, vehicle.position.z);
-    const onRoad = roadDistance < 7.3;
-    const acceleration = onRoad ? spec.acceleration : spec.acceleration * .58;
-    const speedLimit = onRoad ? spec.maxSpeed : spec.maxSpeed * (selectedCar === 'rally' ? .78 : .6);
-    motion.speed += throttle * acceleration * delta;
-    if (keys.has(' ')) motion.speed *= Math.pow(.035, delta);
-    else motion.speed *= Math.pow(throttle ? .88 : (onRoad ? .2 : .09), delta);
-    motion.speed = THREE.MathUtils.clamp(motion.speed, -speedLimit * .45, speedLimit);
-    if (Math.abs(motion.speed) > .25) motion.heading += steering * spec.turn * delta * Math.sign(motion.speed) * Math.min(1, Math.abs(motion.speed) / 8) / (1 + Math.abs(motion.speed) / 95);
-    vehicle.position.x += Math.sin(motion.heading) * motion.speed * delta;
-    vehicle.position.z += Math.cos(motion.heading) * motion.speed * delta;
-    vehicle.position.x = THREE.MathUtils.clamp(vehicle.position.x, -225, 225);
-    vehicle.position.z = THREE.MathUtils.clamp(vehicle.position.z, -225, 225);
-    vehicle.rotation.y = motion.heading;
-    carModels[selectedCar].wheels.forEach(({wheel, pivot, front}) => {
-      wheel.rotation.x += motion.speed * delta / spec.wheelRadius;
-      pivot.rotation.y = front ? steering * .32 : 0;
-    });
-    carModels[selectedCar].rearLamp.color.setHex(keys.has(' ') || throttle < 0 ? 0xff8090 : 0xff354e);
-    document.querySelector('#speedValue').textContent = String(Math.round(Math.abs(motion.speed) * 3.6));
-    document.querySelector('#surfaceValue').textContent = onRoad ? 'on the road' : 'taking the scenic route';
+
   }
 
   const target = new THREE.Vector3();
   const desired = new THREE.Vector3();
   function updateCamera(delta) {
+    orbit.idle += delta;
+    if (orbit.idle > 4) {
+      const decay = Math.exp(-3 * delta);
+      orbit.yaw *= decay; orbit.pitch *= decay;
+    }
+    const lookHeading = motion.heading + orbit.yaw;
     if (cameraMode === 2) {
       const hoodOffset = carSpecs[selectedCar].length * .4;
       desired.set(Math.sin(motion.heading) * hoodOffset, selectedCar === 'comet' ? 1.9 : 2.3, Math.cos(motion.heading) * hoodOffset).add(vehicle.position);
-      target.set(Math.sin(motion.heading) * 22, 2.0, Math.cos(motion.heading) * 22).add(vehicle.position);
+      target.set(Math.sin(lookHeading) * 22, 2.0 - Math.sin(orbit.pitch) * 22, Math.cos(lookHeading) * 22).add(vehicle.position);
     } else {
       const distance = cameraMode === 1 ? 16 : 7.8;
       const height = cameraMode === 1 ? 8 : 4.3;
-      desired.set(-Math.sin(motion.heading) * distance, height, -Math.cos(motion.heading) * distance).add(vehicle.position);
+      const elevation = THREE.MathUtils.clamp(Math.atan2(height - 1.2, distance) + orbit.pitch, .08, 1.25);
+      const radius = Math.hypot(distance, height - 1.2);
+      desired.set(-Math.sin(lookHeading) * radius * Math.cos(elevation), 1.2 + Math.sin(elevation) * radius, -Math.cos(lookHeading) * radius * Math.cos(elevation)).add(vehicle.position);
       target.set(Math.sin(motion.heading) * 4, 1.2, Math.cos(motion.heading) * 4).add(vehicle.position);
     }
     if (cameraMode === 2) camera.position.copy(desired);
     else camera.position.lerp(desired, 1 - Math.exp(-5 * delta));
-    if (physics) camera.position.y=Math.max(camera.position.y,DrivePhysics.terrainHeight(camera.position.x,camera.position.z)+1.5);
+    if (physics) camera.position.y=Math.max(camera.position.y,physics.terrainHeight(camera.position.x,camera.position.z)+1.5);
     camera.lookAt(target);
   }
 

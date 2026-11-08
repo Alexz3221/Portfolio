@@ -23,3 +23,5 @@
 @media(max-width:750px){.route-picker{width:min(185px,calc(100vw - 160px))}}
 @media(max-height:500px) and (orientation:landscape){.touch-controls{bottom:20px;left:330px;right:18px}}
 @media(max-width:650px) and (max-height:500px) and (orientation:landscape){.touch-controls{left:18px;bottom:110px}.route-picker label{display:none}}
+/* Long desktop control hints wrap above the garage instead of overlapping it. */
+@media(min-width:1101px){.drive-help{max-width:calc(100vw - 470px);line-height:1.8}}
