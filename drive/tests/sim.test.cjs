@@ -112,7 +112,7 @@ test('hood camera stays on the car at high speed rather than trailing behind', (
     sim.keys.add('w'); sim.keys.add('a');
     for (let i = 0; i < 60; i++) { sim.updateVehicle(1/60); sim.updateCamera(1/60); }
     const offset = sim.camera.position.clone().sub(sim.vehicle.position);
-    const forward = new THREE.Vector3(Math.sin(sim.motion.heading), 0, Math.cos(sim.motion.heading));
+    const forward = new THREE.Vector3(0,0,1).applyQuaternion(sim.vehicle.quaternion);
     assert.ok(Math.abs(offset.dot(forward) - sim.carSpecs[car].length * .4) < .00001);
     assert.ok(sim.camera.position.toArray().every(Number.isFinite));
   }
