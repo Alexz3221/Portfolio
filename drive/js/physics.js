@@ -5,6 +5,17 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function(C) {
   'use strict';
   const terrainHeight = (x,z) => 7 * Math.exp(-((x-37)**2/420 + (z-32)**2/700)) + 4 * Math.exp(-((x+35)**2/380 + (z-65)**2/280));
+  // Authored terrain rollers: the mesh and heightfield sample this same list.
+  // Broad enough to crawl over; narrow/tall crests launch a fast car.
+  const stuntBumps = [
+    {x:-164,z:-106,h:1.4,run:8}, {x:-164,z:-75,h:1.8,run:9},
+    {x:-164,z:-43,h:1.1,run:7}, {x:-164,z:-22,h:1.8,run:8},
+    {x:-164,z:22,h:2.8,run:11.18}, {x:-160,z:70,h:3.5,run:12},
+    {x:155,z:-93,h:1.7,run:10}, {x:161,z:-27,h:3.2,run:11},
+    {x:164,z:15,h:1.1,run:7}, {x:163,z:40,h:1.6,run:8},
+    {x:157,z:83,h:2.2,run:10}, {x:126,z:147,h:1.4,run:10}
+  ];
+  const overpasses = [-55,55].map((z,i)=>({id:i+1,z,halfWidth:6.2,deckHalfLength:75,rampEnd:130,height:7.5,thickness:.6}));
   // Broad waves keep road grades manageable without flattening suspension physics.
   function scenicHeight(map,x,z) {
     if (map === 'mountain') {
@@ -18,12 +29,15 @@
         +55*smooth((-offset-6.5)/6)-60*smooth((offset-6.5)/6);
     }
     if (map === 'racetrack') {
-      // Broad low-speed-drivable rollers and a larger launch crest on the long
-      // western straight. These are the collision surface, not decorative ramps.
-      const lane=Math.exp(-((x+164)**2)/380);
-      return lane*(1.0*Math.exp(-((z+75)**2)/120)
-        +1.6*Math.exp(-((z+30)**2)/100)
-        +2.8*Math.exp(-((z-22)**2)/125));
+      let bumps=stuntBumps.reduce((sum,b)=>sum+b.h*Math.exp(-((x-b.x)**2)/380-((z-b.z)/b.run)**2),0);
+      // Flatten only bridge approach corridors, keeping terrain crests from
+      // protruding through the first deck slab. Outer-circuit bumps stay intact.
+      const smooth=t=>{t=Math.max(0,Math.min(1,t));return t*t*(3-2*t);};
+      const bridgeDistance=Math.min(...overpasses.map(b=>Math.abs(z-b.z)));
+      bumps*=1-(1-smooth((Math.abs(x)-135)/15))*(1-smooth((bridgeDistance-8)/12));
+      // Remove negligible Gaussian tails that make flat grid-edge ray tests
+      // numerically ambiguous in CANNON's heightfield triangle intersection.
+      return bumps<1e-8?0:bumps;
     }
     if (map === 'lakeside') {
       const t=Math.max(0,Math.min(1,(Math.hypot(x-8,z-4)-40)/32));
@@ -69,6 +83,38 @@
     const floor=new C.Body({mass:0,material:terrainMaterial}); floor.addShape(new C.Heightfield(data,{elementSize:2})); floor.position.set(-edge,0,edge); floor.quaternion.setFromEuler(-Math.PI/2,0,0); world.addBody(floor);
     function box(x,y,z,hx,hy,hz,angle=0) {const body=new C.Body({mass:0,material:terrainMaterial});body.addShape(new C.Box(new C.Vec3(hx,hy,hz)));body.position.set(x,y,z);body.quaternion.setFromEuler(angle,0,0);world.addBody(body);return body;}
     if (course) box(ramp.x,ramp.y,ramp.z,ramp.halfWidth,.18,ramp.halfLength,ramp.angle);
+    // A heightfield cannot have an underpass. These closed convex deck slabs
+    // have real undersides; wheel rays starting below them still hit the ground.
+    // 17 slabs per bridge, shared verbatim with the render mesh, no hidden ramp.
+    const bridges=[];
+    if(options.map==='racetrack') for(const design of overpasses) {
+      const bridge={...design,segments:[],supports:[]};
+      const top=x=>{
+        const t=Math.max(0,Math.min(1,(Math.abs(x)-design.deckHalfLength)/(design.rampEnd-design.deckHalfLength)));
+        const blend=t*t*(3-2*t),end=height(Math.sign(x)*design.rampEnd,design.z);
+        return design.height*(1-blend)+end*blend;
+      };
+      const stations=[];
+      for(let i=0;i<=8;i++)stations.push(-design.rampEnd+i*(design.rampEnd-design.deckHalfLength)/8);
+      stations.push(design.deckHalfLength);
+      for(let i=1;i<=8;i++)stations.push(design.deckHalfLength+i*(design.rampEnd-design.deckHalfLength)/8);
+      for(let i=0;i<stations.length-1;i++) {
+        const x0=stations[i],x1=stations[i+1],y0=top(x0),y1=top(x1),w=design.halfWidth,d=design.thickness;
+        const vertices=[new C.Vec3(x0,y0-d,-w),new C.Vec3(x1,y1-d,-w),new C.Vec3(x1,y1-d,w),new C.Vec3(x0,y0-d,w),
+          new C.Vec3(x0,y0,-w),new C.Vec3(x1,y1,-w),new C.Vec3(x1,y1,w),new C.Vec3(x0,y0,w)];
+        const faces=[[0,1,2,3],[7,6,5,4],[4,5,1,0],[5,6,2,1],[6,7,3,2],[7,4,0,3]];
+        const slab=new C.Body({mass:0,material:terrainMaterial}),cx=(x0+x1)/2,cy=(y0+y1-design.thickness)/2;
+        vertices.forEach(v=>{v.x-=cx;v.y-=cy;});
+        slab.addShape(new C.ConvexPolyhedron(vertices,faces));slab.position.set(cx,cy,design.z);world.addBody(slab);
+        bridge.segments.push({x0,x1,y0,y1,vertices,faces,body:slab});
+      }
+      for(const x of [-82,0,82])for(const side of [-1,1]) {
+        const z=design.z+side*4.9,bottom=height(x,z),h=top(x)-design.thickness-bottom;
+        const support={x,z,y:bottom+h/2,hx:.8,hy:h/2,hz:.8};
+        box(x,support.y,z,support.hx,support.hy,support.hz);bridge.supports.push(support);
+      }
+      bridges.push(bridge);
+    }
     const obstacles = [];
     function addObstacle(x,z,hx=1.25,hy=.85,hz=1.25) {
       const obstacle={x,z,hx,hy,hz,y:height(x,z)+hy};
@@ -153,7 +199,7 @@
       return {speed:body.velocity.dot(body.quaternion.vmult(new C.Vec3(0,0,1))),grounded};
     }
     function addTree(x,z,r=.45,h=8){return box(x,height(x,z)+h/2,z,r,h/2,r);}
-    reset();return {world,body,car,step,reset,addTree,edge,obstacles,addObstacle,terrainHeight:height,ramp,spec,renderPosition,renderQuaternion,renderWheels,syncRenderState};
+    reset();return {world,body,car,step,reset,addTree,edge,obstacles,addObstacle,bridges,terrainHeight:height,ramp,spec,renderPosition,renderQuaternion,renderWheels,syncRenderState};
   }
-  return {create,terrainHeight,scenicHeight,ramp,vehicles,mountainPoints};
+  return {create,terrainHeight,scenicHeight,ramp,vehicles,mountainPoints,stuntBumps,overpasses};
 });
