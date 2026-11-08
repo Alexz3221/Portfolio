@@ -9,14 +9,16 @@
   const renderer = new THREE.WebGLRenderer({canvas, antialias: true, powerPreference: 'high-performance'});
   const clock = new THREE.Clock();
   const keys = new Set();
+  const keyboardKeys = new Set(), touchPointers = new Map();
   const vehicle = new THREE.Group();
   const motion = {speed: 0, heading: 0};
-  const carSpecs = {
-    comet: {name: 'Comet', color: 0xfd7653, length: 5.2, width: 2.25, wheelX: 0.736, wheelZ: 1.346, wheelRadius: .52, maxSpeed: 220 / 3.6, acceleration: 24, turn: 1.75},
-    rally: {name: 'Rally', color: 0x64d9dc, length: 4.85, width: 2.35, wheelX: 0.768, wheelZ: 1.378, wheelRadius: .58, maxSpeed: 180 / 3.6, acceleration: 21, turn: 2.05},
-    hypercar: {name: 'Hypercar', color: 0xae8aff, length: 5.0, width: 2.3, wheelX: 0.863, wheelZ: 1.429, wheelRadius: .48, maxSpeed: 320 / 3.6, acceleration: 32, turn: 1.65},
-    pickup: {name: 'Pickup', color: 0xecc77a, length: 5.7, width: 2.55, wheelX: 0.765, wheelZ: 1.474, wheelRadius: .64, maxSpeed: 155 / 3.6, acceleration: 17, turn: 1.55},
-  };
+  // Geometry and simulation share dimensions derived from the selected source cars.
+  const carSpecs = Object.fromEntries(Object.entries({
+    comet: {name:'Comet',color:0x4e83df},
+    rally: {name:'Rally',color:0xe3d57b},
+    hypercar: {name:'Hypercar',color:0xe14839},
+    pickup: {name:'Pickup',color:0x25975b}
+  }).map(([type,style]) => [type,{...DrivePhysics.vehicles[type],...style,wheelRadius:DrivePhysics.vehicles[type].radius}]));
   const maps = {
     course: {name: 'Physics proving ground', caption: 'Hills · jump ramp · solid trees', ground: 0x38584c, fog: 0x7196aa, skyLow: 0xb6d5df, skyHigh: 0x315579, mountain: 0x789187, seed: 28473, points: [[0,-28],[0,10],[0,65],[45,95],[80,25],[40,-50]]},
     lakeside: {name: 'Lakeside loop', caption: 'Twilight · rolling shoreline bends', ground: 0x1b2b2d, fog: 0x172633, skyLow: 0x50434f, skyHigh: 0x041020, mountain: 0x33434a, seed: 28473,
@@ -466,7 +468,8 @@
         }
         const pivot = new THREE.Group();
         pivot.add(wheel);
-        pivot.position.set(side * spec.wheelX, radius + .08, z);
+        const axle=spec.wheelLayout[wheels.length];
+        pivot.position.set(axle.x,radius+.08,axle.z);
         group.add(pivot);
         wheels.push({pivot, wheel, front: z > 0});
       });
@@ -493,13 +496,18 @@
       model.group.traverse(mesh => { if(mesh.geometry) oldGeometry.add(mesh.geometry); if(mesh.material) oldMaterials.add(mesh.material); });
       [...model.group.children].forEach(child => { if(!pivots.has(child)) model.group.remove(child); });
       model.group.add(imported.body);
-      model.wheels.forEach((entry,i) => {entry.wheel.clear();entry.wheel.add(imported.wheels[i]);});
+      model.wheels.forEach((entry,i) => {
+        entry.wheel.clear();entry.wheel.add(imported.wheels[i]);
+        entry.pivot.position.x=carSpecs[type].wheelLayout[i].x;
+        entry.pivot.position.z=carSpecs[type].wheelLayout[i].z;
+      });
       oldGeometry.forEach(geometry => geometry.dispose());
       oldMaterials.forEach(material => material.dispose());
       // Illuminate authored lamp faces or surface-fitted overlays, not bounding-box lamps.
       model.rearLamp = imported.rearLamp || new THREE.MeshBasicMaterial({color:0xff354e});
+      model.brakeMaterials = imported.brakeMaterials || [];
       model.assetState = 'ready';
-      if(selectedCar === type) document.querySelector('#modelStatus').textContent = 'Kenney CC0 model';
+      if(selectedCar === type) document.querySelector('#modelStatus').textContent = 'Comrade1280 · CC BY 4.0 model';
     }, error => {
       model.assetState = 'failed';
       console.warn('Vehicle asset could not load:', type, error);
@@ -511,7 +519,7 @@
     resetOrbit();
     const spawn = samples[0];
     if (physics) physics.reset(spawn.point.x,spawn.point.z,Math.atan2(spawn.tangent.x,spawn.tangent.z));
-    keys.clear();
+    releaseControls();
     document.querySelectorAll('[data-key]').forEach(button => button.classList.remove('pressed'));
     motion.speed = 0;
     motion.heading = Math.atan2(spawn.tangent.x, spawn.tangent.z);
@@ -544,12 +552,12 @@
       physics.body.position.y+=.2;
       physics.body.quaternion.copy(previous.quaternion);
       physics.syncRenderState();
-      keys.clear();motion.speed=0;
+      releaseControls();motion.speed=0;
       document.querySelectorAll('[data-key]').forEach(button=>button.classList.remove('pressed'));
     }
     selectedCar = type;
     loadCarAsset(type);
-    document.querySelector('#modelStatus').textContent = carModels[type].assetState === 'ready' ? 'Kenney CC0 model' : carModels[type].assetState === 'failed' ? 'Model unavailable · fallback car' : 'Loading car model…';
+    document.querySelector('#modelStatus').textContent = carModels[type].assetState === 'ready' ? 'Comrade1280 · CC BY 4.0 model' : carModels[type].assetState === 'failed' ? 'Model unavailable · fallback car' : 'Loading car model…';
     Object.entries(carModels).forEach(([name, model]) => { model.group.visible = name === type; });
     motion.speed = THREE.MathUtils.clamp(motion.speed, -carSpecs[type].maxSpeed * .45, carSpecs[type].maxSpeed);
     document.querySelectorAll('[data-car]').forEach(button => {
@@ -572,46 +580,68 @@
   document.querySelector('#resetButton').addEventListener('click', resetVehicle);
 
   const drivingKeys = new Set(['w', 'a', 's', 'd', 'arrowup', 'arrowleft', 'arrowdown', 'arrowright', ' ']);
+  function syncInputKey(key) {
+    if (keyboardKeys.has(key) || [...touchPointers.values()].some(input => input.key === key)) keys.add(key);
+    else keys.delete(key);
+  }
   window.addEventListener('keydown', event => {
     if (event.target.matches('select, input, textarea') || (event.target.matches('button') && [' ', 'Enter'].includes(event.key))) return;
     const key = event.key.toLowerCase();
-    if (drivingKeys.has(key)) { event.preventDefault(); keys.add(key); }
+    if (drivingKeys.has(key)) { event.preventDefault(); keyboardKeys.add(key); syncInputKey(key); }
     if (!event.repeat && ['1', '2', '3', '4'].includes(key)) chooseCar(['comet', 'rally', 'pickup', 'hypercar'][Number(key) - 1]);
     if (!event.repeat && key === 'c') setCameraMode();
     if (!event.repeat && key === 'r') resetVehicle();
   });
-  window.addEventListener('keyup', event => keys.delete(event.key.toLowerCase()));
+  window.addEventListener('keyup', event => {
+    const key = event.key.toLowerCase(); keyboardKeys.delete(key); syncInputKey(key);
+  });
   function releaseControls() {
     orbit.pointer = null;
-    keys.clear();
+    keyboardKeys.clear(); touchPointers.clear(); keys.clear();
     document.querySelectorAll('[data-key]').forEach(button => button.classList.remove('pressed'));
   }
   window.addEventListener('blur', releaseControls);
   document.addEventListener('visibilitychange', () => { if (document.hidden) releaseControls(); });
+  const preventSelection = event => event.preventDefault();
   document.querySelectorAll('[data-key]').forEach(button => {
     const key = button.dataset.key;
-    button.addEventListener('pointerdown', event => { event.preventDefault(); button.setPointerCapture(event.pointerId); keys.add(key); button.classList.add('pressed'); });
-    const release = () => { keys.delete(key); button.classList.remove('pressed'); };
+    button.addEventListener('contextmenu', preventSelection);
+    button.addEventListener('selectstart', preventSelection);
+    button.addEventListener('pointerdown', event => {
+      if (event.pointerType === 'mouse' && event.button !== 0) return;
+      event.preventDefault(); button.setPointerCapture(event.pointerId);
+      touchPointers.set(event.pointerId, {key, button}); syncInputKey(key);
+      button.classList.add('pressed');
+    });
+    const release = event => {
+      if (touchPointers.get(event.pointerId)?.button !== button) return;
+      touchPointers.delete(event.pointerId); syncInputKey(key);
+      button.classList.toggle('pressed', [...touchPointers.values()].some(input => input.button === button));
+    };
     button.addEventListener('pointerup', release);
     button.addEventListener('pointercancel', release);
     button.addEventListener('lostpointercapture', release);
   });
 
-  // Drag only the scene with the primary mouse button. Touch pedals keep their own pointers.
+  // One scene pointer controls look; other fingers can keep driving independently.
+  canvas.addEventListener('contextmenu', preventSelection);
+  canvas.addEventListener('selectstart', preventSelection);
   canvas.addEventListener('pointerdown', event => {
-    if (event.pointerType !== 'mouse' || event.button !== 0) return;
+    if ((event.pointerType !== 'mouse' && event.pointerType !== 'touch') || (event.pointerType === 'mouse' && event.button !== 0)) return;
+    event.preventDefault();
+    if (orbit.pointer !== null) return;
     orbit.pointer = event.pointerId; orbit.x = event.clientX; orbit.y = event.clientY; orbit.idle = 0;
     canvas.setPointerCapture(event.pointerId);
-    event.preventDefault();
   });
   canvas.addEventListener('pointermove', event => {
     if (orbit.pointer !== event.pointerId) return;
+    event.preventDefault();
     orbit.yaw -= (event.clientX - orbit.x) * .006;
     orbit.yaw = Math.atan2(Math.sin(orbit.yaw), Math.cos(orbit.yaw));
     orbit.pitch = THREE.MathUtils.clamp(orbit.pitch + (event.clientY - orbit.y) * .005, -.4, .8);
     orbit.x = event.clientX; orbit.y = event.clientY; orbit.idle = 0;
   });
-  const endOrbit = event => { if (orbit.pointer === event.pointerId) orbit.pointer = null; };
+  const endOrbit = event => { if (orbit.pointer === event.pointerId) { orbit.pointer = null; orbit.idle = 0; } };
   canvas.addEventListener('pointerup', endOrbit);
   canvas.addEventListener('pointercancel', endOrbit);
   canvas.addEventListener('lostpointercapture', endOrbit);
@@ -641,7 +671,9 @@
         pivot.position.y=1.05+physics.car.wheelInfos[i].chassisConnectionPointLocal.y-w.suspensionLength;
         pivot.rotation.y=w.steering;wheel.rotation.x=w.rotation;
       });
-      carModels[selectedCar].rearLamp.color.setHex(keys.has(' ')||throttle<0?0xff8090:0xff354e);
+      const braking=keys.has(' ')||throttle<0, model=carModels[selectedCar];
+      if(model.brakeMaterials?.length) model.brakeMaterials.forEach(material => {material.emissiveIntensity=braking?1.5:.22;});
+      else model.rearLamp.color.setHex(braking?0xff8090:0xff354e);
       document.querySelector('#speedValue').textContent=String(Math.round(physics.body.velocity.length()*2.236936));
       const up=new THREE.Vector3(0,1,0).applyQuaternion(vehicle.quaternion);
       document.querySelector('#surfaceValue').textContent=up.y<.1?'Overturned? Press R / reset':state.grounded?state.grounded+' wheels grounded':'AIRBORNE · ↑↓ pitch / ←→ roll';
@@ -654,7 +686,8 @@
   const target = new THREE.Vector3();
   const desired = new THREE.Vector3();
   function updateCamera(delta) {
-    orbit.idle += delta;
+    if (orbit.pointer === null) orbit.idle += delta;
+    else orbit.idle = 0;
     if (orbit.idle > 4) {
       const decay = Math.exp(-3 * delta);
       orbit.yaw *= decay; orbit.pitch *= decay;

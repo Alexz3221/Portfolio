@@ -17,10 +17,10 @@
   }
   const ramp = {x:0,y:2.02,z:26,halfWidth:4,halfLength:10,angle:-.22};
   const vehicles = {
-    hypercar: {mass:1450,width:2.3,length:5.0,wheelX:0.863,wheelZ:1.429,radius:.48,maxSpeed:320/3.6,engine:3300,grip:3.5},
-    comet: {mass:1200,width:2.25,length:5.2,wheelX:0.736,wheelZ:1.346,radius:.52,maxSpeed:220/3.6,engine:2100,grip:3.2},
-    rally: {mass:1350,width:2.35,length:4.85,wheelX:0.768,wheelZ:1.378,radius:.58,maxSpeed:180/3.6,engine:2250,grip:3.6},
-    pickup: {mass:1850,width:2.55,length:5.7,wheelX:0.765,wheelZ:1.474,radius:.64,maxSpeed:155/3.6,engine:2800,grip:3.0}
+    hypercar: {mass:1450,width:2.25995204,length:5.0,wheelX:0.87605771,wheelZ:1.56672884,radius:0.3937529,maxSpeed:320/3.6,engine:3300,grip:3.5,height:1.328707,wheelLayout:[{"x":-0.86507881,"y":0.01215544,"z":-1.56672923,"radius":0.40465421},{"x":-0.88703661,"y":-0.01215544,"z":1.56672833,"radius":0.38285158},{"x":0.86507944,"y":0.01215544,"z":-1.56672844,"radius":0.40465421},{"x":0.88703598,"y":-0.01215544,"z":1.56672935,"radius":0.38285158}]},
+    comet: {mass:1200,width:2.31127653,length:5.2,wheelX:0.8130705,wheelZ:1.4797948,radius:0.36840471,maxSpeed:220/3.6,engine:2100,grip:3.2,height:1.56735953,wheelLayout:[{"x":-0.81307043,"y":7e-08,"z":-1.47979502,"radius":0.36840471},{"x":-0.81307057,"y":-7e-08,"z":1.47979505,"radius":0.36840471},{"x":0.81307029,"y":7e-08,"z":-1.47979458,"radius":0.36840471},{"x":0.81307072,"y":-7e-08,"z":1.47979455,"radius":0.36840471}]},
+    rally: {mass:1350,width:2.13494821,length:4.85,wheelX:0.8529574,wheelZ:1.47341964,radius:0.36773579,maxSpeed:180/3.6,engine:2250,grip:3.6,height:1.65786409,wheelLayout:[{"x":-0.85295744,"y":1.1e-07,"z":-1.47341981,"radius":0.3677358},{"x":-0.85295736,"y":-1.2e-07,"z":1.47341924,"radius":0.3677358},{"x":0.85295703,"y":7e-08,"z":-1.47341947,"radius":0.36773579},{"x":0.85295776,"y":-6e-08,"z":1.47342004,"radius":0.36773579}]},
+    pickup: {mass:1850,width:2.27514223,length:5.7,wheelX:0.80256749,wheelZ:1.75742617,radius:0.41361299,maxSpeed:155/3.6,engine:2800,grip:3.0,height:1.86798263,wheelLayout:[{"x":-0.80256749,"y":-0.0,"z":-1.75742617,"radius":0.41361299},{"x":-0.80256749,"y":0.0,"z":1.75742617,"radius":0.41361299},{"x":0.80256749,"y":-0.0,"z":-1.75742617,"radius":0.41361299},{"x":0.80256749,"y":0.0,"z":1.75742617,"radius":0.41361299}]}
   };
   function create(options={}) {
     const course = !options.map || options.map === 'course';
@@ -47,7 +47,7 @@
     const body=new C.Body({mass:spec.mass,linearDamping:.015,angularDamping:.25});
     body.addShape(new C.Box(new C.Vec3(spec.width/2-.05,.47,spec.length/2-.15))); world.addBody(body);
     const car=new C.RaycastVehicle({chassisBody:body,indexRightAxis:0,indexUpAxis:1,indexForwardAxis:2});
-    [-1,1].forEach(side=>[-spec.wheelZ,spec.wheelZ].forEach(z=>car.addWheel({radius:spec.radius,directionLocal:new C.Vec3(0,-1,0),axleLocal:new C.Vec3(-1,0,0),chassisConnectionPointLocal:new C.Vec3(side*spec.wheelX,-.15,z),suspensionStiffness:32,suspensionRestLength:.42,frictionSlip:spec.grip,dampingRelaxation:3.5,dampingCompression:4.5,maxSuspensionForce:45000,rollInfluence:.15,maxSuspensionTravel:.3,customSlidingRotationalSpeed:-30,useCustomSlidingRotationalSpeed:true})));
+    spec.wheelLayout.forEach(wheel=>car.addWheel({radius:wheel.radius,directionLocal:new C.Vec3(0,-1,0),axleLocal:new C.Vec3(-1,0,0),chassisConnectionPointLocal:new C.Vec3(wheel.x,-.15+wheel.y,wheel.z),suspensionStiffness:32,suspensionRestLength:.42,frictionSlip:spec.grip,dampingRelaxation:3.5,dampingCompression:4.5,maxSuspensionForce:45000,rollInfluence:.15,maxSuspensionTravel:.3,customSlidingRotationalSpeed:-30,useCustomSlidingRotationalSpeed:true}));
     car.addToWorld(world);
     let accumulator=0,steer=0,grounded=0,airTime=0;
     const previousPosition=new C.Vec3(), previousQuaternion=new C.Quaternion();

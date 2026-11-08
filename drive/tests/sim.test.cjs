@@ -147,6 +147,6 @@ test('lazy models cache once, late completion never changes selection, and failu
   assert.equal(sim.carModels.rally.assetState,'failed');assert.ok(sim.carModels.rally.group.children.length>4);
   assert.match(document.querySelector('#modelStatus').textContent,/fallback/);
   sim.chooseCar('hypercar');assert.equal(calls.hypercar,1);assert.equal(sim.carModels.hypercar.group.visible,true);
-  assert.equal(document.querySelector('#modelStatus').textContent,'Kenney CC0 model');
+  assert.equal(document.querySelector('#modelStatus').textContent,'Comrade1280 · CC BY 4.0 model');
   sim.chooseMap('desert');sim.chooseMap('alpine');assert.equal(calls.hypercar,1);
 });

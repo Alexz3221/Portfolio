@@ -43,10 +43,11 @@ test('mouse drag orbits and recenters smoothly only after four idle seconds', ()
   assert.ok(Math.abs(sim.orbit.pitch)<.001);
 });
 
-test('touch is not captured by mouse look, and cancel/blur/reset clear drag state', () => {
+test('touch swipes use scene look, and cancel/blur/reset clear drag state', () => {
   const {sim,window} = harness();
   const send = (name, extra = {}) => sim.canvas.listeners[name]({pointerType:'mouse', pointerId:7, button:0, clientX:100, clientY:100, preventDefault(){}, ...extra});
-  send('pointerdown',{pointerType:'touch'}); assert.equal(sim.orbit.pointer,null);
+  send('pointerdown',{pointerType:'touch'}); assert.equal(sim.orbit.pointer,7);
+  send('pointercancel'); assert.equal(sim.orbit.pointer,null);
   send('pointerdown'); send('pointercancel'); assert.equal(sim.orbit.pointer,null);
   send('pointerdown'); send('lostpointercapture'); assert.equal(sim.orbit.pointer,null);
   send('pointerdown'); window.blur(); assert.equal(sim.orbit.pointer,null);
@@ -61,10 +62,11 @@ test('hood look stays anchored to car and returns to forward view', () => {
   sim.setCameraMode();sim.setCameraMode();sim.updateCamera(.1);
   const origin=sim.camera.position.clone(), rotation=sim.camera.quaternion.clone();
   sim.canvas.listeners.pointerdown({pointerType:'mouse',pointerId:1,button:0,clientX:0,clientY:0,preventDefault(){}});
-  sim.canvas.listeners.pointermove({pointerId:1,clientX:120,clientY:40});
+  sim.canvas.listeners.pointermove({pointerId:1,clientX:120,clientY:40,preventDefault(){}});
   sim.updateCamera(.1);
   assert.ok(sim.camera.position.distanceTo(origin)<.001);
   assert.ok(sim.camera.quaternion.angleTo(rotation)>.1);
+  sim.canvas.listeners.pointerup({pointerId:1});
   for(let i=0;i<100;i++) sim.updateCamera(.1);
   assert.ok(sim.camera.quaternion.angleTo(rotation)<.001);
 });
@@ -189,4 +191,60 @@ test('each scenic loop can be driven through its hills and curves with suspensio
     assert.ok(maxError<6.2,map+' remains on asphalt: '+maxError);
     assert.ok(airborne<30,map+' sustained contact: '+airborne);
   }
+});
+
+
+test('touch look and independent drive fingers coexist, cancel safely, and recenter after release', () => {
+  const {sim,controls,window,document}=harness();
+  const throttle=controls.find(c=>c.dataset.key==='arrowup'), steer=controls.find(c=>c.dataset.key==='arrowleft'), brake=controls.find(c=>c.dataset.key===' ');
+  const event=(id,extra={})=>({pointerType:'touch',pointerId:id,button:0,clientX:100,clientY:100,preventDefault(){this.prevented=true;},...extra});
+  throttle.listeners.pointerdown(event(1));steer.listeners.pointerdown(event(2));brake.listeners.pointerdown(event(3));
+  const start=event(4);sim.canvas.listeners.pointerdown(start);assert.ok(start.prevented);
+  sim.canvas.listeners.pointermove(event(4,{clientX:180,clientY:140}));
+  assert.ok(Math.abs(sim.orbit.yaw)>.4); assert.ok(sim.orbit.pitch>.1);
+  assert.ok(sim.keys.has('arrowup')&&sim.keys.has('arrowleft')&&sim.keys.has(' '));
+  const yaw=sim.orbit.yaw;
+  for(let i=0;i<60;i++) sim.updateCamera(.1);
+  assert.equal(sim.orbit.yaw,yaw,'holding camera keeps look steady');
+  sim.canvas.listeners.pointerdown(event(5));
+  sim.canvas.listeners.pointermove(event(5,{clientX:600}));
+  sim.canvas.listeners.pointerup(event(5));
+  assert.equal(sim.orbit.pointer,4,'second scene finger cannot steal or release look');assert.equal(sim.orbit.yaw,yaw);
+  brake.listeners.pointerup(event(3)); assert.ok(!sim.keys.has(' '));assert.ok(sim.keys.has('arrowup'));
+  sim.canvas.listeners.pointerup(event(4));
+  for(let i=0;i<39;i++) sim.updateCamera(.1);
+  assert.equal(sim.orbit.yaw,yaw);
+  for(let i=0;i<31;i++) sim.updateCamera(.1);
+  assert.ok(Math.abs(sim.orbit.yaw)<.001);
+  steer.listeners.pointercancel(event(2));assert.ok(!sim.keys.has('arrowleft'));assert.ok(sim.keys.has('arrowup'));
+  document.hidden=true;document.visibilitychange();assert.equal(sim.keys.size,0);
+  assert.ok(controls.every(c=>!c.classes.has('pressed')));
+  throttle.listeners.pointerdown(event(6));sim.canvas.listeners.pointerdown(event(7));window.blur();
+  assert.equal(sim.keys.size,0);assert.equal(sim.orbit.pointer,null);
+});
+
+test('releasing one input does not release another finger or keyboard on the same control', () => {
+  const {sim,controls,window}=harness();
+  const pedal=controls.find(c=>c.dataset.key==='arrowup');
+  const event=id=>({pointerType:'touch',pointerId:id,preventDefault(){}});
+  pedal.listeners.pointerdown(event(1));pedal.listeners.pointerdown(event(2));
+  pedal.listeners.pointerup(event(1));assert.ok(sim.keys.has('arrowup'));assert.ok(pedal.classes.has('pressed'));
+  pedal.listeners.lostpointercapture(event(1));assert.ok(sim.keys.has('arrowup'));
+  window.keydown({key:'ArrowUp',target:{matches:()=>false},preventDefault(){}});
+  pedal.listeners.pointercancel(event(2));assert.ok(sim.keys.has('arrowup'),'keyboard remains held');
+  pedal.listeners.pointerdown(event(3));window.keyup({key:'ArrowUp'});assert.ok(sim.keys.has('arrowup'),'touch remains held');
+  pedal.listeners.pointerup(event(3));assert.ok(!sim.keys.has('arrowup'));
+  pedal.listeners.pointerdown(event(4));sim.resetVehicle();assert.equal(sim.keys.size,0);
+  pedal.listeners.pointerup(event(4));assert.equal(sim.keys.size,0);
+  pedal.listeners.pointerdown(event(5));sim.chooseCar('rally');assert.equal(sim.keys.size,0);
+});
+
+test('long-press suppression is scoped to canvas and touch controls',()=>{
+  const {sim,controls}=harness();
+  for(const element of [sim.canvas,...controls]) for(const name of ['contextmenu','selectstart']){
+    let prevented=false;element.listeners[name]({preventDefault(){prevented=true;}});assert.ok(prevented);
+  }
+  const css=fs.readFileSync(require.resolve('../css/style.css'),'utf8');
+  assert.match(css,/#drive-scene,\.touch-controls,\.touch-controls button\{[^}]*user-select:none/);
+  assert.match(css,/-webkit-touch-callout:none/);
 });
