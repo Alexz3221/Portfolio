@@ -22,8 +22,8 @@
   const maps = {
     mountain: {name: 'Cliffside mountain', caption: 'Narrow ledge · sheer drops · winding ascent', ground: 0x817969, fog: 0x9caeae, skyLow: 0xcbd8d2, skyHigh: 0x416b92, mountain: 0x83908b, seed: 93217,
       roadHalfWidth: 3.5, shoulderWidth: .5, points: DrivePhysics.mountainPoints},
-    racetrack: {name: 'Racetrack / stunt course', caption: '12 rollers & jumps · 2 overpasses · cross-track shortcuts', ground: 0x47634a, fog: 0x9dbac7, skyLow: 0xd3e4e7, skyHigh: 0x386e9d, mountain: 0x7f9290, seed: 59221,
-      points: [[-164,-138],[-164,-65],[-164,35],[-150,135],[-65,163],[50,163],[145,135],[163,55],[155,-65],[120,-145],[65,-150],[48,-90],[55,0],[35,70],[-25,80],[-55,30],[-48,-55],[-65,-125],[-110,-156]]},
+    racetrack: {name: 'Racetrack / stunt course', caption: 'Follow arrows · gap: 52–63 mph · balance bridge: slow', ground: 0x47634a, fog: 0x9dbac7, skyLow: 0xd3e4e7, skyHigh: 0x386e9d, mountain: 0x7f9290, seed: 59221,
+      points: DrivePhysics.stuntRoute.map(p=>[p.x,p.z])},
     lakeside: {name: 'Lakeside loop', caption: 'Twilight · rolling shoreline bends', ground: 0x1b2b2d, fog: 0x172633, skyLow: 0x50434f, skyHigh: 0x041020, mountain: 0x33434a, seed: 28473,
       points: [[-58,-49],[-17,-83],[40,-72],[87,-42],[104,-5],[76,34],[70,68],[22,91],[-51,70],[-93,28],[-91,-12]]},
     desert: {name: 'Desert highway', caption: 'Golden hour · sweeping dune crests', ground: 0xa27449, fog: 0xc09a78, skyLow: 0xe8b47a, skyHigh: 0x486d8b, mountain: 0x8e5940, seed: 73452,
@@ -87,10 +87,6 @@
       const dx = b.x - a.x, dz = b.z - a.z;
       const t = THREE.MathUtils.clamp(((x - a.x) * dx + (z - a.z) * dz) / (dx * dx + dz * dz || 1), 0, 1);
       nearest = Math.min(nearest, (x - a.x - t * dx) ** 2 + (z - a.z - t * dz) ** 2);
-    }
-    if(selectedMap==='racetrack') for(const bridge of DrivePhysics.overpasses) {
-      const dx=Math.max(0,Math.abs(x)-170),dz=z-bridge.z;
-      nearest=Math.min(nearest,dx*dx+dz*dz);
     }
     return Math.sqrt(nearest);
   }
@@ -170,9 +166,9 @@
     }));
 
     samples.forEach(sample => { sample.point.y = physics.terrainHeight(sample.point.x, sample.point.z); });
+    if(selectedMap==='racetrack')samples=DrivePhysics.stuntRoute.map(p=>({point:new THREE.Vector3(p.x,p.y,p.z),tangent:new THREE.Vector3(p.tx,0,p.tz),width:p.width,kind:p.kind}));
 
-    // Keep long-course triangles short enough to clear its jump crests.
-    const ribbonSamples = selectedMap === 'racetrack' ? Array.from({length:960},(_,i)=>({point:path.getPointAt(i/960),tangent:path.getTangentAt(i/960).normalize()})) : samples;
+    const ribbonSamples = samples;
     function ribbon(offsetA, offsetB, height, material) {
       const positions = [];
       const uvs = [];
@@ -208,6 +204,7 @@
     }
 
     const halfWidth = config.roadHalfWidth || 6.2, shoulderWidth = config.shoulderWidth || 1.5;
+    if(selectedMap!=='racetrack') {
     const shoulder = new THREE.MeshStandardMaterial({color:0x58605b,roughness:1,map:surfaceTexture('ground'),side:THREE.DoubleSide});
     // Only draw exposed shoulders, not another almost-coplanar layer under asphalt.
     ribbon(-halfWidth-shoulderWidth,-halfWidth,.045,shoulder);
@@ -232,60 +229,51 @@
       world.add(dash);
     }
 
-    // Two optional cross-track routes join the outer circuit, rise over the
-    // infield, and rejoin on the opposite side. The original lower road remains.
-    // Batch all bridge solids, paint and approaches into three meshes total.
+    }
+    // The stunt ribbon is the collider itself, not paint over an old track.
     if(selectedMap==='racetrack') {
-      const solidPositions=[],solidColors=[],paintPositions=[],paintColors=[],approachPositions=[];
-      const triangle=(positions,colors,a,b,c,color)=>{
-        const shade=new THREE.Color(color);
-        for(const p of [a,b,c]){positions.push(p.x,p.y,p.z);if(colors)colors.push(shade.r,shade.g,shade.b);}
-      };
-      const quad=(positions,colors,points,color)=>{
-        triangle(positions,colors,points[0],points[1],points[2],color);
-        triangle(positions,colors,points[0],points[2],points[3],color);
-      };
-      for(const bridge of physics.bridges) {
-        for(const segment of bridge.segments) {
-          const vertices=segment.vertices.map(v=>new THREE.Vector3(v.x+segment.body.position.x,v.y+segment.body.position.y,v.z+bridge.z));
-          segment.faces.forEach((face,i)=>quad(solidPositions,solidColors,face.map(k=>vertices[k]),i===1?0x354047:0x677984));
-          // Narrow edge stripes make the unguarded stunt deck legible.
-          for(const side of [-1,1]) {
-            const z=bridge.z+side*(bridge.halfWidth-.25),a=segment.x0,b=segment.x1;
-            quad(paintPositions,paintColors,[new THREE.Vector3(a,segment.y0+.025,z-.10),new THREE.Vector3(a,segment.y0+.025,z+.10),new THREE.Vector3(b,segment.y1+.025,z+.10),new THREE.Vector3(b,segment.y1+.025,z-.10)],bridge.id===1?0xffcd58:0x7ee7e0);
-          }
-          // Center chevrons point onto / across each overpass without text textures.
-          if(segment.x1-segment.x0<20) {
-            const x=(segment.x0+segment.x1)/2,y=(segment.y0+segment.y1)/2+.035,z=bridge.z;
-            const rise=(segment.y1-segment.y0)/(segment.x1-segment.x0);
-            triangle(paintPositions,paintColors,new THREE.Vector3(x-1.4,y-rise*1.4,z-1),new THREE.Vector3(x-1.4,y-rise*1.4,z+1),new THREE.Vector3(x+1.4,y+rise*1.4,z),0xf5eee1);
-          }
-        }
-        for(const p of bridge.supports) {
-          const v=[];for(const y of [-p.hy,p.hy])for(const [x,z] of [[-p.hx,-p.hz],[p.hx,-p.hz],[p.hx,p.hz],[-p.hx,p.hz]])v.push(new THREE.Vector3(p.x+x,p.y+y,p.z+z));
-          for(const face of [[0,1,2,3],[7,6,5,4],[4,5,1,0],[5,6,2,1],[6,7,3,2],[7,4,0,3]])quad(solidPositions,solidColors,face.map(k=>v[k]),0x52636c);
-        }
-        for(const side of [-1,1])for(let x=bridge.rampEnd;x<170;x+=1)for(let z=-6;z<6;z+=1) {
-          const corners=[[x,z],[x,z+1],[x+1,z+1],[x+1,z]].map(([a,b])=>new THREE.Vector3(side*a,physics.terrainHeight(side*a,bridge.z+b)+.08,bridge.z+b));
-          quad(approachPositions,null,corners,0);
+      const positions=[],colors=[],markings=[],markColors=[];
+      function tri(out,cols,a,b,c,color){const col=new THREE.Color(color);for(const p of [a,b,c]){out.push(p.x,p.y,p.z);cols.push(col.r,col.g,col.b);}}
+      function quad(out,cols,v,color){tri(out,cols,v[0],v[1],v[2],color);tri(out,cols,v[0],v[2],v[3],color);}
+      function edge(p,side,offset=0){return new THREE.Vector3(p.x-p.tz*(p.width/2-offset)*side,p.y+.035,p.z+p.tx*(p.width/2-offset)*side);}
+      for(const slab of physics.stuntSlabs){
+        const v=slab.vertices.map(p=>new THREE.Vector3(p.x+slab.body.position.x,p.y+slab.body.position.y,p.z+slab.body.position.z));
+        const kind=slab.a.kind;
+        slab.faces.forEach((f,i)=>quad(positions,colors,f.map(k=>v[k]),i===1?(kind==='launch'?0x99462b:kind==='balance'?0x284e62:0x343f48):0x6e7a80));
+        for(const side of [-1,1])quad(markings,markColors,[edge(slab.a,side,.12),edge(slab.b,side,.12),edge(slab.b,side,.32),edge(slab.a,side,.32)],slab.index%4<2?0xffcd58:0x252d32);
+        const length=Math.hypot(slab.b.x-slab.a.x,slab.b.z-slab.a.z);
+        for(let arrowIndex=0;arrowIndex<Math.max(1,Math.floor(length/18));arrowIndex++){
+          if(length<6&&slab.index%9!==3)continue;
+          const t=(arrowIndex+.5)/Math.max(1,Math.floor(length/18));
+          const a=slab.a,b=slab.b,x=a.x+(b.x-a.x)*t,z=a.z+(b.z-a.z)*t,y=a.y+(b.y-a.y)*t+.055;
+          const forward=new THREE.Vector3(b.x-a.x,0,b.z-a.z).normalize(),right=new THREE.Vector3(-forward.z,0,forward.x);
+          const center=new THREE.Vector3(x,y,z),rise=(b.y-a.y)/Math.hypot(b.x-a.x,b.z-a.z);
+          const arrow=(along,side)=>{const p=center.clone().addScaledVector(forward,along).addScaledVector(right,side);p.y+=rise*along;return p;};
+          tri(markings,markColors,arrow(1.2,0),arrow(-1,-.65),arrow(-1,.65),0xf4eee0);
         }
       }
-      function batch(name,positions,colors,material) {
-        const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));
-        if(colors)geometry.setAttribute('color',new THREE.Float32BufferAttribute(colors,3));
-        geometry.computeVertexNormals();const mesh=new THREE.Mesh(geometry,material);mesh.name=name;mesh.receiveShadow=true;world.add(mesh);return mesh;
+      function batch(name,pos,col,material){const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));g.setAttribute('color',new THREE.Float32BufferAttribute(col,3));g.computeVertexNormals();const m=new THREE.Mesh(g,material);m.name=name;m.receiveShadow=true;world.add(m);return m;}
+      batch('stunt-route-solids',positions,colors,new THREE.MeshStandardMaterial({vertexColors:true,roughness:.92})).castShadow=true;
+      batch('stunt-route-markings',markings,markColors,new THREE.MeshBasicMaterial({vertexColors:true,side:THREE.DoubleSide,polygonOffset:true,polygonOffsetFactor:-2,polygonOffsetUnits:-2}));
+      // Conspicuous yellow launch / landing edges and elevated supports.
+      for(const z of [80,72]){
+        const y=z===80?3:2;
+        const bar=new THREE.Mesh(new THREE.BoxGeometry(12.4,.06,.4),new THREE.MeshBasicMaterial({color:0xffd34e}));bar.position.set(0,y+.035,z+(z===80?.2:-.2));bar.name='jump-edge';world.add(bar);
       }
-      batch('stunt-overpass-solids',solidPositions,solidColors,new THREE.MeshStandardMaterial({vertexColors:true,roughness:.9})).castShadow=true;
-      batch('stunt-overpass-markings',paintPositions,paintColors,new THREE.MeshBasicMaterial({vertexColors:true,side:THREE.DoubleSide,polygonOffset:true,polygonOffsetFactor:-2,polygonOffsetUnits:-2}));
-      batch('stunt-overpass-approaches',approachPositions,null,new THREE.MeshStandardMaterial({color:0x354047,roughness:.95,side:THREE.DoubleSide,polygonOffset:true,polygonOffsetFactor:-1,polygonOffsetUnits:-1}));
+      for(const p of physics.stuntSupports){
+        const post=new THREE.Mesh(new THREE.BoxGeometry(p.hx*2,p.hy*2,p.hz*2),new THREE.MeshStandardMaterial({color:0x647680}));post.position.set(p.x,p.y,p.z);post.name='stunt-support';world.add(post);
+      }
+      // Alternating gates on the wide east straight leave a 6.3 m opening.
+      for(const [i,z] of [48,72,96].entries())physics.addObstacle(175+(i%2?2.8:-2.8),z,3.1,.9,1);
+      // Start/finish painted only on the actual slab; never on recovery ground.
+      const start=samples[0],right=new THREE.Vector3(-start.tangent.z,0,start.tangent.x);
+      for(let row=0;row<2;row++)for(let col=0;col<12;col++){
+        const tile=new THREE.Mesh(new THREE.PlaneGeometry(1,1),new THREE.MeshBasicMaterial({color:(row+col)%2?0xffffff:0x151b23,side:THREE.DoubleSide}));
+        tile.rotation.x=-Math.PI/2;tile.rotation.z=-Math.atan2(start.tangent.x,start.tangent.z);
+        tile.position.copy(start.point).addScaledVector(right,col-5.5).addScaledVector(start.tangent,row+1);tile.position.y=physics.roadHeight(tile.position.x,tile.position.z)+.04;tile.name='circuit-start-line';world.add(tile);
+      }
     }
 
-    // Solid slalom blocks share their exact dimensions with the physics world.
-    if (selectedMap === 'racetrack') [205,225,245,310,330,345].forEach((index,i) => {
-      const sample=samples[index];
-      const side=i%2?3.7:-3.7;
-      physics.addObstacle(sample.point.x-sample.tangent.z*side,sample.point.z+sample.tangent.x*side);
-    });
     physics.obstacles.forEach(obstacle => {
       const mesh = new THREE.Mesh(new THREE.BoxGeometry(obstacle.hx*2, obstacle.hy*2, obstacle.hz*2), new THREE.MeshStandardMaterial({color:0xef7845,roughness:.85}));
       mesh.name = 'solid-obstacle';
@@ -294,47 +282,6 @@
       const stripe = new THREE.Mesh(new THREE.BoxGeometry(obstacle.hx*2+.02,.22,obstacle.hz*2+.02),new THREE.MeshBasicMaterial({color:0xfff5d5}));
       stripe.position.copy(mesh.position); stripe.position.y += .25; world.add(stripe);
     });
-    if (selectedMap === 'racetrack') {
-      // Terrain-conforming paint, not horizontal tiles cutting into curved hills.
-      // Per-vertex colors batch each marking in one draw call without UV seams.
-      function paintedQuads(name, quads) {
-        const positions=[], colors=[];
-        for (const {points,color} of quads) {
-          const c=new THREE.Color(color);
-          for (const index of [0,1,2,1,3,2]) {
-            const p=points[index];
-            positions.push(p.x,physics.terrainHeight(p.x,p.z)+.16,p.z);
-            colors.push(c.r,c.g,c.b);
-          }
-        }
-        const geometry=new THREE.BufferGeometry();
-        geometry.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));
-        geometry.setAttribute('color',new THREE.Float32BufferAttribute(colors,3));
-        const mesh=new THREE.Mesh(geometry,new THREE.MeshBasicMaterial({vertexColors:true,side:THREE.DoubleSide,polygonOffset:true,polygonOffsetFactor:-3,polygonOffsetUnits:-3}));
-        mesh.name=name;world.add(mesh);
-      }
-      const kerbs=[];
-      for(let i=0;i<samples.length;i++) {
-        const a=samples[i],b=samples[(i+1)%samples.length];
-        for(const side of [-1,1]) {
-          const points=[];
-          for(const sample of [a,b]) for(const offset of [6.2,6.9]) {
-            points.push(sample.point.clone().addScaledVector(new THREE.Vector3(-sample.tangent.z,0,sample.tangent.x),side*offset));
-          }
-          kerbs.push({points,color:Math.floor(i/2)%2?0xf4eee2:0xcc433a});
-        }
-      }
-      paintedQuads('circuit-kerbs',kerbs);
-      const start=samples[0],right=new THREE.Vector3(-start.tangent.z,0,start.tangent.x),tiles=[];
-      for(let row=0;row<2;row++) for(let col=0;col<12;col++) {
-        const points=[];
-        for(const along of [row-1,row]) for(const across of [col-6,col-5])
-          points.push(start.point.clone().addScaledVector(right,across).addScaledVector(start.tangent,along));
-        tiles.push({points,color:(row+col)%2?0x161c23:0xffffff});
-      }
-      paintedQuads('circuit-start-line',tiles);
-    }
-
     const rand = (() => { let seed = config.seed; return () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296); })();
     const barkDetail = surfaceTexture('bark', 2);
     const bark = new THREE.MeshStandardMaterial({color: 0x68513d, roughness: 1, map: barkDetail, bumpMap: barkDetail, bumpScale: .08});
@@ -439,9 +386,11 @@
       group.add(beam);
       world.add(group);
     }
+    if(selectedMap!=='racetrack') {
     addGate(15, 0xa9f2e9);
     addGate(156, 0xffc286);
     addGate(316, 0x89bdff);
+    }
 
     const windowDetail = surfaceTexture('windows', 2);
     const townMaterials = [
@@ -775,7 +724,7 @@
       else model.rearLamp.color.setHex(braking?0xff8090:0xff354e);
       document.querySelector('#speedValue').textContent=String(Math.round(physics.body.velocity.length()*2.236936));
       const up=new THREE.Vector3(0,1,0).applyQuaternion(vehicle.quaternion);
-      document.querySelector('#surfaceValue').textContent=up.y<.1?'Overturned? Press R / reset':state.grounded?state.grounded+' wheels grounded':'AIRBORNE · ↑↓ pitch / ←→ roll';
+      document.querySelector('#surfaceValue').textContent=selectedMap==='racetrack'&&physics.body.position.y<-2?'Fell off course · Press R / Reset':up.y<.1?'Overturned? Press R / reset':state.grounded?state.grounded+' wheels grounded':'AIRBORNE · ↑↓ pitch / ←→ roll';
       if(physics.body.position.y < -30) resetVehicle();
       return;
     }

@@ -35,7 +35,7 @@ test('all five maps have distinct drivable, finite closed routes and safe spawns
   for (const id of Object.keys(sim.maps).filter(id => id !== 'course')) {
     sim.chooseMap(id);
     const points = sim.samples();
-    assert.equal(points.length, 480);
+    assert.equal(points.length, id==='racetrack'?require('../js/physics').stuntRoute.length:480);
     shapes.add(JSON.stringify(points.map(s => s.point.toArray())));
     assert.equal(sim.motion.speed, 0);
     assert.ok(sim.distanceToRoad(sim.vehicle.position.x, sim.vehicle.position.z) < .001);
@@ -121,7 +121,7 @@ test('hood camera stays on the car at high speed rather than trailing behind', (
  test('all cars integrate with circuit controls, reset and map switching', () => {
   const {sim,document}=harness();sim.chooseMap('racetrack');sim.chooseCar('pickup');assert.equal(sim.carModels.comet.group.visible,false);assert.equal(sim.carModels.pickup.group.visible,true);
   const spawn=sim.samples()[0].point;
-  sim.keys.add('w');for(let i=0;i<240;i++)sim.updateVehicle(1/60);assert.ok(sim.vehicle.position.z>spawn.z+10);assert.ok(sim.vehicle.position.toArray().every(Number.isFinite));
+  sim.keys.add('w');for(let i=0;i<240;i++)sim.updateVehicle(1/60);assert.ok(sim.vehicle.position.clone().sub(spawn).dot(sim.samples()[0].tangent)>10);assert.ok(sim.vehicle.position.toArray().every(Number.isFinite));
   sim.resetVehicle();assert.equal(sim.keys.size,0);assert.ok(Math.abs(sim.vehicle.position.z-spawn.z)<.01);
   sim.chooseMap('alpine');assert.equal(document.querySelector('.garage').style.display,'');sim.chooseCar('pickup');assert.equal(sim.carModels.pickup.group.visible,true);
   sim.chooseMap('racetrack');assert.equal(document.querySelector('.garage').style.display,'');assert.equal(sim.carModels.pickup.group.visible,true);
