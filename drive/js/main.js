@@ -20,7 +20,10 @@
     pickup: {name:'Pickup',color:0x25975b}
   }).map(([type,style]) => [type,{...DrivePhysics.vehicles[type],...style,wheelRadius:DrivePhysics.vehicles[type].radius}]));
   const maps = {
-    course: {name: 'Physics proving ground', caption: 'Hills · jump ramp · solid trees', ground: 0x38584c, fog: 0x7196aa, skyLow: 0xb6d5df, skyHigh: 0x315579, mountain: 0x789187, seed: 28473, points: [[0,-28],[0,10],[0,65],[45,95],[80,25],[40,-50]]},
+    mountain: {name: 'Mountain climb', caption: '48 m summit · switchbacks · take it slow', ground: 0x536351, fog: 0x9caeae, skyLow: 0xcbd8d2, skyHigh: 0x416b92, mountain: 0x83908b, seed: 93217,
+      points: [[-92,-156],[-120,-117],[-48,-85],[-118,-42],[-43,0],[-116,45],[-40,91],[-80,144],[-20,170],[60,148],[96,94],[62,35],[111,-25],[70,-90],[100,-150],[15,-174]]},
+    racetrack: {name: 'Racetrack / obstacle course', caption: 'Closed circuit · slalom blocks · rolling humps', ground: 0x47634a, fog: 0x9dbac7, skyLow: 0xd3e4e7, skyHigh: 0x386e9d, mountain: 0x7f9290, seed: 59221,
+      points: [[-110,-105],[-110,-25],[-110,65],[-90,125],[-30,151],[45,140],[107,96],[120,20],[100,-60],[48,-127],[-35,-145]]},
     lakeside: {name: 'Lakeside loop', caption: 'Twilight · rolling shoreline bends', ground: 0x1b2b2d, fog: 0x172633, skyLow: 0x50434f, skyHigh: 0x041020, mountain: 0x33434a, seed: 28473,
       points: [[-58,-49],[-17,-83],[40,-72],[87,-42],[104,-5],[76,34],[70,68],[22,91],[-51,70],[-93,28],[-91,-12]]},
     desert: {name: 'Desert highway', caption: 'Golden hour · sweeping dune crests', ground: 0xa27449, fog: 0xc09a78, skyLow: 0xe8b47a, skyHigh: 0x486d8b, mountain: 0x8e5940, seed: 73452,
@@ -131,7 +134,6 @@
     geometries.forEach(geometry => geometry.dispose());
     materials.forEach(material => material.dispose());
     textures.forEach(texture => texture.dispose());
-    const course = selectedMap === 'course';
     physics = DrivePhysics.create({map:selectedMap, car:selectedCar, distanceToRoad});
     const config = maps[selectedMap];
     scene.fog.color.setHex(config.fog);
@@ -139,8 +141,8 @@
     sky.material.uniforms.low.value.setHex(config.skyLow);
     sky.material.uniforms.high.value.setHex(config.skyHigh);
     renderer.toneMappingExposure = selectedMap === 'desert' ? 1.05 : .9;
-    const groundDetail = surfaceTexture('ground', course ? 40 : 62.5);
-    const ground = new THREE.Mesh(new THREE.PlaneGeometry(course ? 320 : 500, course ? 320 : 500, course ? 160 : 250, course ? 160 : 250), new THREE.MeshStandardMaterial({color: config.ground, roughness: 1, map: groundDetail, bumpMap: groundDetail, bumpScale: selectedMap === 'desert' ? .22 : .12}));
+    const groundDetail = surfaceTexture('ground', physics.edge / 4);
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(physics.edge * 2, physics.edge * 2, physics.edge, physics.edge), new THREE.MeshStandardMaterial({color: config.ground, roughness: 1, map: groundDetail, bumpMap: groundDetail, bumpScale: selectedMap === 'desert' ? .22 : .12}));
     {
       const pos = ground.geometry.attributes.position;
       for (let i=0;i<pos.count;i++) pos.setZ(i, physics.terrainHeight(pos.getX(i), -pos.getY(i)));
@@ -151,10 +153,6 @@
     ground.name = 'terrain';
     ground.receiveShadow = true;
     world.add(ground);
-    if (course) {
-      buildCourse();
-      return;
-    }
     const waterDetail = surfaceTexture('water', 12);
     const lake = new THREE.Mesh(new THREE.CircleGeometry(37, 64), new THREE.MeshStandardMaterial({color: 0x0e2633, metalness: .55, roughness: .27, bumpMap: waterDetail, bumpScale: .12}));
     lake.rotation.x = -Math.PI / 2;
@@ -225,6 +223,48 @@
       geometry.setIndex([0,1,2,1,3,2]); geometry.computeVertexNormals();
       const dash = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({color:0xd9b876,side:THREE.DoubleSide,polygonOffset:true,polygonOffsetFactor:-2,polygonOffsetUnits:-2}));
       world.add(dash);
+    }
+
+    // Solid slalom blocks share their exact dimensions with the physics world.
+    if (selectedMap === 'racetrack') [285,305,325,345].forEach((index,i) => {
+      const sample=samples[index];
+      const side=i%2?3:-3;
+      physics.addObstacle(sample.point.x-sample.tangent.z*side,sample.point.z+sample.tangent.x*side);
+    });
+    physics.obstacles.forEach(obstacle => {
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(obstacle.hx*2, obstacle.hy*2, obstacle.hz*2), new THREE.MeshStandardMaterial({color:0xef7845,roughness:.85}));
+      mesh.name = 'solid-obstacle';
+      mesh.position.set(obstacle.x,obstacle.y,obstacle.z);
+      mesh.castShadow = true; mesh.receiveShadow = true; world.add(mesh);
+      const stripe = new THREE.Mesh(new THREE.BoxGeometry(obstacle.hx*2+.02,.22,obstacle.hz*2+.02),new THREE.MeshBasicMaterial({color:0xfff5d5}));
+      stripe.position.copy(mesh.position); stripe.position.y += .25; world.add(stripe);
+    });
+    if (selectedMap === 'racetrack') {
+      // Red/white painted kerbs distinguish the circuit with one extra draw call.
+      const kerbs=new THREE.InstancedMesh(new THREE.PlaneGeometry(.7,1),new THREE.MeshBasicMaterial({side:THREE.DoubleSide}),240);
+      kerbs.name='circuit-kerbs';
+      const marker=new THREE.Object3D();let count=0;
+      for(let i=0;i<samples.length;i+=4) {
+        const sample=samples[i], next=samples[(i+4)%samples.length];
+        const heading=Math.atan2(next.point.x-sample.point.x,next.point.z-sample.point.z);
+        for(const side of [-6.7,6.7]) {
+          marker.position.copy(sample.point).lerp(next.point,.5);
+          marker.position.x-=Math.cos(heading)*side;marker.position.z+=Math.sin(heading)*side;
+          marker.position.y=physics.terrainHeight(marker.position.x,marker.position.z)+.13;
+          marker.rotation.set(-Math.PI/2,0,-heading);
+          marker.scale.set(1,sample.point.distanceTo(next.point),1);marker.updateMatrix();
+          kerbs.setMatrixAt(count,marker.matrix);kerbs.setColorAt(count++,new THREE.Color(i%8?0xf4eee2:0xcc433a));
+        }
+      }
+      world.add(kerbs);
+      const start = samples[0];
+      const heading = Math.atan2(start.tangent.x,start.tangent.z);
+      for(let row=0;row<2;row++) for(let col=0;col<12;col++) {
+        const tile = new THREE.Mesh(new THREE.PlaneGeometry(1,1),new THREE.MeshBasicMaterial({color:(row+col)%2?0x161c23:0xffffff,side:THREE.DoubleSide}));
+        const offset = new THREE.Vector3(col-5.5,0,row-.5).applyAxisAngle(new THREE.Vector3(0,1,0),heading);
+        tile.position.copy(start.point).add(offset); tile.position.y=physics.terrainHeight(tile.position.x,tile.position.z)+.14;
+        tile.rotation.set(-Math.PI/2,0,-heading); world.add(tile);
+      }
     }
 
     const rand = (() => { let seed = config.seed; return () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296); })();
@@ -357,23 +397,6 @@
 
   }
 
-
-  function buildCourse() {
-    const r = DrivePhysics.ramp;
-    const rampMesh = new THREE.Mesh(new THREE.BoxGeometry(8,.36,20), new THREE.MeshStandardMaterial({color:0xd6a254,roughness:.85,map:surfaceTexture('asphalt',4)}));
-    rampMesh.position.set(r.x,r.y,r.z); rampMesh.rotation.x=r.angle; rampMesh.receiveShadow=true; rampMesh.castShadow=true; world.add(rampMesh);
-    // Clear runway leads from spawn directly onto the ramp; hills sit to either side.
-    const runway = new THREE.Mesh(new THREE.PlaneGeometry(8,44),new THREE.MeshStandardMaterial({color:0x526a63,roughness:1,map:surfaceTexture('asphalt',6)}));
-    runway.rotation.x=-Math.PI/2; runway.position.set(0,.025,-6);world.add(runway);
-    for(let z=-24;z<16;z+=8){const stripe=new THREE.Mesh(new THREE.BoxGeometry(.15,.03,3),new THREE.MeshBasicMaterial({color:0xf4dca5}));stripe.position.set(0,.05,z);world.add(stripe);}
-    const bark=new THREE.MeshStandardMaterial({color:0x71533e});const leaf=new THREE.MeshStandardMaterial({color:0x244a3d,flatShading:true});
-    const positions=[[12,42],[-12,45],[18,62],[-20,72],[58,40],[45,68],[-45,30],[-55,55],[62,-22],[-32,-18],[28,-36],[-65,-45]];
-    positions.forEach(([x,z],i)=>{const h=7+(i%3);const y=DrivePhysics.terrainHeight(x,z);physics.addTree(x,z,.45,h);const trunk=new THREE.Mesh(new THREE.BoxGeometry(.9,h,.9),bark);trunk.position.set(x,y+h/2,z);trunk.castShadow=true;world.add(trunk);const top=new THREE.Mesh(new THREE.ConeGeometry(2.8,h,7),leaf);top.position.set(x,y+h*.85,z);top.castShadow=true;world.add(top);});
-    // Cones mark the map boundary without hiding an invisible wall near the course.
-    const edgeMat=new THREE.MeshStandardMaterial({color:0xdb9958});
-    for(let t=-160;t<=160;t+=20) for(const [x,z] of [[t,-158],[t,158],[-158,t],[158,t]]) {const cone=new THREE.Mesh(new THREE.ConeGeometry(.7,2,6),edgeMat);cone.position.set(x,1,z);world.add(cone);}
-    samples=[{point:new THREE.Vector3(0,0,-28),tangent:new THREE.Vector3(0,0,1)}];
-  }
 
   function part(group, geometry, material, x, y, z) {
     const mesh = new THREE.Mesh(geometry, material);
@@ -526,7 +549,7 @@
     vehicle.position.set(spawn.point.x, .03, spawn.point.z);
     vehicle.rotation.set(0,motion.heading,0);
     if (physics) vehicle.position.y = physics.body.position.y - 1.05;
-    camera.position.set(vehicle.position.x - Math.sin(motion.heading) * 9, 5, vehicle.position.z - Math.cos(motion.heading) * 9);
+    camera.position.set(vehicle.position.x - Math.sin(motion.heading) * 9, vehicle.position.y + 5, vehicle.position.z - Math.cos(motion.heading) * 9);
   }
   function chooseMap(type) {
     if (!maps[type]) return;
@@ -535,11 +558,11 @@
     document.querySelector('.garage').style.display = '';
     resetVehicle();
     document.querySelector('#mapDescription').textContent = maps[type].caption;
-    document.querySelector('#resetButton').textContent = selectedMap === 'course' ? '↺ RESET ON RUNWAY' : '↺ BACK TO ROAD';
+    document.querySelector('#resetButton').textContent = '↺ BACK TO ROAD';
     chooseCar(selectedCar);
     document.querySelector('#mapSelect').value = type;
   }
-  chooseMap('course');
+  chooseMap('mountain');
 
   function chooseCar(type) {
     if (!carModels[type]) return;
@@ -647,12 +670,13 @@
   canvas.addEventListener('lostpointercapture', endOrbit);
 
   function resize() {
-    const width = window.innerWidth, height = window.innerHeight;
+    const width = canvas.clientWidth || window.innerWidth, height = canvas.clientHeight || window.innerHeight;
     camera.aspect = width / Math.max(1, height);
     camera.updateProjectionMatrix();
     renderer.setSize(width, height, false);
   }
   window.addEventListener('resize', resize);
+  window.visualViewport?.addEventListener('resize', resize);
 
   function updateVehicle(delta) {
     const spec = carSpecs[selectedCar];
@@ -704,7 +728,8 @@
       const elevation = THREE.MathUtils.clamp(Math.atan2(height - 1.2, distance) + orbit.pitch, .08, 1.25);
       const radius = Math.hypot(distance, height - 1.2);
       desired.set(-Math.sin(lookHeading) * radius * Math.cos(elevation), 1.2 + Math.sin(elevation) * radius, -Math.cos(lookHeading) * radius * Math.cos(elevation)).add(vehicle.position);
-      target.set(Math.sin(motion.heading) * 4, 1.2, Math.cos(motion.heading) * 4).add(vehicle.position);
+      // Aim at the car body, not a point four metres ahead of it.
+      target.set(0, 1.2, 0).add(vehicle.position);
     }
     if (cameraMode === 2) camera.position.copy(desired);
     else camera.position.lerp(desired, 1 - Math.exp(-5 * delta));

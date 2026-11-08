@@ -7,6 +7,17 @@
   const terrainHeight = (x,z) => 7 * Math.exp(-((x-37)**2/420 + (z-32)**2/700)) + 4 * Math.exp(-((x+35)**2/380 + (z-65)**2/280));
   // Broad waves keep road grades manageable without flattening suspension physics.
   function scenicHeight(map,x,z) {
+    if (map === 'mountain') {
+      const t=Math.max(0,Math.min(1,(z+160)/320));
+      // Broad summit with a continuous 0–48 m climb. Rounded shoulders fall away
+      // beyond the road, without thin ramp meshes or gaps in the heightfield.
+      const shoulder=Math.exp(-(Math.max(0,Math.abs(x)-135)**2)/2400);
+      return 48*t*t*(3-2*t)*shoulder;
+    }
+    if (map === 'racetrack') {
+      // Gentle, fully collidable rolling humps on the western straight.
+      return .55*Math.exp(-((x+110)**2)/180)*(Math.exp(-((z-10)**2)/55)+Math.exp(-((z-40)**2)/55));
+    }
     if (map === 'lakeside') {
       const t=Math.max(0,Math.min(1,(Math.hypot(x-8,z-4)-40)/32));
       return t*t*(3-2*t)*(4.5+2.5*Math.sin(x/65)+2*Math.sin(z/58));
@@ -24,7 +35,7 @@
   };
   function create(options={}) {
     const course = !options.map || options.map === 'course';
-    const edge=course?160:250, cells=edge;
+    const edge=course?160:(options.map === 'mountain' || options.map === 'racetrack')?200:250, cells=edge;
     const analyticHeight=course?terrainHeight:(x,z)=>scenicHeight(options.map,x,z);
     const data=Array.from({length:cells+1},(_,i)=>Array.from({length:cells+1},(_,j)=>analyticHeight(i*2-edge,edge-j*2)));
     // CANNON 0.6.2 getHeightAt is only an average. Match its actual triangles.
@@ -41,8 +52,13 @@
     const floor=new C.Body({mass:0}); floor.addShape(new C.Heightfield(data,{elementSize:2})); floor.position.set(-edge,0,edge); floor.quaternion.setFromEuler(-Math.PI/2,0,0); world.addBody(floor);
     function box(x,y,z,hx,hy,hz,angle=0) {const body=new C.Body({mass:0});body.addShape(new C.Box(new C.Vec3(hx,hy,hz)));body.position.set(x,y,z);body.quaternion.setFromEuler(angle,0,0);world.addBody(body);return body;}
     if (course) box(ramp.x,ramp.y,ramp.z,ramp.halfWidth,.18,ramp.halfLength,ramp.angle);
+    const obstacles = [];
+    function addObstacle(x,z,hx=1.25,hy=.85,hz=1.25) {
+      const obstacle={x,z,hx,hy,hz,y:height(x,z)+hy};
+      obstacles.push(obstacle);box(x,obstacle.y,z,hx,hy,hz);return obstacle;
+    }
     // Invisible perimeter only at the edge of the matching visible terrain.
-    const wallHeight=course?5:35;
+    const wallHeight=options.map === 'mountain'?60:course?5:35;
     box(-edge,wallHeight-1,0,1,wallHeight,edge);box(edge,wallHeight-1,0,1,wallHeight,edge);box(0,wallHeight-1,-edge,edge,wallHeight,1);box(0,wallHeight-1,edge,edge,wallHeight,1);
     const body=new C.Body({mass:spec.mass,linearDamping:.015,angularDamping:.25});
     body.addShape(new C.Box(new C.Vec3(spec.width/2-.05,.47,spec.length/2-.15))); world.addBody(body);
@@ -106,7 +122,7 @@
       return {speed:body.velocity.dot(body.quaternion.vmult(new C.Vec3(0,0,1))),grounded};
     }
     function addTree(x,z,r=.45,h=8){return box(x,height(x,z)+h/2,z,r,h/2,r);}
-    reset();return {world,body,car,step,reset,addTree,terrainHeight:height,ramp,spec,renderPosition,renderQuaternion,renderWheels,syncRenderState};
+    reset();return {world,body,car,step,reset,addTree,edge,obstacles,addObstacle,terrainHeight:height,ramp,spec,renderPosition,renderQuaternion,renderWheels,syncRenderState};
   }
   return {create,terrainHeight,scenicHeight,ramp,vehicles};
 });
