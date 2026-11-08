@@ -5,26 +5,28 @@
 
   const canvas = document.querySelector('#drive-scene');
   const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(66, 1, 0.1, 600);
+  const camera = new THREE.PerspectiveCamera(66, 1, 0.3, 600);
   const renderer = new THREE.WebGLRenderer({canvas, antialias: true, powerPreference: 'high-performance'});
   const clock = new THREE.Clock();
   const keys = new Set();
+  const keyboardKeys = new Set(), touchPointers = new Map();
   const vehicle = new THREE.Group();
   const motion = {speed: 0, heading: 0};
-  const carSpecs = {
-    comet: {name: 'Comet', color: 0xfd7653, length: 5.2, width: 2.25, wheelX: 0.736, wheelZ: 1.346, wheelRadius: .52, maxSpeed: 220 / 3.6, acceleration: 24, turn: 1.75},
-    rally: {name: 'Rally', color: 0x64d9dc, length: 4.85, width: 2.35, wheelX: 0.768, wheelZ: 1.378, wheelRadius: .58, maxSpeed: 180 / 3.6, acceleration: 21, turn: 2.05},
-    hypercar: {name: 'Hypercar', color: 0xae8aff, length: 5.0, width: 2.3, wheelX: 0.863, wheelZ: 1.429, wheelRadius: .48, maxSpeed: 320 / 3.6, acceleration: 32, turn: 1.65},
-    pickup: {name: 'Pickup', color: 0xecc77a, length: 5.7, width: 2.55, wheelX: 0.765, wheelZ: 1.474, wheelRadius: .64, maxSpeed: 155 / 3.6, acceleration: 17, turn: 1.55},
-  };
+  // Geometry and simulation share dimensions derived from the selected source cars.
+  const carSpecs = Object.fromEntries(Object.entries({
+    comet: {name:'Comet',color:0x4e83df},
+    rally: {name:'Rally',color:0xe3d57b},
+    hypercar: {name:'Hypercar',color:0xe14839},
+    pickup: {name:'Pickup',color:0x25975b}
+  }).map(([type,style]) => [type,{...DrivePhysics.vehicles[type],...style,wheelRadius:DrivePhysics.vehicles[type].radius}]));
   const maps = {
     course: {name: 'Physics proving ground', caption: 'Hills · jump ramp · solid trees', ground: 0x38584c, fog: 0x7196aa, skyLow: 0xb6d5df, skyHigh: 0x315579, mountain: 0x789187, seed: 28473, points: [[0,-28],[0,10],[0,65],[45,95],[80,25],[40,-50]]},
-    lakeside: {name: 'Lakeside loop', caption: 'Twilight · flowing bends', ground: 0x1b2b2d, fog: 0x172633, skyLow: 0x50434f, skyHigh: 0x041020, mountain: 0x33434a, seed: 28473,
-      points: [[-58,-49],[-17,-78],[52,-65],[91,-22],[75,49],[22,82],[-51,70],[-86,22]]},
-    desert: {name: 'Desert highway', caption: 'Golden hour · long straights', ground: 0xa27449, fog: 0xc09a78, skyLow: 0xe8b47a, skyHigh: 0x486d8b, mountain: 0x8e5940, seed: 73452,
-      points: [[-145,-95],[-60,-115],[95,-115],[158,-65],[155,75],[70,115],[-105,110],[-155,55]]},
-    alpine: {name: 'Alpine pass', caption: 'Blue hour · technical hairpins', ground: 0x3d5554, fog: 0x698994, skyLow: 0x95b9c1, skyHigh: 0x17314f, mountain: 0xa1b2b1, seed: 19482,
-      points: [[-120,-100],[-40,-135],[90,-115],[130,-65],[35,-35],[125,25],[95,100],[10,130],[-110,100],[-140,45],[-45,15],[-125,-35]]}
+    lakeside: {name: 'Lakeside loop', caption: 'Twilight · rolling shoreline bends', ground: 0x1b2b2d, fog: 0x172633, skyLow: 0x50434f, skyHigh: 0x041020, mountain: 0x33434a, seed: 28473,
+      points: [[-58,-49],[-17,-83],[40,-72],[87,-42],[104,-5],[76,34],[70,68],[22,91],[-51,70],[-93,28],[-91,-12]]},
+    desert: {name: 'Desert highway', caption: 'Golden hour · sweeping dune crests', ground: 0xa27449, fog: 0xc09a78, skyLow: 0xe8b47a, skyHigh: 0x486d8b, mountain: 0x8e5940, seed: 73452,
+      points: [[-145,-95],[-60,-115],[50,-99],[105,-122],[158,-65],[139,5],[155,75],[70,115],[-20,90],[-105,110],[-155,55]]},
+    alpine: {name: 'Alpine pass', caption: 'Blue hour · climbing hairpins', ground: 0x3d5554, fog: 0x698994, skyLow: 0x95b9c1, skyHigh: 0x17314f, mountain: 0xa1b2b1, seed: 19482,
+      points: [[-120,-100],[-62,-128],[-12,-105],[42,-136],[90,-115],[130,-65],[35,-35],[125,25],[95,100],[10,130],[-110,100],[-140,45],[-45,15],[-125,-35]]}
   };
   let physics = null;
   const world = new THREE.Group();
@@ -111,6 +113,7 @@
     texture.magFilter = THREE.LinearFilter;
     texture.minFilter = THREE.LinearMipmapLinearFilter;
     texture.generateMipmaps = true;
+    texture.anisotropy = Math.min(8, renderer.capabilities?.getMaxAnisotropy?.() || 1);
     texture.encoding = THREE.sRGBEncoding;
     texture.repeat.set(repeat, repeat);
     texture.needsUpdate = true;
@@ -137,14 +140,15 @@
     sky.material.uniforms.high.value.setHex(config.skyHigh);
     renderer.toneMappingExposure = selectedMap === 'desert' ? 1.05 : .9;
     const groundDetail = surfaceTexture('ground', course ? 40 : 62.5);
-    const ground = new THREE.Mesh(new THREE.PlaneGeometry(course ? 320 : 500, course ? 320 : 500, course ? 160 : 1, course ? 160 : 1), new THREE.MeshStandardMaterial({color: config.ground, roughness: 1, map: groundDetail, bumpMap: groundDetail, bumpScale: selectedMap === 'desert' ? .22 : .12}));
-    if (course) {
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(course ? 320 : 500, course ? 320 : 500, course ? 160 : 250, course ? 160 : 250), new THREE.MeshStandardMaterial({color: config.ground, roughness: 1, map: groundDetail, bumpMap: groundDetail, bumpScale: selectedMap === 'desert' ? .22 : .12}));
+    {
       const pos = ground.geometry.attributes.position;
-      for (let i=0;i<pos.count;i++) pos.setZ(i, DrivePhysics.terrainHeight(pos.getX(i), -pos.getY(i)));
+      for (let i=0;i<pos.count;i++) pos.setZ(i, physics.terrainHeight(pos.getX(i), -pos.getY(i)));
       ground.geometry.computeVertexNormals();
     }
     ground.rotation.x = -Math.PI / 2;
     ground.position.y = 0;
+    ground.name = 'terrain';
     ground.receiveShadow = true;
     world.add(ground);
     if (course) {
@@ -163,20 +167,28 @@
       point: path.getPointAt(index / 480), tangent: path.getTangentAt(index / 480).normalize()
     }));
 
+    samples.forEach(sample => { sample.point.y = physics.terrainHeight(sample.point.x, sample.point.z); });
+
     function ribbon(offsetA, offsetB, height, material) {
       const positions = [];
       const uvs = [];
       const indices = [];
+      // Subdivide across the road as well as along it to follow the collision surface.
+      const columns = Math.max(1, Math.ceil(Math.abs(offsetB - offsetA)));
+      material.polygonOffset = true;
+      material.polygonOffsetFactor = -1;
+      material.polygonOffsetUnits = -1;
       for (let index = 0; index <= samples.length; index += 1) {
         const sample = samples[index % samples.length];
         const normal = new THREE.Vector3(-sample.tangent.z, 0, sample.tangent.x);
-        const a = sample.point.clone().addScaledVector(normal, offsetA);
-        const b = sample.point.clone().addScaledVector(normal, offsetB);
-        positions.push(a.x, height, a.z, b.x, height, b.z);
-        uvs.push(a.x / 8, a.z / 8, b.x / 8, b.z / 8);
-        if (index < samples.length) {
-          const first = index * 2;
-          indices.push(first, first + 1, first + 2, first + 1, first + 3, first + 2);
+        for (let column = 0; column <= columns; column++) {
+          const point = sample.point.clone().addScaledVector(normal, offsetA + (offsetB-offsetA)*column/columns);
+          positions.push(point.x, physics.terrainHeight(point.x,point.z) + height, point.z);
+          uvs.push(point.x / 8, point.z / 8);
+          if (index < samples.length && column < columns) {
+            const first = index * (columns + 1) + column;
+            indices.push(first, first+1, first+columns+1, first+1, first+columns+2, first+columns+1);
+          }
         }
       }
       const geometry = new THREE.BufferGeometry();
@@ -185,20 +197,33 @@
       geometry.setIndex(indices);
       geometry.computeVertexNormals();
       const mesh = new THREE.Mesh(geometry, material);
+      mesh.name = 'road-ribbon';
+      mesh.userData.surfaceOffset = height;
       mesh.receiveShadow = true;
       world.add(mesh);
     }
 
-    ribbon(-7.7, 7.7, .005, new THREE.MeshStandardMaterial({color: 0x58605b, roughness: 1, map: surfaceTexture('ground'), side: THREE.DoubleSide}));
-    ribbon(-6.2, 6.2, .016, new THREE.MeshStandardMaterial({color: 0x30383d, roughness: .95, map: surfaceTexture('asphalt'), side: THREE.DoubleSide}));
+    const shoulder = new THREE.MeshStandardMaterial({color:0x58605b,roughness:1,map:surfaceTexture('ground'),side:THREE.DoubleSide});
+    // Only draw exposed shoulders, not another almost-coplanar layer under asphalt.
+    ribbon(-7.7,-6.2,.045,shoulder);
+    ribbon(6.2,7.7,.045,shoulder);
+    ribbon(-6.2, 6.2, .075, new THREE.MeshStandardMaterial({color: 0x30383d, roughness: .95, map: surfaceTexture('asphalt'), side: THREE.DoubleSide}));
     const paint = new THREE.MeshBasicMaterial({color: 0xd0d6cd, side: THREE.DoubleSide});
-    ribbon(-5.96, -5.83, .024, paint);
-    ribbon(5.83, 5.96, .024, paint);
+    ribbon(-5.96, -5.83, .105, paint);
+    ribbon(5.83, 5.96, .105, paint);
     for (let index = 0; index < samples.length; index += 8) {
       const sample = samples[index];
-      const dash = new THREE.Mesh(new THREE.BoxGeometry(.15, .018, 2.8), new THREE.MeshBasicMaterial({color: 0xd9b876}));
-      dash.position.set(sample.point.x, .04, sample.point.z);
-      dash.rotation.y = Math.atan2(sample.tangent.x, sample.tangent.z);
+      const forward = sample.tangent.clone();
+      const right = new THREE.Vector3(-forward.z, 0, forward.x);
+      const vertices = [];
+      for (const [side,along] of [[-.075,-1.4],[.075,-1.4],[-.075,1.4],[.075,1.4]]) {
+        const point = sample.point.clone().addScaledVector(right,side).addScaledVector(forward,along);
+        vertices.push(point.x,physics.terrainHeight(point.x,point.z)+.11,point.z);
+      }
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices,3));
+      geometry.setIndex([0,1,2,1,3,2]); geometry.computeVertexNormals();
+      const dash = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({color:0xd9b876,side:THREE.DoubleSide,polygonOffset:true,polygonOffsetFactor:-2,polygonOffsetUnits:-2}));
       world.add(dash);
     }
 
@@ -218,12 +243,12 @@
       if (distanceToRoad(x, z) < 12 || Math.hypot(x - 8, z - 4) < 42) continue;
       const height = 1.2 + rand() * 1.3;
       const trunk = new THREE.Mesh(trunkGeometry, bark);
-      trunk.position.set(x, .8 * height, z);
+      trunk.position.set(x, physics.terrainHeight(x,z) + .8 * height, z);
       trunk.scale.set(height, height, height);
       trunk.castShadow = true;
       world.add(trunk);
       const top = new THREE.Mesh(canopyGeometry, pine[index % pine.length]);
-      top.position.set(x, (selectedMap === 'desert' ? 4.2 : 4.3) * height, z);
+      top.position.set(x, physics.terrainHeight(x,z) + (selectedMap === 'desert' ? 4.2 : 4.3) * height, z);
       top.scale.set(height, height, height);
       top.castShadow = true;
       world.add(top);
@@ -239,7 +264,7 @@
       const z = (rand() - .5) * 350;
       if (distanceToRoad(x, z) < 9) continue;
       const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(1 + rand() * 3, 0), stoneMaterials[index % 2]);
-      rock.position.set(x, .3, z);
+      rock.position.set(x, physics.terrainHeight(x,z) + .3, z);
       rock.scale.y = .45 + rand() * .6;
       rock.rotation.y = rand() * Math.PI;
       rock.castShadow = true;
@@ -270,7 +295,7 @@
       dummy.position.copy(sample.point).addScaledVector(normal, side * (9 + rand() * 19));
       if (distanceToRoad(dummy.position.x, dummy.position.z) < 8 || (selectedMap === 'lakeside' && Math.hypot(dummy.position.x - 8, dummy.position.z - 4) < 38)) continue;
       const size = .1 + rand() * .45;
-      dummy.position.y = size * .2;
+      dummy.position.y = physics.terrainHeight(dummy.position.x,dummy.position.z) + size * .2;
       dummy.scale.set(size, selectedMap === 'lakeside' ? size * 2 : size * .5, size);
       dummy.rotation.set(rand(), rand() * Math.PI, 0);
       dummy.updateMatrix(); detail.setMatrixAt(count++, dummy.matrix);
@@ -283,20 +308,24 @@
       const group = new THREE.Group();
       const frame = new THREE.MeshStandardMaterial({color: 0x3e5055, metalness: .55, roughness: .42});
       const glow = new THREE.MeshBasicMaterial({color});
+      const gateY = Math.max(...[-7.4,7.4].map(side => physics.terrainHeight(sample.point.x+normal.x*side,sample.point.z+normal.z*side)));
       [-7.4, 7.4].forEach(side => {
-        const post = new THREE.Mesh(new THREE.BoxGeometry(.35, 6.2, .35), frame);
-        post.position.copy(sample.point).addScaledVector(normal, side);
-        post.position.y = 3.1;
+        const foot = sample.point.clone().addScaledVector(normal,side);
+        const footY = physics.terrainHeight(foot.x,foot.z);
+        const postHeight = gateY + 6.2 - footY;
+        const post = new THREE.Mesh(new THREE.BoxGeometry(.35, postHeight, .35), frame);
+        post.position.copy(foot);
+        post.position.y = footY + postHeight/2;
         post.castShadow = true;
         group.add(post);
         const stripe = new THREE.Mesh(new THREE.BoxGeometry(.48, 2.6, .48), glow);
         stripe.position.copy(post.position);
-        stripe.position.y = 4.1;
+        stripe.position.y = gateY + 4.1;
         group.add(stripe);
       });
       const beam = new THREE.Mesh(new THREE.BoxGeometry(15.2, .28, .4), glow);
       beam.position.copy(sample.point);
-      beam.position.y = 6.15;
+      beam.position.y = gateY + 6.15;
       beam.rotation.y = Math.atan2(sample.tangent.x, sample.tangent.z);
       group.add(beam);
       world.add(group);
@@ -439,7 +468,8 @@
         }
         const pivot = new THREE.Group();
         pivot.add(wheel);
-        pivot.position.set(side * spec.wheelX, radius + .08, z);
+        const axle=spec.wheelLayout[wheels.length];
+        pivot.position.set(axle.x,radius+.08,axle.z);
         group.add(pivot);
         wheels.push({pivot, wheel, front: z > 0});
       });
@@ -466,16 +496,18 @@
       model.group.traverse(mesh => { if(mesh.geometry) oldGeometry.add(mesh.geometry); if(mesh.material) oldMaterials.add(mesh.material); });
       [...model.group.children].forEach(child => { if(!pivots.has(child)) model.group.remove(child); });
       model.group.add(imported.body);
-      model.wheels.forEach((entry,i) => {entry.wheel.clear();entry.wheel.add(imported.wheels[i]);});
+      model.wheels.forEach((entry,i) => {
+        entry.wheel.clear();entry.wheel.add(imported.wheels[i]);
+        entry.pivot.position.x=carSpecs[type].wheelLayout[i].x;
+        entry.pivot.position.z=carSpecs[type].wheelLayout[i].z;
+      });
       oldGeometry.forEach(geometry => geometry.dispose());
       oldMaterials.forEach(material => material.dispose());
-      // Brake lamps stay independent of the source atlas and light up on braking.
-      const rearLamp = new THREE.MeshBasicMaterial({color:0xff354e});
-      model.rearLamp = rearLamp;
-      const bodyBounds = new THREE.Box3().setFromObject(imported.body);
-      [-1,1].forEach(side => part(model.group,new THREE.BoxGeometry(.32,.1,.04),rearLamp,side*carSpecs[type].width*.32,.8,bodyBounds.min.z-.02));
+      // Illuminate authored lamp faces or surface-fitted overlays, not bounding-box lamps.
+      model.rearLamp = imported.rearLamp || new THREE.MeshBasicMaterial({color:0xff354e});
+      model.brakeMaterials = imported.brakeMaterials || [];
       model.assetState = 'ready';
-      if(selectedCar === type) document.querySelector('#modelStatus').textContent = 'Kenney CC0 model';
+      if(selectedCar === type) document.querySelector('#modelStatus').textContent = 'Comrade1280 · CC BY 4.0 model';
     }, error => {
       model.assetState = 'failed';
       console.warn('Vehicle asset could not load:', type, error);
@@ -487,7 +519,7 @@
     resetOrbit();
     const spawn = samples[0];
     if (physics) physics.reset(spawn.point.x,spawn.point.z,Math.atan2(spawn.tangent.x,spawn.tangent.z));
-    keys.clear();
+    releaseControls();
     document.querySelectorAll('[data-key]').forEach(button => button.classList.remove('pressed'));
     motion.speed = 0;
     motion.heading = Math.atan2(spawn.tangent.x, spawn.tangent.z);
@@ -519,12 +551,13 @@
       physics.body.position.copy(previous.position);
       physics.body.position.y+=.2;
       physics.body.quaternion.copy(previous.quaternion);
-      keys.clear();motion.speed=0;
+      physics.syncRenderState();
+      releaseControls();motion.speed=0;
       document.querySelectorAll('[data-key]').forEach(button=>button.classList.remove('pressed'));
     }
     selectedCar = type;
     loadCarAsset(type);
-    document.querySelector('#modelStatus').textContent = carModels[type].assetState === 'ready' ? 'Kenney CC0 model' : carModels[type].assetState === 'failed' ? 'Model unavailable · fallback car' : 'Loading car model…';
+    document.querySelector('#modelStatus').textContent = carModels[type].assetState === 'ready' ? 'Comrade1280 · CC BY 4.0 model' : carModels[type].assetState === 'failed' ? 'Model unavailable · fallback car' : 'Loading car model…';
     Object.entries(carModels).forEach(([name, model]) => { model.group.visible = name === type; });
     motion.speed = THREE.MathUtils.clamp(motion.speed, -carSpecs[type].maxSpeed * .45, carSpecs[type].maxSpeed);
     document.querySelectorAll('[data-car]').forEach(button => {
@@ -547,46 +580,68 @@
   document.querySelector('#resetButton').addEventListener('click', resetVehicle);
 
   const drivingKeys = new Set(['w', 'a', 's', 'd', 'arrowup', 'arrowleft', 'arrowdown', 'arrowright', ' ']);
+  function syncInputKey(key) {
+    if (keyboardKeys.has(key) || [...touchPointers.values()].some(input => input.key === key)) keys.add(key);
+    else keys.delete(key);
+  }
   window.addEventListener('keydown', event => {
     if (event.target.matches('select, input, textarea') || (event.target.matches('button') && [' ', 'Enter'].includes(event.key))) return;
     const key = event.key.toLowerCase();
-    if (drivingKeys.has(key)) { event.preventDefault(); keys.add(key); }
+    if (drivingKeys.has(key)) { event.preventDefault(); keyboardKeys.add(key); syncInputKey(key); }
     if (!event.repeat && ['1', '2', '3', '4'].includes(key)) chooseCar(['comet', 'rally', 'pickup', 'hypercar'][Number(key) - 1]);
     if (!event.repeat && key === 'c') setCameraMode();
     if (!event.repeat && key === 'r') resetVehicle();
   });
-  window.addEventListener('keyup', event => keys.delete(event.key.toLowerCase()));
+  window.addEventListener('keyup', event => {
+    const key = event.key.toLowerCase(); keyboardKeys.delete(key); syncInputKey(key);
+  });
   function releaseControls() {
     orbit.pointer = null;
-    keys.clear();
+    keyboardKeys.clear(); touchPointers.clear(); keys.clear();
     document.querySelectorAll('[data-key]').forEach(button => button.classList.remove('pressed'));
   }
   window.addEventListener('blur', releaseControls);
   document.addEventListener('visibilitychange', () => { if (document.hidden) releaseControls(); });
+  const preventSelection = event => event.preventDefault();
   document.querySelectorAll('[data-key]').forEach(button => {
     const key = button.dataset.key;
-    button.addEventListener('pointerdown', event => { event.preventDefault(); button.setPointerCapture(event.pointerId); keys.add(key); button.classList.add('pressed'); });
-    const release = () => { keys.delete(key); button.classList.remove('pressed'); };
+    button.addEventListener('contextmenu', preventSelection);
+    button.addEventListener('selectstart', preventSelection);
+    button.addEventListener('pointerdown', event => {
+      if (event.pointerType === 'mouse' && event.button !== 0) return;
+      event.preventDefault(); button.setPointerCapture(event.pointerId);
+      touchPointers.set(event.pointerId, {key, button}); syncInputKey(key);
+      button.classList.add('pressed');
+    });
+    const release = event => {
+      if (touchPointers.get(event.pointerId)?.button !== button) return;
+      touchPointers.delete(event.pointerId); syncInputKey(key);
+      button.classList.toggle('pressed', [...touchPointers.values()].some(input => input.button === button));
+    };
     button.addEventListener('pointerup', release);
     button.addEventListener('pointercancel', release);
     button.addEventListener('lostpointercapture', release);
   });
 
-  // Drag only the scene with the primary mouse button. Touch pedals keep their own pointers.
+  // One scene pointer controls look; other fingers can keep driving independently.
+  canvas.addEventListener('contextmenu', preventSelection);
+  canvas.addEventListener('selectstart', preventSelection);
   canvas.addEventListener('pointerdown', event => {
-    if (event.pointerType !== 'mouse' || event.button !== 0) return;
+    if ((event.pointerType !== 'mouse' && event.pointerType !== 'touch') || (event.pointerType === 'mouse' && event.button !== 0)) return;
+    event.preventDefault();
+    if (orbit.pointer !== null) return;
     orbit.pointer = event.pointerId; orbit.x = event.clientX; orbit.y = event.clientY; orbit.idle = 0;
     canvas.setPointerCapture(event.pointerId);
-    event.preventDefault();
   });
   canvas.addEventListener('pointermove', event => {
     if (orbit.pointer !== event.pointerId) return;
+    event.preventDefault();
     orbit.yaw -= (event.clientX - orbit.x) * .006;
     orbit.yaw = Math.atan2(Math.sin(orbit.yaw), Math.cos(orbit.yaw));
     orbit.pitch = THREE.MathUtils.clamp(orbit.pitch + (event.clientY - orbit.y) * .005, -.4, .8);
     orbit.x = event.clientX; orbit.y = event.clientY; orbit.idle = 0;
   });
-  const endOrbit = event => { if (orbit.pointer === event.pointerId) orbit.pointer = null; };
+  const endOrbit = event => { if (orbit.pointer === event.pointerId) { orbit.pointer = null; orbit.idle = 0; } };
   canvas.addEventListener('pointerup', endOrbit);
   canvas.addEventListener('pointercancel', endOrbit);
   canvas.addEventListener('lostpointercapture', endOrbit);
@@ -606,17 +661,19 @@
     if (physics) {
       const state=physics.step(delta,{throttle,steer:steering,brake:keys.has(' ')});
       motion.speed=state.speed;
-      vehicle.quaternion.copy(physics.body.quaternion);
+      vehicle.quaternion.copy(physics.renderQuaternion);
       const offset=new THREE.Vector3(0,-1.05,0).applyQuaternion(vehicle.quaternion);
-      vehicle.position.copy(physics.body.position).add(offset);
+      vehicle.position.copy(physics.renderPosition).add(offset);
       const forward=new THREE.Vector3(0,0,1).applyQuaternion(vehicle.quaternion);
       if (Math.hypot(forward.x,forward.z)>.15) motion.heading=Math.atan2(forward.x,forward.z);
       carModels[selectedCar].wheels.forEach(({wheel,pivot},i)=>{
-        const w=physics.car.wheelInfos[i];
-        pivot.position.y=1.05+w.chassisConnectionPointLocal.y-w.suspensionLength;
+        const w=physics.renderWheels[i];
+        pivot.position.y=1.05+physics.car.wheelInfos[i].chassisConnectionPointLocal.y-w.suspensionLength;
         pivot.rotation.y=w.steering;wheel.rotation.x=w.rotation;
       });
-      carModels[selectedCar].rearLamp.color.setHex(keys.has(' ')||throttle<0?0xff8090:0xff354e);
+      const braking=keys.has(' ')||throttle<0, model=carModels[selectedCar];
+      if(model.brakeMaterials?.length) model.brakeMaterials.forEach(material => {material.emissiveIntensity=braking?1.5:.22;});
+      else model.rearLamp.color.setHex(braking?0xff8090:0xff354e);
       document.querySelector('#speedValue').textContent=String(Math.round(physics.body.velocity.length()*2.236936));
       const up=new THREE.Vector3(0,1,0).applyQuaternion(vehicle.quaternion);
       document.querySelector('#surfaceValue').textContent=up.y<.1?'Overturned? Press R / reset':state.grounded?state.grounded+' wheels grounded':'AIRBORNE · ↑↓ pitch / ←→ roll';
@@ -629,7 +686,8 @@
   const target = new THREE.Vector3();
   const desired = new THREE.Vector3();
   function updateCamera(delta) {
-    orbit.idle += delta;
+    if (orbit.pointer === null) orbit.idle += delta;
+    else orbit.idle = 0;
     if (orbit.idle > 4) {
       const decay = Math.exp(-3 * delta);
       orbit.yaw *= decay; orbit.pitch *= decay;
@@ -637,8 +695,9 @@
     const lookHeading = motion.heading + orbit.yaw;
     if (cameraMode === 2) {
       const hoodOffset = carSpecs[selectedCar].length * .4;
-      desired.set(Math.sin(motion.heading) * hoodOffset, selectedCar === 'comet' || selectedCar === 'hypercar' ? 1.9 : 2.3, Math.cos(motion.heading) * hoodOffset).add(vehicle.position);
-      target.set(Math.sin(lookHeading) * 22, 2.0 - Math.sin(orbit.pitch) * 22, Math.cos(lookHeading) * 22).add(vehicle.position);
+      const eyeHeight = selectedCar === 'comet' || selectedCar === 'hypercar' ? 1.9 : 2.3;
+      desired.set(0,eyeHeight,hoodOffset).applyQuaternion(vehicle.quaternion).add(vehicle.position);
+      target.set(Math.sin(orbit.yaw)*22,eyeHeight-Math.sin(orbit.pitch)*22,Math.cos(orbit.yaw)*22).applyQuaternion(vehicle.quaternion).add(vehicle.position);
     } else {
       const distance = cameraMode === 1 ? 16 : 7.8;
       const height = cameraMode === 1 ? 8 : 4.3;

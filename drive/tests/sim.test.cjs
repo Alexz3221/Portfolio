@@ -112,7 +112,7 @@ test('hood camera stays on the car at high speed rather than trailing behind', (
     sim.keys.add('w'); sim.keys.add('a');
     for (let i = 0; i < 60; i++) { sim.updateVehicle(1/60); sim.updateCamera(1/60); }
     const offset = sim.camera.position.clone().sub(sim.vehicle.position);
-    const forward = new THREE.Vector3(Math.sin(sim.motion.heading), 0, Math.cos(sim.motion.heading));
+    const forward = new THREE.Vector3(0,0,1).applyQuaternion(sim.vehicle.quaternion);
     assert.ok(Math.abs(offset.dot(forward) - sim.carSpecs[car].length * .4) < .00001);
     assert.ok(sim.camera.position.toArray().every(Number.isFinite));
   }
@@ -147,6 +147,6 @@ test('lazy models cache once, late completion never changes selection, and failu
   assert.equal(sim.carModels.rally.assetState,'failed');assert.ok(sim.carModels.rally.group.children.length>4);
   assert.match(document.querySelector('#modelStatus').textContent,/fallback/);
   sim.chooseCar('hypercar');assert.equal(calls.hypercar,1);assert.equal(sim.carModels.hypercar.group.visible,true);
-  assert.equal(document.querySelector('#modelStatus').textContent,'Kenney CC0 model');
+  assert.equal(document.querySelector('#modelStatus').textContent,'Comrade1280 · CC BY 4.0 model');
   sim.chooseMap('desert');sim.chooseMap('alpine');assert.equal(calls.hypercar,1);
 });

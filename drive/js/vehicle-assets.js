@@ -1,52 +1,70 @@
-/* Authored Kenney CC0 meshes. See assets/vehicles/README.md for provenance. */
+/* Comrade1280's Generic passenger car pack, CC BY 4.0. See /drive/credits.html. */
 (function(root) {
   'use strict';
-  const files = {comet:'sedan-sports', rally:'hatchback-sports', pickup:'truck-flat', hypercar:'race-future'};
+  const files = {comet:'comet',rally:'rally',pickup:'pickup',hypercar:'hypercar'};
+  const wheelNames = ['wheel-back-right','wheel-front-right','wheel-back-left','wheel-front-left'];
   function prepare(source, spec) {
-    const body = new THREE.Group();
     source.updateMatrixWorld(true);
-    const bounds = new THREE.Box3().setFromObject(source);
-    const size = bounds.getSize(new THREE.Vector3());
-    const sx = spec.width / size.x, sz = spec.length / size.z, sy = sx;
-    const front = source.getObjectByName('wheel-front-left');
-    const back = source.getObjectByName('wheel-back-left');
-    if (!front || !back) throw new Error('Vehicle asset is missing wheel nodes');
-    const axleCenter = (front.position.z + back.position.z) / 2;
-    const wheelNames = ['wheel-back-right','wheel-front-right','wheel-back-left','wheel-front-left'];
-    const wheels = wheelNames.map(name => {
-      const node = source.getObjectByName(name);
-      if (!node) throw new Error('Vehicle asset is missing ' + name);
-      const wheel = new THREE.Group();
-      // Bake the node transform into geometry, then recenter the complete wheel.
-      const box = new THREE.Box3().setFromObject(node), center = box.getCenter(new THREE.Vector3()), extents = box.getSize(new THREE.Vector3());
-      node.traverse(mesh => {
-        if (!mesh.isMesh) return;
-        const geometry = mesh.geometry.clone().applyMatrix4(mesh.matrixWorld);
-        geometry.translate(-center.x,-center.y,-center.z);
-        geometry.scale(.35/extents.x, spec.wheelRadius*2/extents.y, spec.wheelRadius*2/extents.z);
-        const copy = new THREE.Mesh(geometry, mesh.material);
-        copy.castShadow = copy.receiveShadow = true; wheel.add(copy);
+    const wheelNodes=wheelNames.map(name=>{
+      const node=source.getObjectByName(name);
+      if(!node) throw new Error('Vehicle asset is missing '+name);
+      return node;
+    });
+    const centers=wheelNodes.map(node=>new THREE.Box3().setFromObject(node).getCenter(new THREE.Vector3()));
+    const axleCenter=centers.reduce((v,p)=>v.add(p),new THREE.Vector3()).multiplyScalar(.25);
+    const body=new THREE.Group(), brakeMaterials=new Set();
+    const materials=new Set();
+    source.traverse(mesh=>{
+      if(!mesh.isMesh) return;
+      for(const material of Array.isArray(mesh.material)?mesh.material:[mesh.material]) {
+        materials.add(material);
+        // Source interiors are sparse. Opaque smoked glazing hides open shells
+        // and avoids transparent sorting artifacts on low-end mobile GPUs.
+        if(material.name.startsWith('Glass')){
+          material.transparent=false;material.opacity=1;material.depthWrite=true;
+          material.color.setHex(0x172731);material.roughness=.22;material.metalness=.15;
+        }
+        if(material.name.startsWith('BrakeLens')) {
+          material.emissive.setHex(0xff3020); material.emissiveIntensity=.22;
+          brakeMaterials.add(material);
+        }
+      }
+    });
+    materials.forEach(material=>{
+      // Keep the source's body, glass, wheel and optics textures/materials.
+      for(const texture of Object.values(material)) if(texture?.isTexture) texture.anisotropy=4;
+    });
+    const wheels=wheelNodes.map((node,i)=>{
+      const wheel=new THREE.Group();
+      node.traverse(mesh=>{
+        if(!mesh.isMesh) return;
+        const geometry=mesh.geometry.clone().applyMatrix4(mesh.matrixWorld);
+        geometry.translate(-centers[i].x,-centers[i].y,-centers[i].z);
+        const copy=new THREE.Mesh(geometry,mesh.material);
+        copy.castShadow=copy.receiveShadow=true; wheel.add(copy);
       });
       return wheel;
     });
-    source.traverse(mesh => {
-      if (!mesh.isMesh || wheelNames.some(name => {let n=mesh; while(n){if(n.name===name)return true;n=n.parent;}return false;})) return;
-      const geometry = mesh.geometry.clone().applyMatrix4(mesh.matrixWorld);
-      geometry.translate(0, -front.position.y, -axleCenter);
-      geometry.scale(sx,sy,sz); geometry.translate(0,.48,0);
-      const copy = new THREE.Mesh(geometry,mesh.material);
-      copy.castShadow = copy.receiveShadow = true; body.add(copy);
+    // Static suspension compression is gravity / (4 * spring stiffness).
+    // Align the authored wheel arches with physical wheel centers at ride height.
+    const archHeight=1.05-.15-.42+9.81/(4*32);
+    source.traverse(mesh=>{
+      if(!mesh.isMesh) return;
+      for(let parent=mesh;parent;parent=parent.parent) if(wheelNodes.includes(parent)) return;
+      const geometry=mesh.geometry.clone().applyMatrix4(mesh.matrixWorld);
+      geometry.translate(-axleCenter.x,archHeight-axleCenter.y,-axleCenter.z);
+      const copy=new THREE.Mesh(geometry,mesh.material);
+      copy.castShadow=copy.receiveShadow=true; body.add(copy);
     });
-    // Copies own their geometry; materials and the shared atlas remain cached.
-    const originals = new Set(); source.traverse(mesh=>{if(mesh.geometry) originals.add(mesh.geometry);});
+    const originals=new Set();source.traverse(mesh=>{if(mesh.geometry)originals.add(mesh.geometry);});
     originals.forEach(geometry=>geometry.dispose());
-    return {body,wheels};
+    return {body,wheels,brakeMaterials:[...brakeMaterials],rearLamp:[...brakeMaterials][0]};
   }
-  function load(type, spec, success, failure) {
-    if (!THREE.GLTFLoader) { failure(new Error('Vehicle loader unavailable')); return; }
-    new THREE.GLTFLoader().load('assets/vehicles/' + files[type] + '.glb', gltf => {
-      try { success(prepare(gltf.scene,spec)); } catch(error) { failure(error); }
-    }, undefined, failure);
+  function load(type,spec,success,failure) {
+    if(!THREE.GLTFLoader){failure(new Error('Vehicle loader unavailable'));return;}
+    new THREE.GLTFLoader().load('assets/vehicles/passenger/'+files[type]+'.glb',gltf=>{
+      try{success(prepare(gltf.scene,spec));}catch(error){failure(error);}
+    },undefined,failure);
   }
-  root.DriveVehicleAssets = {load,prepare,files};
-})(typeof globalThis !== 'undefined' ? globalThis : this);
+  root.DriveVehicleAssets={load,prepare,files};
+})(typeof globalThis!=='undefined'?globalThis:this);
