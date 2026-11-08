@@ -32,3 +32,15 @@ node --check js/main.js
 The tests execute the actual application source against Three.js r128 with DOM and renderer stubs. They check map geometry/spawns, repeat switching and disposal, top speeds, braking/reverse/off-road behavior, car switching, touch release/reset, native keyboard behavior, and hood-camera tracking. They do not verify WebGL rendering or real-device touch behavior.
 
 Before merging, run a browser smoke test on desktop and phone (portrait and landscape): load every map/car, drive and brake, cycle cameras, reset while driving, change maps repeatedly, and return after switching tabs. Check for console errors and overlapping controls. `main` deploys through GitHub Pages; feature branches do not publish through that workflow.
+
+## Physics proving ground (phase one)
+
+The default route now uses bundled MIT-licensed CANNON 0.6.2 rigid-body physics, a 1,200 kg Comet chassis and four raycast spring/damper wheels. The new course has a matching rendered/collision heightfield, two hills, a tilted launch ramp straight ahead of spawn, solid square tree trunks, and a cone-marked boundary. Gravity and collisions control the chassis orientation and landing; it is not snapped to the ground. The original three routes retain their original arcade handling and car selection, explicitly labeled in the menu. No other site pages change.
+
+- Accelerate/brake normally on the ground. Acceleration tapers with speed; air drag and mild rolling resistance allow coasting. Reverse first brakes forward motion.
+- In the air, up/down apply pitch torque and left/right apply roll torque. Release the accelerator after takeoff for a neutral jump, or hold it to rotate. The square button is a brake, not an air reset.
+- R / Reset on runway recovers an overturned vehicle. Map changes discard the previous physics world.
+- The course intentionally uses one existing stylized car. A licensed car model and physics conversions for the other maps are not part of phase one.
+- Collisions use a box chassis and square trunks, not detailed mesh bodywork. Tree foliage is decorative. Raycast wheels are an approximation, not a full tire model. The fixed 120 Hz physics step caps catch-up at 100 ms, so heavily throttled devices may slow down instead of simulating a long backlog.
+
+Additional tests exercise actual physics for spring settling, acceleration/coasting/braking/reverse, takeoff and landing, air rotation, tree impacts, frame-rate consistency, and application integration. Browser/physical-phone driving feel still needs manual review before merge. Headless Chromium could not start in the current execution environment (`socket() failed: Operation not permitted`), so no WebGL screenshots or real-device validation are claimed.

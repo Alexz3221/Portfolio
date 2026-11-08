@@ -1,6 +1,11 @@
 {
   "name": "portfolio-drive",
   "private": true,
-  "scripts": {"test": "node --test tests/*.test.cjs"},
-  "devDependencies": {"three": "0.128.0"}
+  "scripts": {
+    "test": "node --test tests/*.test.cjs"
+  },
+  "devDependencies": {
+    "cannon": "^0.6.2",
+    "three": "0.128.0"
+  }
 }

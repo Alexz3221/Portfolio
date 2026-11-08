@@ -6,7 +6,7 @@ const THREE = require('three');
 
 function harness() {
   class Element {
-    constructor(dataset = {}) { this.dataset = dataset; this.listeners = {}; this.classes = new Set(); this.attributes = {}; this.textContent = ''; this.value = ''; this.classList = {add: x => this.classes.add(x), remove: x => this.classes.delete(x), toggle: (x, on) => on ? this.classes.add(x) : this.classes.delete(x)}; }
+    constructor(dataset = {}) { this.style = {}; this.dataset = dataset; this.listeners = {}; this.classes = new Set(); this.attributes = {}; this.textContent = ''; this.value = ''; this.classList = {add: x => this.classes.add(x), remove: x => this.classes.delete(x), toggle: (x, on) => on ? this.classes.add(x) : this.classes.delete(x)}; }
     addEventListener(name, fn) { this.listeners[name] = fn; }
     setAttribute(name, value) { this.attributes[name] = value; }
     setPointerCapture() {}
@@ -22,16 +22,17 @@ function harness() {
   };
   const window = {THREE, devicePixelRatio: 1, innerWidth: 1280, innerHeight: 800, addEventListener: (name, fn) => { window[name] = fn; }};
   const fakeThree = {...THREE, WebGLRenderer: class {constructor(){this.shadowMap={};} setPixelRatio(){} setSize(){} render(){} }};
-  const context = vm.createContext({window, document, THREE: fakeThree, requestAnimationFrame() {}, console});
+  const context = vm.createContext({window, document, THREE: fakeThree, DrivePhysics: require('../js/physics.js'), requestAnimationFrame() {}, console});
   const source = fs.readFileSync(require.resolve('../js/main.js'), 'utf8');
   vm.runInContext(source.replace(/\}\)\(\);\s*$/, 'globalThis.sim = {maps, samples: () => samples, world, vehicle, motion, carSpecs, carModels, keys, chooseMap, chooseCar, resetVehicle, updateVehicle, distanceToRoad, camera, updateCamera, setCameraMode, renderer, sky};})();'), context);
+  context.sim.chooseMap('lakeside');
   return {sim: context.sim, document, window, cars, controls};
 }
 
 test('all three maps have distinct drivable, finite closed routes and safe spawns', () => {
   const {sim} = harness();
   const shapes = new Set();
-  for (const id of Object.keys(sim.maps)) {
+  for (const id of Object.keys(sim.maps).filter(id => id !== 'course')) {
     sim.chooseMap(id);
     const points = sim.samples();
     assert.equal(points.length, 480);
@@ -56,7 +57,7 @@ test('map switching disposes old GPU resources and does not accumulate scenery',
   let disposed = false;
   sim.world.children[0].geometry.addEventListener('dispose', () => { disposed = true; });
   for (let i = 0; i < 12; i++) {
-    const id = Object.keys(sim.maps)[i % 3]; sim.chooseMap(id);
+    const id = Object.keys(sim.maps).filter(id => id !== 'course')[i % 3]; sim.chooseMap(id);
     counts[id] ??= sim.world.children.length;
     assert.equal(sim.world.children.length, counts[id]);
   }
@@ -120,4 +121,12 @@ test('hood camera stays on the car at high speed rather than trailing behind', (
     assert.ok(Math.abs(offset.dot(forward) - sim.carSpecs[car].length * .4) < .00001);
     assert.ok(sim.camera.position.toArray().every(Number.isFinite));
   }
+});
+
+ test('physics course integrates with controls, car lock, reset and map switching', () => {
+  const {sim,document}=harness();sim.chooseMap('course');sim.chooseCar('pickup');assert.equal(sim.carModels.comet.group.visible,true);assert.equal(sim.carModels.pickup.group.visible,false);
+  sim.keys.add('w');for(let i=0;i<240;i++)sim.updateVehicle(1/60);assert.ok(sim.vehicle.position.z>-20);assert.ok(sim.vehicle.position.toArray().every(Number.isFinite));
+  sim.resetVehicle();assert.equal(sim.keys.size,0);assert.ok(Math.abs(sim.vehicle.position.z+28)<.01);
+  sim.chooseMap('alpine');assert.equal(document.querySelector('.garage').style.display,'');sim.chooseCar('pickup');assert.equal(sim.carModels.pickup.group.visible,true);
+  sim.chooseMap('course');assert.equal(document.querySelector('.garage').style.display,'none');
 });
