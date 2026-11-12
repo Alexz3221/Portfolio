@@ -27,7 +27,7 @@ test('stunt renderer has one exact collision-matched road, markings and real sla
  assert.equal(sim.samples().length,P.stuntRoute.length);
  const meshes=['stunt-route-solids','stunt-route-markings'].map(n=>sim.world.getObjectByName(n));let disposed=0;
  meshes.forEach(m=>m.geometry.addEventListener('dispose',()=>disposed++));
- const count=p.world.bodies.length;sim.chooseMap('lakeside');assert.equal(disposed,2);assert.equal(sim.physics().stuntSlabs.length,0);
+ const count=p.world.bodies.length;sim.chooseMap('city');assert.equal(disposed,2);assert.equal(sim.physics().stuntSlabs.length,0);
  for(let i=0;i<3;i++){sim.chooseMap('racetrack');sim.resetVehicle();assert.equal(sim.physics().world.bodies.length,count);assert.ok(sim.physics().body.position.y>0);sim.chooseMap('mountain');}
 });
 

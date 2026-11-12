@@ -3,7 +3,7 @@ const assert=require('node:assert/strict');
 const C=require('cannon');
 const P=require('../js/physics');
 const cars=Object.keys(P.vehicles);
-const maps=['lakeside','desert','alpine','mountain','racetrack'];
+const maps=['city','mountain','racetrack'];
 const up=p=>p.body.quaternion.vmult(new C.Vec3(0,1,0)).y;
 const contact=p=>p.world.contacts.some(c=>c.bi===p.body||c.bj===p.body);
 

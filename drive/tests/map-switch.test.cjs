@@ -28,7 +28,7 @@ function harness(assetLoader) {
   const context = vm.createContext({window, document, THREE: fakeThree, DriveVehicleAssets: assetLoader, DrivePhysics: require('../js/physics.js'), requestAnimationFrame() {}, console});
   const source = fs.readFileSync(require.resolve('../js/main.js'), 'utf8');
   vm.runInContext(source.replace(/\}\)\(\);\s*$/, 'globalThis.sim = {physics: () => physics, maps, samples: () => samples, world, vehicle, motion, carSpecs, carModels, keys, chooseMap, chooseCar, resetVehicle, updateVehicle, distanceToRoad, camera, updateCamera, setCameraMode, renderer, sky};})();'), context);
-  context.sim.chooseMap('lakeside');
+  context.sim.chooseMap('city');
   return {sim: context.sim, document, window, cars, controls};
 }
 
@@ -38,7 +38,7 @@ test('committing the route selector returns driving input without changing cars'
   const selector=document.querySelector('#mapSelect');
   for(const car of ['comet','rally','pickup','hypercar']) {
     sim.chooseCar(car);
-    for(const map of ['mountain','racetrack','lakeside','desert','alpine']) {
+    for(const map of ['city','mountain','racetrack']) {
       selector.focus(); selector.value=map;
       selector.listeners.change({target:selector});
       assert.notEqual(document.activeElement,selector,car+'/'+map+' releases dropdown focus');

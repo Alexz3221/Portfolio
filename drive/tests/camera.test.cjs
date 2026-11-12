@@ -84,7 +84,7 @@ test('all maps have bounded tiled textures and switching disposes them', () => {
     }});
     assert.ok(textures.size>=3);
     let disposed=0; textures.forEach(t=>t.addEventListener('dispose',()=>disposed++));
-    sim.chooseMap(id==='mountain'?'lakeside':'mountain');
+    sim.chooseMap(id==='mountain'?'city':'mountain');
     assert.equal(disposed,textures.size);
   }
 });
@@ -92,7 +92,7 @@ test('all maps have bounded tiled textures and switching disposes them', () => {
 
 test('sky follows distant cameras and cannot cross the far clipping plane', () => {
   const {sim} = harness();
-  for (const map of ['lakeside','desert','alpine','mountain','racetrack']) {
+  for (const map of ['city','mountain','racetrack']) {
     sim.chooseMap(map);
     for (const [x,z] of [[0,200],[158,-65],[250,250],[-250,-250]]) {
       sim.vehicle.position.set(x,0,z);sim.updateCamera(1);
@@ -106,29 +106,33 @@ test('sky follows distant cameras and cannot cross the far clipping plane', () =
   }
 });
 
-test('scenic maps have distinct terrain detail and bounded instanced roadside scenery', () => {
+test('maps have distinct terrain detail and switching disposes textures', () => {
   const {sim}=harness(), signatures=new Set();
-  for (const map of ['lakeside','desert','alpine','mountain','racetrack']) {
+  for (const map of ['city','mountain','racetrack']) {
     sim.chooseMap(map);
     const ground=sim.world.children[0];
     assert.equal(ground.material.bumpMap,ground.material.map);
     signatures.add(Buffer.from(ground.material.map.image.data).toString('base64'));
-    const detail=sim.world.getObjectByName('roadside-detail');
-    assert.ok(detail.isInstancedMesh && detail.count>100 && detail.count<=360);
+    if(map==='city') assert.ok(sim.world.children.some(mesh=>mesh.name==='city-building'));
+    else {
+      const detail=sim.world.getObjectByName('roadside-detail');
+      assert.ok(detail.isInstancedMesh && detail.count>100 && detail.count<=360);
+    }
     const textures=new Set();sim.world.traverse(mesh=>{if(mesh.material)Object.values(mesh.material).forEach(value=>{if(value?.isTexture)textures.add(value);});});
     let disposed=0;textures.forEach(t=>t.addEventListener('dispose',()=>disposed++));
     sim.chooseMap('mountain');assert.equal(disposed,textures.size);
   }
-  assert.equal(signatures.size,5);
+  assert.equal(signatures.size,3);
 });
 
-test('scenic roads climb and descend on the matching collider without floating scenery', () => {
+test('roads follow their matching colliders without floating scenery', () => {
   const {sim}=harness();
-  for (const map of ['lakeside','desert','alpine','mountain']) {
+  for (const map of ['city','mountain']) {
     sim.chooseMap(map);
     const physics=sim.physics(), samples=sim.samples();
     const heights=samples.map(s=>s.point.y);
-    assert.ok(Math.max(...heights)-Math.min(...heights)>(map==='racetrack'?.45:4), map+' meaningful elevation');
+    if(map==='city') assert.ok(heights.every(y=>y===0), 'city road is level');
+    else assert.ok(Math.max(...heights)-Math.min(...heights)>(map==='racetrack'?.45:4), map+' meaningful elevation');
     let uphill=0, downhill=0, turns=0;
     samples.forEach((s,i)=>{
       const next=samples[(i+1)%samples.length];
@@ -136,9 +140,10 @@ test('scenic roads climb and descend on the matching collider without floating s
       if(next.point.y<s.point.y-.005) downhill++;
       if(s.tangent.angleTo(next.tangent)>.01) turns++;
     });
-    assert.ok(uphill>(map==='racetrack'?8:50) && downhill>(map==='racetrack'?8:50) && turns>50,map+' hills and bends');
+    if(map==='city') assert.ok(turns>20, 'city route bends around blocks');
+    else assert.ok(uphill>(map==='racetrack'?8:50) && downhill>(map==='racetrack'?8:50) && turns>50,map+' hills and bends');
     const road=sim.world.children.filter(o=>o.name==='road-ribbon');
-    assert.equal(road.length,5);
+    assert.equal(road.length,map==='city'?7:5);
     road.forEach(mesh=>{
       assert.ok(mesh.material.polygonOffset);
       const positions=mesh.geometry.attributes.position;
@@ -162,9 +167,9 @@ test('scenic roads climb and descend on the matching collider without floating s
   }
 });
 
-test('each scenic loop can be driven through its hills and curves with suspension contact', () => {
+test('city loop can be driven with suspension contact', () => {
   const {sim}=harness();
-  for(const map of ['lakeside','desert','alpine']) {
+  for(const map of ['city']) {
     sim.chooseMap(map);
     const p=sim.physics(), route=sim.samples();
     let progress=0, maxError=0, airborne=0;
@@ -251,7 +256,7 @@ test('long-press suppression is scoped to canvas and touch controls',()=>{
 
 test('chase and wide cameras center the car body at every heading, including orbit',()=>{
   const {sim}=harness();
-  for(const map of ['mountain','racetrack','alpine']) {
+  for(const map of ['mountain','racetrack','city']) {
     sim.chooseMap(map);
     for(const mode of [0,1]) {
       if(mode)sim.setCameraMode();
@@ -267,9 +272,13 @@ test('chase and wide cameras center the car body at every heading, including orb
   }
 });
 
-test('replacement maps have collidable elevation, solid obstacles and bounded terrain cost',()=>{
+test('map lineup has city buildings, mountain elevation and circuit obstacles',()=>{
   const {sim}=harness();
-  assert.deepEqual(Object.keys(sim.maps).sort(),['alpine','desert','lakeside','mountain','racetrack']);
+  assert.deepEqual(Object.keys(sim.maps).sort(),['city','mountain','racetrack']);
+  sim.chooseMap('city');
+  assert.equal(sim.world.getObjectByName('terrain').geometry.attributes.position.count,201*201);
+  assert.ok(sim.world.children.some(mesh=>mesh.name==='city-building'));
+  assert.ok(sim.samples().every(sample=>sample.point.y===0));
   sim.chooseMap('mountain');
   assert.ok(Math.max(...sim.samples().map(s=>s.point.y))-Math.min(...sim.samples().map(s=>s.point.y))>47);
   assert.equal(sim.world.getObjectByName('terrain').geometry.attributes.position.count,201*201);
@@ -336,7 +345,7 @@ test('solid obstacle collision stops every car at ordinary driving speed',()=>{
 // scaling is a separate CSS/viewport contract below, not simulated by the DOM.
 test('rapid scene taps and extra touch fingers never change camera zoom', () => {
   const {sim,controls}=harness();
-  sim.chooseMap('lakeside');
+  sim.chooseMap('city');
   const send=(target,name,id,extra={})=>target.listeners[name]({pointerType:'touch',pointerId:id,button:0,clientX:100,clientY:100,preventDefault(){},...extra});
   const throttle=controls.find(c=>c.dataset.key==='arrowup');
   for(let mode=0;mode<3;mode++) {

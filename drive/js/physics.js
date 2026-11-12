@@ -47,7 +47,7 @@
     if(p.x===0&&Math.abs(p.z)===110){p.tx=0;p.tz=-1;}
   });
   const stuntFeatures={jump:{x:0,launchZ:80,landingZ:72,gap:8,launchY:3,landingY:2,recommendedSpeed:[23,28]},balance:{x:0,z0:-55,z1:-95,width:3.6,height:4},overpass:{z:0,height:9,underpassX:0},floor:-8};
-  // Broad waves keep road grades manageable without flattening suspension physics.
+  // The mountain has a collidable ledge, the stunt route has a lowered recovery floor, and the city is level.
   function scenicHeight(map,x,z) {
     if (map === 'mountain') {
       // A narrow contour ledge cut into a massif, not a painted road on a hill.
@@ -60,12 +60,6 @@
         +55*smooth((-offset-6.5)/6)-60*smooth((offset-6.5)/6);
     }
     if (map === 'racetrack') return stuntFeatures.floor;
-    if (map === 'lakeside') {
-      const t=Math.max(0,Math.min(1,(Math.hypot(x-8,z-4)-40)/32));
-      return t*t*(3-2*t)*(4.5+2.5*Math.sin(x/65)+2*Math.sin(z/58));
-    }
-    if (map === 'desert') return 7+4*Math.sin(x/90)+3*Math.sin(z/66);
-    if (map === 'alpine') return 12.5+7.5*Math.sin(x/90)+5*Math.sin(z/75);
     return 0;
   }
   function mountainRadius(angle) { return 130+12*Math.sin(3*angle)+6*Math.cos(5*angle); }
@@ -82,7 +76,7 @@
   };
   function create(options={}) {
     const course = !options.map || options.map === 'course';
-    const edge=course?160:(options.map === 'mountain' || options.map === 'racetrack')?200:250, cells=edge;
+    const edge=course?160:200, cells=edge;
     const floorOffset=options.map==='racetrack'?stuntFeatures.floor:0;
     const analyticHeight=course?terrainHeight:(x,z)=>scenicHeight(options.map,x,z)-floorOffset;
     const data=Array.from({length:cells+1},(_,i)=>Array.from({length:cells+1},(_,j)=>analyticHeight(i*2-edge,edge-j*2)));

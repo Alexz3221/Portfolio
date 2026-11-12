@@ -20,21 +20,17 @@
     pickup: {name:'Pickup',color:0x25975b}
   }).map(([type,style]) => [type,{...DrivePhysics.vehicles[type],...style,wheelRadius:DrivePhysics.vehicles[type].radius}]));
   const maps = {
+    city: {name: 'City', caption: 'A district in progress · open road for now', ground: 0x809094, fog: 0x8299a5, skyLow: 0xc9d0c9, skyHigh: 0x536d86, mountain: 0x70858a, seed: 41732,
+      points: [[-116,-116],[-116,-45],[-116,45],[-104,116],[-45,116],[45,116],[116,104],[116,45],[116,-45],[104,-116],[45,-116],[-45,-116]]},
     mountain: {name: 'Cliffside mountain', caption: 'Narrow ledge · sheer drops · winding ascent', ground: 0x817969, fog: 0x9caeae, skyLow: 0xcbd8d2, skyHigh: 0x416b92, mountain: 0x83908b, seed: 93217,
       roadHalfWidth: 3.5, shoulderWidth: .5, points: DrivePhysics.mountainPoints},
     racetrack: {name: 'Racetrack / stunt course', caption: 'Follow arrows · gap: 52–63 mph · balance bridge: slow', ground: 0x47634a, fog: 0x9dbac7, skyLow: 0xd3e4e7, skyHigh: 0x386e9d, mountain: 0x7f9290, seed: 59221,
-      points: DrivePhysics.stuntRoute.map(p=>[p.x,p.z])},
-    lakeside: {name: 'Lakeside loop', caption: 'Twilight · rolling shoreline bends', ground: 0x1b2b2d, fog: 0x172633, skyLow: 0x50434f, skyHigh: 0x041020, mountain: 0x33434a, seed: 28473,
-      points: [[-58,-49],[-17,-83],[40,-72],[87,-42],[104,-5],[76,34],[70,68],[22,91],[-51,70],[-93,28],[-91,-12]]},
-    desert: {name: 'Desert highway', caption: 'Golden hour · sweeping dune crests', ground: 0xa27449, fog: 0xc09a78, skyLow: 0xe8b47a, skyHigh: 0x486d8b, mountain: 0x8e5940, seed: 73452,
-      points: [[-145,-95],[-60,-115],[50,-99],[105,-122],[158,-65],[139,5],[155,75],[70,115],[-20,90],[-105,110],[-155,55]]},
-    alpine: {name: 'Alpine pass', caption: 'Blue hour · climbing hairpins', ground: 0x3d5554, fog: 0x698994, skyLow: 0x95b9c1, skyHigh: 0x17314f, mountain: 0xa1b2b1, seed: 19482,
-      points: [[-120,-100],[-62,-128],[-12,-105],[42,-136],[90,-115],[130,-65],[35,-35],[125,25],[95,100],[10,130],[-110,100],[-140,45],[-45,15],[-125,-35]]}
+      points: DrivePhysics.stuntRoute.map(p=>[p.x,p.z])}
   };
   let physics = null;
   const world = new THREE.Group();
   scene.add(world);
-  let selectedMap = 'lakeside';
+  let selectedMap = 'city';
   let samples = [];
   const carModels = {};
   let selectedCar = 'comet';
@@ -101,12 +97,9 @@
       const broad = Math.sin(x * Math.PI / 16) * Math.sin(y * Math.PI / 32);
       let shade = 170 + grain * 60 + broad * 20;
       if (kind === 'asphalt') shade = grain > .97 ? 245 : 145 + grain * 75;
-      if (kind === 'ground' && selectedMap === 'desert') shade = 165 + 45 * Math.sin(y * Math.PI / 8 + 2 * Math.sin(x * Math.PI / 64)) + grain * 40;
-      if (kind === 'ground' && selectedMap === 'alpine') shade = grain > .78 ? 245 : 125 + grain * 90 + broad * 25;
-      if (kind === 'ground' && selectedMap === 'lakeside') shade = 105 + grain * 100 + broad * 35;
+      if (kind === 'ground' && selectedMap === 'city') shade = 170 + grain * 50 + broad * 8;
       if (kind === 'rock') shade = 145 + grain * 65 + 35 * Math.sin(y * Math.PI / 8 + Math.sin(x * Math.PI / 16));
       if (kind === 'bark') shade = 125 + grain * 55 + 60 * Math.sin(x * Math.PI / 8);
-      if (kind === 'water') shade = 190 + 35 * Math.sin(y * Math.PI / 4 + Math.sin(x * Math.PI / 16)) + grain * 20;
       if (kind === 'windows') shade = x % 32 > 7 && x % 32 < 24 && y % 24 > 6 && y % 24 < 17 ? 235 : 85;
       const i = (y * size + x) * 4;
       pixels[i] = shade; pixels[i + 1] = shade; pixels[i + 2] = shade; pixels[i + 3] = 255;
@@ -140,9 +133,9 @@
     scene.background = new THREE.Color(config.fog);
     sky.material.uniforms.low.value.setHex(config.skyLow);
     sky.material.uniforms.high.value.setHex(config.skyHigh);
-    renderer.toneMappingExposure = selectedMap === 'desert' ? 1.05 : .9;
+    renderer.toneMappingExposure = .9;
     const groundDetail = surfaceTexture(selectedMap === 'mountain' ? 'rock' : 'ground', physics.edge / 4);
-    const ground = new THREE.Mesh(new THREE.PlaneGeometry(physics.edge * 2, physics.edge * 2, physics.edge, physics.edge), new THREE.MeshStandardMaterial({color: config.ground, roughness: 1, map: groundDetail, bumpMap: groundDetail, bumpScale: selectedMap === 'desert' ? .22 : .12}));
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(physics.edge * 2, physics.edge * 2, physics.edge, physics.edge), new THREE.MeshStandardMaterial({color: config.ground, roughness: 1, map: groundDetail, bumpMap: groundDetail, bumpScale: .12}));
     {
       const pos = ground.geometry.attributes.position;
       for (let i=0;i<pos.count;i++) pos.setZ(i, physics.terrainHeight(pos.getX(i), -pos.getY(i)));
@@ -153,13 +146,6 @@
     ground.name = 'terrain';
     ground.receiveShadow = true;
     world.add(ground);
-    const waterDetail = surfaceTexture('water', 12);
-    const lake = new THREE.Mesh(new THREE.CircleGeometry(37, 64), new THREE.MeshStandardMaterial({color: 0x0e2633, metalness: .55, roughness: .27, bumpMap: waterDetail, bumpScale: .12}));
-    lake.rotation.x = -Math.PI / 2;
-    lake.position.set(8, .01, 4);
-    if (selectedMap === 'lakeside') world.add(lake);
-    else { lake.geometry.dispose(); lake.material.dispose(); waterDetail.dispose(); }
-
     const path = new THREE.CatmullRomCurve3(config.points.map(([x, z]) => new THREE.Vector3(x, 0, z)), true, 'centripetal');
     samples = Array.from({length: 480}, (_, index) => ({
       point: path.getPointAt(index / 480), tangent: path.getTangentAt(index / 480).normalize()
@@ -209,6 +195,11 @@
     // Only draw exposed shoulders, not another almost-coplanar layer under asphalt.
     ribbon(-halfWidth-shoulderWidth,-halfWidth,.045,shoulder);
     ribbon(halfWidth,halfWidth+shoulderWidth,.045,shoulder);
+    if (selectedMap === 'city') {
+      const sidewalk = new THREE.MeshStandardMaterial({color: 0xb4b6ae, roughness: 1, side: THREE.DoubleSide});
+      ribbon(-11,-7.75,.05,sidewalk);
+      ribbon(7.75,11,.05,sidewalk);
+    }
     ribbon(-halfWidth, halfWidth, .075, new THREE.MeshStandardMaterial({color: 0x30383d, roughness: .95, map: surfaceTexture('asphalt'), side: THREE.DoubleSide}));
     const paint = new THREE.MeshBasicMaterial({color: 0xd0d6cd, side: THREE.DoubleSide});
     ribbon(-halfWidth+.24, -halfWidth+.37, .105, paint);
@@ -283,6 +274,7 @@
       stripe.position.copy(mesh.position); stripe.position.y += .25; world.add(stripe);
     });
     const rand = (() => { let seed = config.seed; return () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296); })();
+    if (selectedMap !== 'city') {
     const barkDetail = surfaceTexture('bark', 2);
     const bark = new THREE.MeshStandardMaterial({color: 0x68513d, roughness: 1, map: barkDetail, bumpMap: barkDetail, bumpScale: .08});
     const pine = [
@@ -291,11 +283,11 @@
       new THREE.MeshStandardMaterial({color: 0x1e3b41, roughness: 1, flatShading: true})
     ];
     const trunkGeometry = new THREE.CylinderGeometry(.18, .24, 1.8, 5);
-    const canopyGeometry = selectedMap === 'desert' ? new THREE.CylinderGeometry(.45, .55, 5, 7) : new THREE.ConeGeometry(2.1, 7, 6);
-    for (let index = 0; index < (selectedMap === 'desert' ? 55 : 145); index += 1) {
+    const canopyGeometry = new THREE.ConeGeometry(2.1, 7, 6);
+    for (let index = 0; index < 145; index += 1) {
       const x = (rand() - .5) * 360;
       const z = (rand() - .5) * 360;
-      if (distanceToRoad(x, z) < 12 || Math.hypot(x - 8, z - 4) < 42) continue;
+      if (distanceToRoad(x, z) < 12) continue;
       const height = 1.2 + rand() * 1.3;
       const trunk = new THREE.Mesh(trunkGeometry, bark);
       trunk.position.set(x, physics.terrainHeight(x,z) + .8 * height, z);
@@ -303,7 +295,7 @@
       trunk.castShadow = true;
       world.add(trunk);
       const top = new THREE.Mesh(canopyGeometry, pine[index % pine.length]);
-      top.position.set(x, physics.terrainHeight(x,z) + (selectedMap === 'desert' ? 4.2 : 4.3) * height, z);
+      top.position.set(x, physics.terrainHeight(x,z) + 4.3 * height, z);
       top.scale.set(height, height, height);
       top.castShadow = true;
       world.add(top);
@@ -339,7 +331,7 @@
 
     // Small roadside detail uses one instanced draw call, with no per-frame work.
     const detail = new THREE.InstancedMesh(new THREE.DodecahedronGeometry(1, 0),
-      new THREE.MeshStandardMaterial({color: selectedMap === 'desert' ? 0xcfa678 : selectedMap === 'alpine' ? 0xbac8bf : 0x749365, roughness: 1}), 360);
+      new THREE.MeshStandardMaterial({color: 0x749365, roughness: 1}), 360);
     detail.name = 'roadside-detail';
     const dummy = new THREE.Object3D();
     let count = 0;
@@ -348,14 +340,15 @@
       const normal = new THREE.Vector3(-sample.tangent.z, 0, sample.tangent.x);
       const side = rand() < .5 ? -1 : 1;
       dummy.position.copy(sample.point).addScaledVector(normal, side * (9 + rand() * 19));
-      if (distanceToRoad(dummy.position.x, dummy.position.z) < 8 || (selectedMap === 'lakeside' && Math.hypot(dummy.position.x - 8, dummy.position.z - 4) < 38)) continue;
+      if (distanceToRoad(dummy.position.x, dummy.position.z) < 8) continue;
       const size = .1 + rand() * .45;
       dummy.position.y = physics.terrainHeight(dummy.position.x,dummy.position.z) + size * .2;
-      dummy.scale.set(size, selectedMap === 'lakeside' ? size * 2 : size * .5, size);
+      dummy.scale.set(size, size * .5, size);
       dummy.rotation.set(rand(), rand() * Math.PI, 0);
       dummy.updateMatrix(); detail.setMatrixAt(count++, dummy.matrix);
     }
     detail.count = count; detail.receiveShadow = true; world.add(detail);
+    }
 
     function addGate(index, color) {
       const sample = samples[index];
@@ -386,31 +379,50 @@
       group.add(beam);
       world.add(group);
     }
-    if(selectedMap!=='racetrack') {
-    addGate(15, 0xa9f2e9);
-    addGate(156, 0xffc286);
-    addGate(316, 0x89bdff);
+    if (selectedMap === 'mountain') {
+      addGate(15, 0xa9f2e9);
+      addGate(156, 0xffc286);
+      addGate(316, 0x89bdff);
     }
-
-    const windowDetail = surfaceTexture('windows', 2);
-    const townMaterials = [
-      new THREE.MeshStandardMaterial({color: 0x6c8389, roughness: .8, map: windowDetail}),
-      new THREE.MeshStandardMaterial({color: 0x8b8f91, roughness: .8, map: windowDetail})
-    ];
-    if (selectedMap !== 'lakeside') { windowDetail.dispose(); townMaterials.forEach(material => material.dispose()); }
-    for (let index = 0; index < (selectedMap === 'lakeside' ? 14 : 0); index += 1) {
-      const x = (rand() - .5) * 44 + 8;
-      const z = (rand() - .5) * 36 + 4;
-      const width = 4 + rand() * 5;
-      const height = 5 + rand() * 20;
-      const building = new THREE.Mesh(new THREE.BoxGeometry(width, height, width), townMaterials[index % 2]);
-      building.position.set(x, height / 2, z);
-      building.castShadow = true;
-      building.receiveShadow = true;
-      world.add(building);
-      const roof = new THREE.Mesh(new THREE.BoxGeometry(width + .4, .2, width + .4), new THREE.MeshBasicMaterial({color: index % 3 ? 0x9bcac5 : 0xffb57d}));
-      roof.position.set(x, height + .1, z);
-      world.add(roof);
+    if (selectedMap === 'city') {
+      const windows = surfaceTexture('windows', 2);
+      const facades = [0x7e949b, 0xa2a8a4, 0x667e8a, 0xb09e90].map(color =>
+        new THREE.MeshStandardMaterial({color, roughness: .82, map: windows}));
+      const roofMaterial = new THREE.MeshStandardMaterial({color: 0x354b55, roughness: .9});
+      const blocks = [-160, -80, -40, 0, 40, 80, 160];
+      let index = 0;
+      for (const blockX of blocks) for (const blockZ of blocks) {
+        const x = blockX + (rand() - .5) * 7;
+        const z = blockZ + (rand() - .5) * 7;
+        if (distanceToRoad(x, z) < 20) continue;
+        const width = 14 + rand() * 8;
+        const depth = 14 + rand() * 8;
+        const height = 12 + rand() * 40;
+        const building = new THREE.Mesh(new THREE.BoxGeometry(width, height, depth), facades[index++ % facades.length]);
+        building.name = 'city-building';
+        building.position.set(x, height / 2, z);
+        building.castShadow = true;
+        building.receiveShadow = true;
+        world.add(building);
+        const roof = new THREE.Mesh(new THREE.BoxGeometry(width + .5, .35, depth + .5), roofMaterial);
+        roof.position.set(x, height + .2, z);
+        world.add(roof);
+      }
+      const postGeometry = new THREE.CylinderGeometry(.1, .14, 5.5, 6);
+      const lampGeometry = new THREE.SphereGeometry(.38, 8, 6);
+      const postMaterial = new THREE.MeshStandardMaterial({color: 0x2c424c, metalness: .55, roughness: .5});
+      const lampMaterial = new THREE.MeshBasicMaterial({color: 0xffdca4});
+      for (let index = 0; index < samples.length; index += 30) {
+        const sample = samples[index];
+        const normal = new THREE.Vector3(-sample.tangent.z, 0, sample.tangent.x);
+        const base = sample.point.clone().addScaledVector(normal, 9);
+        const post = new THREE.Mesh(postGeometry, postMaterial);
+        post.position.set(base.x, 2.75, base.z);
+        world.add(post);
+        const lamp = new THREE.Mesh(lampGeometry, lampMaterial);
+        lamp.position.set(base.x, 5.55, base.z);
+        world.add(lamp);
+      }
     }
 
   }
@@ -580,7 +592,7 @@
     chooseCar(selectedCar);
     document.querySelector('#mapSelect').value = type;
   }
-  chooseMap('mountain');
+  chooseMap('city');
 
   function chooseCar(type) {
     if (!carModels[type]) return;

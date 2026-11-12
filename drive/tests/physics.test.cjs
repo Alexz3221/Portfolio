@@ -13,8 +13,8 @@ test('gentle neutral air assist damps rotation but does not snap upright',()=>{
   const rates=[false,true].map(antiFlip=>{const p=P.create({antiFlip});p.body.position.set(0,100,0);p.body.angularVelocity.set(2,0,1);run(p,60);assert.ok(Math.abs(p.body.quaternion.x)>.1);return p.body.angularVelocity.length();});
   assert.ok(rates[1]<rates[0]*.95);assert.ok(rates[1]>rates[0]*.5);
 });
-test('all cars settle, accelerate, brake and reverse on all four maps',()=>{
-  for(const map of ['course','lakeside','desert','alpine'])for(const car of Object.keys(P.vehicles)){
+test('all cars settle, accelerate, brake and reverse on the fixture and city',()=>{
+  for(const map of ['course','city'])for(const car of Object.keys(P.vehicles)){
     const p=P.create({map,car});p.reset(-100,-100);let s=run(p,120);assert.equal(s.grounded,4,`${map}/${car} settled`);
     assert.equal(p.body.mass,P.vehicles[car].mass);assert.equal(p.car.wheelInfos[0].radius,P.vehicles[car].wheelLayout[0].radius);
     run(p,120,{throttle:1});assert.ok(p.body.velocity.z>8,`${map}/${car} accelerates`);
@@ -22,43 +22,38 @@ test('all cars settle, accelerate, brake and reverse on all four maps',()=>{
     run(p,120,{throttle:-1});assert.ok(p.body.velocity.z < -3);
   }
 });
-test('scenic maps support elevated ground past old course boundary and dirt resistance',()=>{
-  const speeds=[false,true].map(dirt=>{const p=P.create({map:'desert',distanceToRoad:()=>dirt?20:0});p.reset(180,-100);run(p,120);assert.ok(p.body.position.y>p.terrainHeight(p.body.position.x,p.body.position.z)+.7);p.body.velocity.set(0,0,20);run(p,60);assert.ok(p.body.position.x>179);return p.body.velocity.length();});assert.ok(speeds[1]<speeds[0]);
+test('city extends past the old fixture boundary and keeps off-road resistance',()=>{
+  const speeds=[false,true].map(dirt=>{const p=P.create({map:'city',distanceToRoad:()=>dirt?20:0});p.reset(180,-100);run(p,120);assert.ok(p.body.position.y>p.terrainHeight(p.body.position.x,p.body.position.z)+.7);p.body.velocity.set(0,0,20);run(p,60);assert.ok(p.body.position.x>179);return p.body.velocity.length();});assert.ok(speeds[1]<speeds[0]);
 });
 
-test('scenic sampler matches actual collider rays, including both triangles and boundaries',()=>{
+test('map sampler matches actual collider rays, including both triangles and boundaries',()=>{
   const C=require('cannon');
-  for(const map of ['lakeside','desert','alpine']){
+  for(const map of ['mountain','city']){
     const p=P.create({map});p.body.position.set(0,1000,0);
     const result=new C.RaycastResult();
     for(let i=0;i<100;i++){
-      const x=-247.7+(i*71.137)%495,z=-247.3+(i*43.713)%495;
+      const x=-197.7+(i*71.137)%395,z=-197.3+(i*43.713)%395;
       result.reset();
-      assert.ok(p.world.raycastClosest(new C.Vec3(x,100,z),new C.Vec3(x,-10,z),{},result));
+      assert.ok(p.world.raycastClosest(new C.Vec3(x,250,z),new C.Vec3(x,-100,z),{},result));
       assert.ok(Math.abs(result.hitPointWorld.y-p.terrainHeight(x,z))<1e-8,`${map}: ray mismatch`);
     }
-    for(const x of [-250,250])for(const z of [-250,250])assert.ok(Number.isFinite(p.terrainHeight(x,z)));
+    for(const x of [-200,200])for(const z of [-200,200])assert.ok(Number.isFinite(p.terrainHeight(x,z)));
   }
-  assert.equal(P.scenicHeight('lakeside',8,4),0);
-  assert.equal(P.scenicHeight('lakeside',45,4),0);
+  assert.equal(P.scenicHeight('city',8,4),0);
+  assert.equal(P.scenicHeight('city',180,-100),0);
 });
 
-test('scenic elevations are meaningful and all cars can drive sustained grades',()=>{
-  for(const map of ['lakeside','desert','alpine']) {
-    const p=P.create({map});const heights=[];
-    for(let x=-180;x<=180;x+=20)for(let z=-180;z<=180;z+=20)heights.push(p.terrainHeight(x,z));
-    assert.ok(Math.max(...heights)-Math.min(...heights)>(map==='alpine'?20:8));
-    for(const car of Object.keys(P.vehicles)){
-      const v=P.create({map,car});v.reset(100,-40);run(v,120);
-      let groundedFrames=0,minY=Infinity,maxY=-Infinity;
-      for(let i=0;i<240;i++){
-        const state=v.step(1/60,{throttle:1});groundedFrames+=state.grounded>=2;
-        minY=Math.min(minY,v.body.position.y);maxY=Math.max(maxY,v.body.position.y);
-        assert.ok(v.body.position.y>v.terrainHeight(v.body.position.x,v.body.position.z)+.4,`${map}/${car} above surface`);
-      }
-      assert.ok(groundedFrames>230,`${map}/${car} sustained contact`);
-      assert.ok(maxY-minY>.5,`${map}/${car} follows elevation`);
+test('city ground stays flat and every car keeps suspension contact',()=>{
+  const p=P.create({map:'city'});
+  for(let x=-180;x<=180;x+=20)for(let z=-180;z<=180;z+=20)assert.equal(p.terrainHeight(x,z),0);
+  for(const car of Object.keys(P.vehicles)){
+    const v=P.create({map:'city',car});v.reset(100,-40);run(v,120);
+    let groundedFrames=0;
+    for(let i=0;i<240;i++){
+      const state=v.step(1/60,{throttle:1});groundedFrames+=state.grounded>=2;
+      assert.ok(v.body.position.y>.4,`city/${car} above surface`);
     }
+    assert.ok(groundedFrames>230,`city/${car} sustained contact`);
   }
 });
 

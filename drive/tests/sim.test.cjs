@@ -25,11 +25,11 @@ function harness(assetLoader) {
   const context = vm.createContext({window, document, THREE: fakeThree, DriveVehicleAssets: assetLoader, DrivePhysics: require('../js/physics.js'), requestAnimationFrame() {}, console});
   const source = fs.readFileSync(require.resolve('../js/main.js'), 'utf8');
   vm.runInContext(source.replace(/\}\)\(\);\s*$/, 'globalThis.sim = {physics: () => physics, maps, samples: () => samples, world, vehicle, motion, carSpecs, carModels, keys, chooseMap, chooseCar, resetVehicle, updateVehicle, distanceToRoad, camera, updateCamera, setCameraMode, renderer, sky};})();'), context);
-  context.sim.chooseMap('lakeside');
+  context.sim.chooseMap('city');
   return {sim: context.sim, document, window, cars, controls};
 }
 
-test('all five maps have distinct drivable, finite closed routes and safe spawns', () => {
+test('all three maps have distinct drivable, finite closed routes and safe spawns', () => {
   const {sim} = harness();
   const shapes = new Set();
   for (const id of Object.keys(sim.maps).filter(id => id !== 'course')) {
@@ -48,7 +48,7 @@ test('all five maps have distinct drivable, finite closed routes and safe spawns
       if (mesh.geometry) assert.ok(Array.from(mesh.geometry.attributes.position.array).every(Number.isFinite));
     });
   }
-  assert.equal(shapes.size, 5);
+  assert.equal(shapes.size, 3);
 });
 
 test('map switching disposes old GPU resources and does not accumulate scenery', () => {
@@ -57,7 +57,7 @@ test('map switching disposes old GPU resources and does not accumulate scenery',
   let disposed = false;
   sim.world.children[0].geometry.addEventListener('dispose', () => { disposed = true; });
   for (let i = 0; i < 12; i++) {
-    const id = Object.keys(sim.maps).filter(id => id !== 'course')[i % 5]; sim.chooseMap(id);
+    const id = Object.keys(sim.maps).filter(id => id !== 'course')[i % 3]; sim.chooseMap(id);
     counts[id] ??= sim.world.children.length;
     assert.equal(sim.world.children.length, counts[id]);
   }
@@ -90,7 +90,7 @@ test('steering pivots independently of wheel roll and reset clears held controls
   window.blur(); assert.equal(sim.keys.size, 0); assert.ok(controls.every(c => !c.classes.has('pressed')));
   controls[3].listeners.pointerdown({preventDefault(){}, pointerId:1});
   document.hidden = true; document.visibilitychange(); assert.equal(sim.keys.size, 0);
-  sim.keys.add('w'); sim.chooseMap('desert'); assert.equal(sim.keys.size, 0); assert.equal(sim.motion.speed,0);
+  sim.keys.add('w'); sim.chooseMap('city'); assert.equal(sim.keys.size, 0); assert.equal(sim.motion.speed,0);
   sim.chooseCar('rally'); assert.equal(cars[1].attributes['aria-pressed'],'true'); assert.equal(cars[0].attributes['aria-pressed'],'false');
 });
 
@@ -123,7 +123,7 @@ test('hood camera stays on the car at high speed rather than trailing behind', (
   const spawn=sim.samples()[0].point;
   sim.keys.add('w');for(let i=0;i<240;i++)sim.updateVehicle(1/60);assert.ok(sim.vehicle.position.clone().sub(spawn).dot(sim.samples()[0].tangent)>10);assert.ok(sim.vehicle.position.toArray().every(Number.isFinite));
   sim.resetVehicle();assert.equal(sim.keys.size,0);assert.ok(Math.abs(sim.vehicle.position.z-spawn.z)<.01);
-  sim.chooseMap('alpine');assert.equal(document.querySelector('.garage').style.display,'');sim.chooseCar('pickup');assert.equal(sim.carModels.pickup.group.visible,true);
+  sim.chooseMap('city');assert.equal(document.querySelector('.garage').style.display,'');sim.chooseCar('pickup');assert.equal(sim.carModels.pickup.group.visible,true);
   sim.chooseMap('racetrack');assert.equal(document.querySelector('.garage').style.display,'');assert.equal(sim.carModels.pickup.group.visible,true);
 });
 
@@ -149,5 +149,5 @@ test('lazy models cache once, late completion never changes selection, and failu
   assert.match(document.querySelector('#modelStatus').textContent,/fallback/);
   sim.chooseCar('hypercar');assert.equal(calls.hypercar,1);assert.equal(sim.carModels.hypercar.group.visible,true);
   assert.equal(document.querySelector('#modelStatus').textContent,'Comrade1280 · CC BY 4.0 model');
-  sim.chooseMap('desert');sim.chooseMap('alpine');assert.equal(calls.hypercar,1);
+  sim.chooseMap('city');sim.chooseMap('mountain');assert.equal(calls.hypercar,1);
 });

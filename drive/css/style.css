@@ -28,6 +28,8 @@
 
 #modelStatus{font-size:9px;color:#b6c6c8;margin-bottom:4px}
 
+.drive-hud{padding:10px 12px;border:1px solid #ffffff2b;border-radius:8px;background:#09121bc7;backdrop-filter:blur(10px)}
+
 .model-credit{max-width:180px;margin-top:6px;color:#b6c6c8;font-size:9px;text-align:right;line-height:1.5}
 .model-credit:hover{color:#fff}
 
