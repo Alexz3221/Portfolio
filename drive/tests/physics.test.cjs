@@ -168,6 +168,25 @@ test('imported building collision follows its rotated footprint instead of block
   p.dispose();
 });
 
+test('mesh-backed special building lot does not create an invisible enclosing wall',()=>{
+  const C=require('cannon');
+  const parent={x:0,z:0,width:20,depth:20,height:12,baseY:0,skipCollider:true,
+    footprint:[[-10,-10],[10,-10],[10,10],[-10,10]]};
+  const proxy={x:0,z:0,width:4,depth:4,height:12,baseY:0,
+    footprint:[[-2,-2],[2,-2],[2,2],[-2,2]]};
+  const city={edge:100,buildings:[parent,proxy],roadSegments:[],highwaySegments:[],guardrails:[],supports:[],
+    nearbyBuildings:()=>[parent,proxy],nearbyRoads:()=>[],nearbyHighways:()=>[],
+    onTileChanged:()=>()=>{},ensureNear:()=>Promise.resolve([])};
+  const p=P.create({map:'city',city});
+  function roof(x,z){const hit=new C.RaycastResult();
+    assert.ok(p.world.raycastClosest(new C.Vec3(x,20,z),new C.Vec3(x,-2,z),{},hit));
+    return hit.hitPointWorld.y;
+  }
+  assert.ok(Math.abs(roof(0,0)-12)<.01,'visible proxy remains solid');
+  assert.ok(Math.abs(roof(8,8))<.01,'empty parent lot remains driveable');
+  p.dispose();
+});
+
 test('buried tunnel geometry cannot create an invisible road slab',()=>{
   const C=require('cannon');
   const tunnel={x1:-10,z1:0,y1:3,x2:10,z2:0,y2:3,width:8,mode:'TUNNEL'};

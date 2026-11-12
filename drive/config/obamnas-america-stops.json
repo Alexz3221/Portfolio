@@ -1,0 +1,47 @@
+{
+  "format": "drive-city-stops-v1",
+  "coordinateSystem": "source-world-xz",
+  "cityName": "Obamna's America",
+  "stops": [
+    {
+      "id": "projects",
+      "x": 1599.3,
+      "z": -1164.7,
+      "landmarkId": "2147483363",
+      "landmark": "Health Research Institute",
+      "roadId": "3152582"
+    },
+    {
+      "id": "experience",
+      "x": 4274.3,
+      "z": 1837.5,
+      "landmarkId": "2147483343",
+      "landmark": "Train Station",
+      "roadId": "3837924"
+    },
+    {
+      "id": "education",
+      "x": 2786.9,
+      "z": -3177.9,
+      "landmarkId": "2147482928",
+      "landmark": "College",
+      "roadId": "3837898"
+    },
+    {
+      "id": "skills",
+      "x": 5631.1,
+      "z": -444.4,
+      "landmarkId": "2147483536",
+      "landmark": "Geological Research Center",
+      "roadId": "3838596"
+    },
+    {
+      "id": "contact",
+      "x": -2199.5,
+      "z": 3842.8,
+      "landmarkId": "2147482891",
+      "landmark": "Observation Tower",
+      "roadId": "3838557"
+    }
+  ]
+}

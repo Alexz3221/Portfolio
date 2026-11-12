@@ -203,6 +203,7 @@
 .city-story-content h3 { margin: 4px 0 14px; color: #fff; font-size: clamp(27px, 4vw, 42px); line-height: 1.14; letter-spacing: -.045em; }
 .city-story-intro { max-width: 690px; color: #b7edf0; font-size: clamp(16px, 2.5vw, 20px); line-height: 1.5; }
 .city-story-content > p:not(.city-story-kind):not(.city-story-intro):not(.city-side-note) { max-width: 680px; color: #d3e1e6; font-size: 15px; }
+.city-story-content > .city-story-landmark { border-left: 2px solid #5ce9f6; padding-left: 12px; color: #b7d5df; }
 .city-story-actions { display: flex; justify-content: flex-end; margin-top: 26px; padding-top: 16px; border-top: 1px solid #4b677050; }
 .city-drive-here { border-color: #e177ca; background: #4b254e; }
 .city-drive-here:hover { background: #6a2d68; }

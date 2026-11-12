@@ -59,7 +59,12 @@ async function run(inputObject, options = {}) {
   const out = path.join(temp, 'converted');
   fs.writeFileSync(input, zlib.gzipSync(Buffer.from(JSON.stringify(inputObject))));
   try {
-    const summary = await convert({ input, out, tileSize: 20, terrainCell: 10, maxTerrainSamples: 1000, ...options });
+    const { stopsData, ...converterOptions } = options;
+    if (stopsData) {
+      converterOptions.stopsFile = path.join(temp, 'stops.json');
+      fs.writeFileSync(converterOptions.stopsFile, JSON.stringify(stopsData));
+    }
+    const summary = await convert({ input, out, tileSize: 20, terrainCell: 10, maxTerrainSamples: 1000, ...converterOptions });
     const files = new Map();
     const readNow = file => JSON.parse(fs.readFileSync(path.join(out, file), 'utf8'));
     const manifest = readNow('manifest.json');
@@ -120,6 +125,45 @@ test('district selection clips road geometry while retaining full-city overview'
   assert.equal(overview.roads[0].points[0][0], -15, 'overview keeps source-wide roads');
   assert.deepEqual(read('tiles/0_-1.json').features.find(f => f.type === 'road').points, [[0, 5 - shift, -15], [15, 10 - shift, -15]]);
   assert.deepEqual(manifest.tiles.map(t => [t.ix, t.iz]), [[0, -1]]);
+});
+
+test('traffic lane positions and mesh-backed landmark identity survive conversion', async () => {
+  const source = fixture();
+  source.traffic = { segments: [{ segment_id: 11, lanes: [
+    { lane_index: 2, lane_type: 'Vehicle', position: -2, width: 3.5, direction: 'Forward', speed_limit_mps: 22.222 },
+    { lane_index: 3, lane_type: 'Vehicle', position: 2, width: 3.5, direction: 'Backward', speed_limit_mps: 22.222 },
+    { lane_index: 4, lane_type: 'Pedestrian', position: 5, width: 2, direction: 'Forward' },
+  ] }] };
+  source.buildings[0].name = 'NightOwl Landmark';
+  source.buildings[0].geometry_source = 'cs2:structure-container';
+  source.buildings.push({ id: 23, name: 'NightOwl Landmark mesh 0', parent_building_id: 21,
+    geometry_source: 'cs2:mesh-bounds', role: 'COMMERCIAL', category_name: 'SHOP',
+    base_elevation_m: 7, height_m: 22,
+    footprint: { points: [{ x: 127, z: 207 }, { x: 133, z: 207 }, { x: 133, z: 213 }, { x: 127, z: 213 }] } });
+  const { manifest, overview, read } = await run(source);
+  const lanes = [
+    { position: -2, width: 3.5, direction: 'Forward', index: 2, speed: 22.222 },
+    { position: 2, width: 3.5, direction: 'Backward', index: 3, speed: 22.222 },
+  ];
+  assert.deepEqual(overview.roads[0].laneDetails, lanes);
+  const features = read('tiles/0_-1.json').features;
+  assert.deepEqual(features.find(feature => feature.type === 'road').laneDetails, lanes);
+  assert.deepEqual(manifest.meshBackedParentIds, ['21']);
+  const parent = features.find(feature => feature.id === '21');
+  const proxy = features.find(feature => feature.id === '23');
+  assert.equal(parent.prefab, 'NightOwl Landmark');
+  assert.equal(parent.geometrySource, 'cs2:structure-container');
+  assert.equal(proxy.parentBuildingId, '21');
+  assert.equal(proxy.prefab, 'NightOwl Landmark mesh 0');
+});
+
+test('authored portfolio stops use source world coordinates and preserve landmark references', async () => {
+  const { overview } = await run(fixture(), { stopsData: {
+    format: 'drive-city-stops-v1', coordinateSystem: 'source-world-xz', cityName: 'Testopolis',
+    stops: [{ id: 'education', x: 125, z: 205, landmarkId: '21', landmark: 'Night Owl', roadId: '11' }],
+  } });
+  assert.deepEqual(overview.stops, [{ id: 'education', x: 5, z: -15,
+    landmarkId: '21', landmark: 'Night Owl', roadId: '11' }]);
 });
 
 test('invalid schema fails before producing browser assets', async () => {

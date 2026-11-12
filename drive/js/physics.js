@@ -141,6 +141,9 @@
       return box((x1+x2)/2,centerY,(z1+z2)/2,segment.width/2,.25,slopeLength/2,pitch,yaw);
     }
     function buildingBody(building) {
+      // A mesh-backed special building has a broad lot/parent record and a
+      // narrower visible proxy. The parent must not block the street around it.
+      if (building.skipCollider) return null;
       const footprint=building.footprint;
       if(!Array.isArray(footprint)||footprint.length<3)
         return box(building.x,(building.baseY||0)+building.height/2,building.z,

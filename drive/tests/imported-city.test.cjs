@@ -35,9 +35,15 @@ test('converted city streams visual tiles and matching colliders as the car chan
   assert.equal(map.highwaySegments.length,1);
   assert.equal(map.stops.length,6);
   assert.ok(map.stops.every(stop=>Number.isFinite(stop.heading)));
+  assert.ok(map.stops.every(stop=>Number.isFinite(stop.roadWidth)));
   assert.ok(Math.sin(map.stops.find(stop=>stop.id==='experience').heading)<-.9,
     'a stop at the end of a street faces back along it');
   const world=new THREE.Group(),visual=map.build(THREE,world);
+  const marker=world.getObjectByName('imported-city-landmark');
+  assert.ok(marker && Math.abs(marker.position.z)>=6,
+    'portfolio marker sits beside the carriageway instead of in a driving lane');
+  assert.ok(marker.children.every(child=>child.geometry?.parameters?.height !== 9),
+    'stop marker does not use the old tall roadway pillar');
   assert.ok(world.getObjectByName('imported-city-terrain-chunk'));
   assert.ok(world.getObjectByName('imported-city-road'));
   const bridge=world.getObjectByName('imported-city-highway');

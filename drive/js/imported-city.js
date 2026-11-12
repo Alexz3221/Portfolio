@@ -24,6 +24,11 @@
   const isMotorway = (road) => road.roadClass ? /highway|motorway|freeway|express/i.test(String(road.roadClass)) :
     /highway|motorway|freeway|express/i.test(String(road.kind || '') + ' ' + String(road.level || '')) ||
     (finite(road.lanes && road.lanes.car_lane_count) >= 6 && road.width >= 28);
+  function isLandscapeCategory(category) {
+    const label = String(category || '').trim();
+    if (/\b(?:cafe|stand|center|building|station|garage)\b/i.test(label)) return false;
+    return /\bdecal\b|^cemetery$|\b(?:park|playground)$|^(?:soccer|football|basketball|tennis) (?:field|court)$|^community pool$/i.test(label);
+  }
   function hash(value) {
     let h = 2166136261;
     for (const char of String(value)) h = Math.imul(h ^ char.charCodeAt(0), 16777619);
@@ -57,12 +62,13 @@
         x2: b[0], y2: b[1], z2: b[2], width,
         kind: record.kind || 'street', roadClass: record.roadClass || null,
         name: record.name || '', mode: record.mode || 'normal', level: record.level ?? null,
-        lanes: record.lanes || null
+        lanes: record.lanes || null,
+        laneDetails: Array.isArray(record.laneDetails) ? record.laneDetails : null
       });
     }
     return segments;
   }
-  function normalizeBuilding(record, terrainHeight) {
+  function normalizeBuilding(record, terrainHeight, meshBackedParentIds) {
     const footprint = Array.isArray(record.footprint) ? record.footprint
       .map((p) => [finite(p[0], NaN), finite(p[1], NaN)])
       .filter((p) => p.every(Number.isFinite)) : [];
@@ -74,8 +80,13 @@
     const x = (minX + maxX) / 2, z = (minZ + maxZ) / 2;
     const height = clamp(finite(record.height, 12), 2, 600);
     const baseY = Number.isFinite(Number(record.baseY)) ? Number(record.baseY) : terrainHeight(x, z);
+    const skipParent = meshBackedParentIds?.has(String(record.id)) || false;
+    const landscape = isLandscapeCategory(record.category);
     return { id: record.id, x, z, width: maxX - minX, depth: maxZ - minZ,
-      height, baseY, footprint, role: record.role || '', category: record.category || '', name: record.name || '' };
+      height, baseY, footprint, role: record.role || '', category: record.category || '', name: record.name || '',
+      prefab: record.prefab || '', parentBuildingId: record.parentBuildingId || null,
+      growthKind: record.growthKind || '', geometrySource: record.geometrySource || '',
+      skipVisual: skipParent, skipCollider: skipParent || landscape, landscape };
   }
   function terrainFromRaw(raw) {
     if (!raw || raw.format !== 'drive-city-terrain-v1') throw new Error('Imported city terrain has an unsupported format');
@@ -176,10 +187,11 @@
       const heading = Math.atan2(road.x2 - road.x1, road.z2 - road.z1) + (t > .5 ? Math.PI : 0);
       return { id: template.id, title: authored && authored.title || template.title,
         color: authored && authored.color || template.color,
+        landmark: authored && authored.landmark || '',
         x: road.x1 + (road.x2 - road.x1) * t,
         y: road.y1 + (road.y2 - road.y1) * t,
         z: road.z1 + (road.z2 - road.z1) * t,
-        heading };
+        heading, roadWidth: road.width };
     });
   }
 
@@ -190,6 +202,7 @@
     const worldBounds = validBounds(manifest.worldBounds || manifest.bounds);
     const tileSize = finite(manifest.tileSize);
     if (tileSize <= 0 || !Array.isArray(manifest.tiles)) throw new Error('Imported city manifest has invalid tiles');
+    const meshBackedParentIds = new Set((manifest.meshBackedParentIds || []).map(String));
     const terrain = terrainFromRaw(terrainRaw);
     const terrainHeight = (x, z) => sampleTerrain(terrain, x, z);
     // Underground centerlines are useful source data but are not a surface
@@ -353,7 +366,7 @@
                   } else tileRoads.push(road);
                 }
                 if (feature.type === 'building') {
-                  const building = normalizeBuilding(feature, terrainHeight);
+                  const building = normalizeBuilding(feature, terrainHeight, meshBackedParentIds);
                   if (building) tileBuildings.push(building);
                 }
               }
@@ -412,7 +425,10 @@
     const requester = options.fetch || (typeof fetch === 'function' ? fetch : null);
     if (!requester) throw new Error('fetch is unavailable for imported city');
     async function getJson(path) {
-      const response = await requester(path);
+      // Keep regenerated map tiles fresh on static hosts while fixture fetches
+      // continue to use their exact in-memory paths.
+      const requestPath = options.fetch ? path : path + (path.includes('?') ? '&' : '?') + 'v=3';
+      const response = await requester(requestPath);
       if (!response || !response.ok) throw new Error('Could not load imported city asset: ' + path);
       return response.json();
     }
@@ -460,8 +476,34 @@
       bumpScale: .045, metalness: .18, roughness: .65, side: THREE.DoubleSide });
     const elevatedMat = new THREE.MeshStandardMaterial({ color: 0x8799ae, map: asphalt, bumpMap: asphalt,
       bumpScale: .045, metalness: .2, roughness: .59, side: THREE.DoubleSide });
-    const laneMat = new THREE.MeshBasicMaterial({ color: 0x55d9ea, transparent: true, opacity: .76, depthWrite: false, side: THREE.DoubleSide });
-    const highwayLaneMat = new THREE.MeshBasicMaterial({ color: 0xffbd73, transparent: true, opacity: .8, depthWrite: false, side: THREE.DoubleSide });
+    function pavementTexture() {
+      const size = 128, pixels = new Uint8Array(size * size * 4);
+      for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+        const row = Math.floor(y / 16), joint = y % 16 < 2 || (x + (row % 2) * 8) % 32 < 2;
+        const shade = 112 + (hash(x + ':p:' + y) % 17) - (joint ? 29 : 0);
+        const i = (y * size + x) * 4;
+        pixels[i] = shade * .84; pixels[i + 1] = shade * .94;
+        pixels[i + 2] = shade; pixels[i + 3] = 255;
+      }
+      const texture = new THREE.DataTexture(pixels, size, size, THREE.RGBAFormat);
+      texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+      texture.magFilter = THREE.LinearFilter;
+      texture.minFilter = THREE.LinearMipmapLinearFilter;
+      texture.generateMipmaps = true; texture.encoding = THREE.sRGBEncoding;
+      texture.needsUpdate = true;
+      return texture;
+    }
+    const pavement = pavementTexture();
+    const sidewalkMat = new THREE.MeshStandardMaterial({ color: 0xbcc8d3, map: pavement,
+      bumpMap: pavement, bumpScale: .025, roughness: .89, metalness: .06, side: THREE.DoubleSide });
+    const curbMat = new THREE.MeshStandardMaterial({ color: 0x8fa6b1, roughness: .79, side: THREE.DoubleSide });
+    const whiteMarkingMat = new THREE.MeshBasicMaterial({ color: 0xe5e7dd, transparent: true,
+      opacity: .88, depthWrite: false, side: THREE.DoubleSide });
+    const yellowMarkingMat = new THREE.MeshBasicMaterial({ color: 0xe6b45f, transparent: true,
+      opacity: .9, depthWrite: false, side: THREE.DoubleSide });
+    const trunkMat = new THREE.MeshStandardMaterial({ color: 0x3d4845, roughness: .95 });
+    const canopyMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: .93,
+      emissive: 0x0d352d, emissiveIntensity: .12 });
     const terrainMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .95, metalness: .06, side: THREE.DoubleSide });
     const roofMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .65, metalness: .28, side: THREE.DoubleSide });
     const bridgePartMat = new THREE.MeshStandardMaterial({ color: 0x58718c, metalness: .48, roughness: .43 });
@@ -472,28 +514,44 @@
 
     // One small procedural atlas per architectural family keeps the tile meshes
     // merged while giving houses, factories and towers visibly different fronts.
-    const facadeKinds = ['house', 'rowhouse', 'apartments', 'tower', 'storefront', 'glass', 'industrial', 'civic'];
+    const facadeKinds = ['house', 'rowhouse', 'apartments', 'tower', 'storefront', 'glass', 'industrial', 'civic',
+      'campus', 'hospital', 'castle', 'airport'];
+    const facadeVariants = 4;
     const facadeBase = {
       house: [210, 206, 193], rowhouse: [187, 161, 145], apartments: [179, 185, 193],
       tower: [132, 161, 184], storefront: [180, 172, 185], glass: [116, 166, 204],
-      industrial: [153, 166, 166], civic: [198, 190, 176]
+      industrial: [153, 166, 166], civic: [198, 190, 176], campus: [174, 132, 115],
+      hospital: [212, 225, 228], castle: [154, 157, 154], airport: [129, 176, 198]
     };
-    function facadeTextures(kind) {
+    function facadeTextures(kind, variant) {
       const width = 96, height = 128, pixels = new Uint8Array(width * height * 4);
       const glow = new Uint8Array(width * height * 4), base = facadeBase[kind];
       for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
         const bayX = Math.floor(x / 24), bayY = Math.floor(y / 32), px = x % 24, py = y % 32;
-        const lit = hash(kind + ':' + bayX + ':' + bayY) % (kind === 'glass' || kind === 'tower' ? 5 : 9) < 3;
+        const lit = hash(kind + ':' + variant + ':' + bayX + ':' + bayY) % (kind === 'glass' || kind === 'tower' ? 5 : 9) < 3;
+        const glassWindow = variant === 0 ? px > 3 && px < 21 && py > 3 && py < 29 :
+          variant === 1 ? (px > 4 && px < 10 || px > 14 && px < 20) && py > 4 && py < 28 :
+          variant === 2 ? px > 2 && px < 22 && (py > 4 && py < 14 || py > 19 && py < 28) :
+          px > 7 && px < 17 && py > 4 && py < 28 && bayX % 3 !== 1;
         const window = kind === 'industrial' ? px > 4 && px < 20 && py > 19 && py < 27 && bayY % 2 === 0 :
-          kind === 'glass' ? px > 3 && px < 21 && py > 3 && py < 29 :
-          kind === 'house' ? px > 5 && px < 19 && py > 9 && py < 25 && bayX % 3 !== 2 :
-          px > 5 && px < 19 && py > 7 && py < 27;
+          kind === 'castle' ? px > 10 && px < 14 && py > 9 && py < 27 && bayX % 2 === 0 :
+          kind === 'airport' ? px > 2 && px < 22 && py > 5 && py < 28 :
+          kind === 'hospital' ? px > 3 && px < 21 && py > 7 && py < 25 && bayX % 2 === 0 :
+          kind === 'campus' ? px > 6 && px < 18 && py > 6 && py < 27 :
+          kind === 'glass' || kind === 'tower' ? glassWindow :
+          kind === 'house' ? px > 5 && px < 19 && py > (variant === 1 ? 12 : 9) && py < 25 && (variant !== 2 || bayX % 3 !== 2) :
+          variant === 2 ? px > 3 && px < 21 && py > 10 && py < 24 :
+          px > (variant === 1 ? 7 : 5) && px < (variant === 1 ? 17 : 19) && py > 7 && py < 27;
         const mullion = window && (px === 12 || py === 17 && kind !== 'glass');
-        const brick = (kind === 'rowhouse' || kind === 'civic') && (py % 8 === 0 || px % 12 === 0 && Math.floor(py / 8) % 2 === 0);
+        const brick = (kind === 'rowhouse' || kind === 'civic' || kind === 'campus' || kind === 'castle') &&
+          (py % (variant === 1 ? 6 : 8) === 0 || px % 12 === 0 && Math.floor(py / 8) % 2 === 0);
         const siding = kind === 'house' && py % 5 === 0;
         const corrugated = kind === 'industrial' && px % 4 === 0;
-        let rgb = window ? (lit ? (kind === 'glass' || kind === 'tower' ? [103, 224, 242] : [255, 206, 145]) : [27, 47, 67]) :
-          base.map((channel) => channel - (brick ? 30 : siding ? 18 : corrugated ? 24 : 0));
+        const glowColor = kind === 'glass' || kind === 'tower' ?
+          [[103, 224, 242], [255, 197, 117], [230, 112, 191], [180, 218, 229]][variant] :
+          kind === 'airport' ? [103, 224, 242] : [255, 206, 145];
+        let rgb = window ? (lit ? glowColor : [27, 47, 67]) :
+          base.map((channel) => channel - (brick ? 30 : siding ? 18 : corrugated ? 24 : 0) + (variant - 1) * 7);
         if (mullion || px === 0 || py === 0) rgb = base.map((channel) => Math.round(channel * .43));
         const i = (y * width + x) * 4;
         pixels[i] = rgb[0]; pixels[i + 1] = rgb[1]; pixels[i + 2] = rgb[2]; pixels[i + 3] = 255;
@@ -512,11 +570,13 @@
       return { color: texture(pixels), glow: texture(glow) };
     }
     const wallMaterials = Object.create(null);
-    function wallMaterial(kind) {
-      if (wallMaterials[kind]) return wallMaterials[kind];
-      const atlas = facadeTextures(kind);
-      return wallMaterials[kind] = new THREE.MeshStandardMaterial({ color: 0xffffff, map: atlas.color,
-        emissive: 0xffffff, emissiveMap: atlas.glow, emissiveIntensity: kind === 'glass' ? .82 : .48,
+    function wallMaterial(kind, variant) {
+      const key = kind + ':' + variant;
+      if (wallMaterials[key]) return wallMaterials[key];
+      const atlas = facadeTextures(kind, variant);
+      return wallMaterials[key] = new THREE.MeshStandardMaterial({ color: 0xffffff, map: atlas.color,
+        emissive: 0xffffff, emissiveMap: atlas.glow,
+        emissiveIntensity: kind === 'glass' || kind === 'tower' ? [.6, .43, .58, .3][variant] : .48,
         vertexColors: true, roughness: kind === 'glass' ? .25 : kind === 'industrial' ? .77 : .58,
         metalness: kind === 'glass' ? .55 : kind === 'industrial' ? .2 : .12, side: THREE.DoubleSide });
     }
@@ -543,14 +603,16 @@
     function uvQuad(out, ua, va, ub, vb) {
       out.push(ua, va, ub, va, ub, vb, ua, va, ub, vb, ua, vb);
     }
-    function roadStrip(out, road, halfWidth, yOffset, uvs, followTerrain = false) {
+    function roadStrip(out, road, halfWidth, yOffset, uvs, followTerrain = false,
+      centerOffset = 0, start = 0, end = 1) {
       const dx = road.x2 - road.x1, dz = road.z2 - road.z1, length = Math.hypot(dx, dz);
       if (length < .1) return;
-      const nx = dz / length * halfWidth, nz = -dx / length * halfWidth;
-      const steps = followTerrain ? Math.max(1, Math.ceil(length / 10)) : 1;
+      const nx = dz / length, nz = -dx / length;
+      const steps = followTerrain ? Math.max(1, Math.ceil(length * (end - start) / 10)) : 1;
       const phase = (road.x1 * dx + road.z1 * dz) / length / 5;
       function vertex(t, side) {
-        const x = road.x1 + dx * t + nx * side, z = road.z1 + dz * t + nz * side;
+        const offset = centerOffset + halfWidth * side;
+        const x = road.x1 + dx * t + nx * offset, z = road.z1 + dz * t + nz * offset;
         const sourceY = road.y1 + (road.y2 - road.y1) * t;
         // Coarse terrain samples can bury the source centerline. Sample both
         // road edges and subdivide long spans so asphalt remains visible.
@@ -558,13 +620,63 @@
         return [x, surfaceY + yOffset, z];
       }
       for (let step = 0; step < steps; step++) {
-        const t0 = step / steps, t1 = (step + 1) / steps;
+        const t0 = start + (end - start) * step / steps;
+        const t1 = start + (end - start) * (step + 1) / steps;
         const a = vertex(t0, 1), b = vertex(t1, 1), c = vertex(t1, -1), d = vertex(t0, -1);
         triangle(out, a, c, b); triangle(out, a, d, c);
         if (uvs) {
           const u = halfWidth * 2 / 5, v0 = phase + length * t0 / 5, v1 = phase + length * t1 / 5;
           uvs.push(0, v0, u, v1, 0, v1, 0, v0, u, v0, u, v1);
         }
+      }
+    }
+    function roadLayout(road) {
+      const half = road.width / 2;
+      let lanes = (road.laneDetails || []).map((lane) => ({
+        position: Number(lane.position), width: Number(lane.width),
+        direction: String(lane.direction || '')
+      })).filter((lane) => Number.isFinite(lane.position) && Number.isFinite(lane.width) &&
+        lane.width > .5 && lane.width < 8 && Math.abs(lane.position) < half + 8);
+      if (!lanes.length) {
+        const count = clamp(Math.round(finite(road.lanes?.car_lane_count, Math.max(1, Math.round(road.width / 4)))), 1, 8);
+        const width = Math.min(3.5, road.width / count);
+        lanes = Array.from({ length: count }, (_, index) => ({
+          position: (index + .5 - count / 2) * width, width,
+          direction: finite(road.lanes?.direction) === 0 && index >= Math.floor(count / 2) ? 'Backward' : 'Forward'
+        }));
+      }
+      lanes.sort((a, b) => a.position - b.position);
+      const laneMin = Math.min(...lanes.map((lane) => lane.position - lane.width / 2));
+      const laneMax = Math.max(...lanes.map((lane) => lane.position + lane.width / 2));
+      const highway = isMotorway(road);
+      const carriageMin = highway ? -half : clamp(laneMin - .3, -half, half - 1);
+      const carriageMax = highway ? half : clamp(laneMax + .3, carriageMin + 1, half);
+      return { lanes, highway, carriageMin, carriageMax,
+        leftWalk: Math.max(0, carriageMin + half), rightWalk: Math.max(0, half - carriageMax) };
+    }
+    function dashStripe(out, road, offset, halfWidth, yOffset, followTerrain) {
+      const length = Math.hypot(road.x2 - road.x1, road.z2 - road.z1);
+      if (length < 3) return;
+      const phase = hash(String(road.id) + ':marking') % 8;
+      for (let distance = -phase; distance < length; distance += 8) {
+        const from = Math.max(0, distance), to = Math.min(length, distance + 4);
+        if (to - from > .7) roadStrip(out, road, halfWidth, yOffset, null, followTerrain,
+          offset, from / length, to / length);
+      }
+    }
+    function markRoad(outWhite, outYellow, road, layout, followTerrain) {
+      const lanes = layout.lanes;
+      const leftEdge = lanes[0].position - lanes[0].width / 2;
+      const rightEdge = lanes[lanes.length - 1].position + lanes[lanes.length - 1].width / 2;
+      roadStrip(outWhite, road, .09, followTerrain ? .096 : .055, null, followTerrain, leftEdge - .13);
+      roadStrip(outWhite, road, .09, followTerrain ? .096 : .055, null, followTerrain, rightEdge + .13);
+      for (let index = 0; index < lanes.length - 1; index++) {
+        const a = lanes[index], b = lanes[index + 1];
+        const boundary = (a.position + a.width / 2 + b.position - b.width / 2) / 2;
+        if (a.direction !== b.direction && a.direction && b.direction) {
+          roadStrip(outYellow, road, .065, followTerrain ? .101 : .06, null, followTerrain, boundary - .13);
+          roadStrip(outYellow, road, .065, followTerrain ? .101 : .06, null, followTerrain, boundary + .13);
+        } else dashStripe(outWhite, road, boundary, .085, followTerrain ? .096 : .055, followTerrain);
       }
     }
     function bridgeBox(out, uvs, road) {
@@ -591,7 +703,16 @@
     function buildingStyle(building) {
       const role = String(building.role || '').toLowerCase();
       const category = String(building.category || '').toLowerCase();
+      const label = category + ' ' + String(building.prefab || '').toLowerCase();
       const height = building.height;
+      if (building.landscape) return 'landscape';
+      if (/castle|fortress|medieval/.test(label)) return 'castle';
+      if (/radio mast|telecom tower|observation tower|bronze statue|monument/.test(label)) return 'monument';
+      if (/parking (?:building|garage)|parking hall|overground parking|underground parking/.test(label)) return 'parking';
+      if (/stadium|sport park stand|basketball center|football field|soccer field|tennis court/.test(label)) return 'stadium';
+      if (/hospital|medical|clinic|health research|crematorium/.test(label)) return 'hospital';
+      if (/university|school|college|library/.test(label)) return 'campus';
+      if (/airport|hangar|terminal/.test(label) || role === 'airport') return 'airport';
       if (/industrial/.test(role) || /factory|warehouse|shipping container|refinery/.test(category)) return 'industrial';
       if (/office/.test(role) || /office/.test(category)) return height > 30 ? 'glass' : 'storefront';
       if (/commercial/.test(role) || /business|storefront|shop|retail/.test(category)) return height > 35 ? 'glass' : 'storefront';
@@ -612,7 +733,11 @@
       storefront: [0xc5a0b6, 0xb6a88d, 0x8daeb4, 0xaf9aaa],
       glass: [0x9dbecb, 0x91a9c4, 0x99c1be, 0xa6a7c6],
       industrial: [0xa3b0a9, 0x9ba3b2, 0xb5a48d, 0x8caaa6],
-      civic: [0xc7c0ac, 0xb2b7bd, 0xc2b3a9, 0xb6b8a4]
+      civic: [0xc7c0ac, 0xb2b7bd, 0xc2b3a9, 0xb6b8a4],
+      campus: [0xb88776, 0xa7776e, 0xc19b83], hospital: [0xd9e6e7, 0xbfcdd6, 0xe2e5de],
+      castle: [0x969b97, 0xa8a49a, 0x838e91], airport: [0x90b6c3, 0xabbcc4, 0x829fb2],
+      stadium: [0x848f9a, 0xa1a9a8], parking: [0x858f94, 0x9b9e9e],
+      monument: [0x7d9b9d, 0x9a8e7a], landscape: [0x538469, 0x607f69]
     };
     function buildingColor(building, style) {
       const palette = buildingPalettes[style];
@@ -676,6 +801,31 @@
       }
       roofPlate(out, colors, ring, top, tint.clone().multiplyScalar(1.1));
     }
+    function slopedRing(out, colors, outer, inner, outerY, innerY, tint) {
+      for (let i = 0; i < outer.length; i++) {
+        const next = (i + 1) % outer.length;
+        roofQuad(out, colors, ringPoint(outer[i], outerY), ringPoint(outer[next], outerY),
+          ringPoint(inner[next], innerY), ringPoint(inner[i], innerY), tint);
+      }
+    }
+    function localPad(center, radius) {
+      return [[center[0] - radius, center[1] - radius], [center[0] + radius, center[1] - radius],
+        [center[0] + radius, center[1] + radius], [center[0] - radius, center[1] + radius]];
+    }
+    function facadeCross(out, colors, ring, base, height, tint) {
+      const y = base + Math.min(height - .6, Math.max(2, height * .67));
+      for (let i = 0; i < ring.length; i++) {
+        const a = ring[i], b = ring[(i + 1) % ring.length];
+        const dx = b[0] - a[0], dz = b[1] - a[1], length = Math.hypot(dx, dz);
+        if (length < 6) continue;
+        const side = (t) => [a[0] + dx * t - dz / length * .11, a[1] + dz * t + dx / length * .11];
+        const center = .5, arm = Math.min(.13, 2.3 / length), stem = Math.min(.038, .6 / length);
+        roofQuad(out, colors, ringPoint(side(center - stem), y - 1.5), ringPoint(side(center + stem), y - 1.5),
+          ringPoint(side(center + stem), y + 1.5), ringPoint(side(center - stem), y + 1.5), tint);
+        roofQuad(out, colors, ringPoint(side(center - arm), y - .32), ringPoint(side(center + arm), y - .32),
+          ringPoint(side(center + arm), y + .32), ringPoint(side(center - arm), y + .32), tint);
+      }
+    }
     function addTrimBand(out, colors, ring, y, tint) {
       const center = ringCenter(ring);
       for (let i = 0; i < ring.length; i++) {
@@ -687,6 +837,60 @@
         const aa = outward(a), bb = outward(b);
         roofQuad(out, colors, ringPoint(aa, y - .08), ringPoint(bb, y - .08),
           ringPoint(bb, y + .08), ringPoint(aa, y + .08), tint);
+      }
+    }
+    function addTowerAccents(out, colors, ring, bottom, top, variant) {
+      const accent = new THREE.Color([0x6bd5e4, 0xe9bd83, 0xdf8bbd, 0xa9d1db][variant]);
+      if (variant === 0 || variant === 2 || variant === 3) {
+        const fractions = variant === 3 ? [.2, .4, .6, .8] : variant === 2 ? [.28, .57, .84] : [.34, .68];
+        for (const f of fractions) addTrimBand(out, colors, ring, bottom + (top - bottom) * f, accent);
+      }
+      if (variant === 0 || variant === 3) return;
+      const center = ringCenter(ring), ribTs = variant === 1 ? [.13, .87] : [.5];
+      for (let i = 0; i < ring.length; i++) {
+        const a = ring[i], b = ring[(i + 1) % ring.length];
+        const length = Math.hypot(b[0] - a[0], b[1] - a[1]);
+        if (length < 3) continue;
+        const half = Math.min(.025, .26 / length);
+        const point = (t) => {
+          const p = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+          const dx = p[0] - center[0], dz = p[1] - center[1], d = Math.hypot(dx, dz) || 1;
+          return [p[0] + dx / d * .12, p[1] + dz / d * .12];
+        };
+        for (const t of ribTs) roofQuad(out, colors, ringPoint(point(t - half), bottom),
+          ringPoint(point(t + half), bottom), ringPoint(point(t + half), top),
+          ringPoint(point(t - half), top), accent);
+      }
+    }
+    function addNamedTowerCrown(outRoofs, outRoofColors, outTrim, outTrimColors, building) {
+      if (building.height < 80 || building.name === building.category) return;
+      const name = String(building.name || '').toLowerCase(), ring = building.footprint;
+      const top = building.baseY + building.height;
+      if (/stylus tower/.test(name)) {
+        const blade = insetRing(ring, .15);
+        roofPrism(outRoofs, outRoofColors, blade, top, top + 12, new THREE.Color(0x91bec5));
+        slopedRing(outRoofs, outRoofColors, blade, insetRing(ring, .025), top + 12, top + 29,
+          new THREE.Color(0x85d7e3));
+        addTrimBand(outTrim, outTrimColors, ring, top - 5, new THREE.Color(0xe8a9d5));
+      } else if (/watanabe tower/.test(name)) {
+        roofPrism(outRoofs, outRoofColors, insetRing(ring, .68), top, top + 5,
+          new THREE.Color(0x6f8390));
+        roofPrism(outRoofs, outRoofColors, insetRing(ring, .38), top + 5, top + 11,
+          new THREE.Color(0x9bb2b6));
+        addTrimBand(outTrim, outTrimColors, ring, top - 11, new THREE.Color(0xe2acb7));
+      } else if (/century castle/.test(name)) {
+        for (const corner of ring) roofPrism(outRoofs, outRoofColors,
+          localPad(corner, Math.min(2.2, Math.min(building.width, building.depth) * .08)),
+          top - 8, top + 7, new THREE.Color(0xb0aaa1));
+        addTrimBand(outTrim, outTrimColors, ring, top - 6, new THREE.Color(0xe1c39d));
+      } else if (/waterfall array/.test(name)) {
+        addTowerAccents(outTrim, outTrimColors, ring, building.baseY + 4, top, 0);
+        roofPrism(outRoofs, outRoofColors, insetRing(ring, .55), top, top + 5,
+          new THREE.Color(0x79bdd3));
+      } else if (/colossal tower|multistory multimedia/.test(name)) {
+        roofPrism(outRoofs, outRoofColors, insetRing(ring, .48), top, top + 8,
+          new THREE.Color(0xa19ba9));
+        addTrimBand(outTrim, outTrimColors, ring, top - 8, new THREE.Color(0xe8a6d3));
       }
     }
     function addHouseRoof(out, colors, ring, eave, peak, tint, variant) {
@@ -732,9 +936,103 @@
     }
     function addBuilding(batches, outRoofs, outRoofColors, outTrim, outTrimColors, building) {
       const ring = building.footprint, base = building.baseY, height = building.height;
-      const style = buildingStyle(building), batch = batches[style];
+      const style = buildingStyle(building);
+      const facadeVariant = hash('facade:' + building.id) % facadeVariants;
+      const batch = batches[facadeKinds.includes(style) ? style : 'civic'][facadeVariant];
       const tint = buildingColor(building, style), roofTint = roofColor(style, building);
       const variant = hash(building.id || building.x + ':' + building.z) % 4;
+      if (style === 'landscape') {
+        const category = String(building.category || '').toLowerCase();
+        const color = /pool|water/.test(category) ? 0x3a90aa :
+          /basketball|tennis|skate/.test(category) ? 0x9b695d :
+          /cemetery/.test(category) ? 0x536e63 : 0x3e8057;
+        roofPlate(outRoofs, outRoofColors, ring, base + .07, new THREE.Color(color));
+        if (/field|court/.test(category)) {
+          const inside = insetRing(ring, .91);
+          roofLedge(outTrim, outTrimColors, ring, inside, base + .09, new THREE.Color(0xcbd4be));
+        }
+        return;
+      }
+      if (style === 'stadium') {
+        const lower = base + Math.min(4, height * .25), rim = base + Math.min(height, Math.max(5, height * .7));
+        const stands = insetRing(ring, .76), field = insetRing(ring, .58);
+        addWallRing(batches.civic[facadeVariant], ring, base, lower, tint, building, 'civic');
+        slopedRing(outRoofs, outRoofColors, ring, stands, rim, base + Math.min(2.5, height * .22), roofTint);
+        roofLedge(outRoofs, outRoofColors, stands, field, base + Math.min(2.5, height * .22),
+          roofTint.clone().multiplyScalar(1.22));
+        roofPlate(outRoofs, outRoofColors, field, base + .16, new THREE.Color(0x398261));
+        addTrimBand(outTrim, outTrimColors, ring, rim, new THREE.Color(0x7ed6dc));
+        return;
+      }
+      if (style === 'parking') {
+        const levels = clamp(Math.round(height / 3.2), 2, 10);
+        const slab = new THREE.Color(0x788991), rail = new THREE.Color(0x9aaeb1);
+        for (let floor = 1; floor <= levels; floor++) {
+          const y = base + height * floor / levels;
+          roofPrism(outRoofs, outRoofColors, ring, y - .28, y, slab);
+          if (floor < levels) addTrimBand(outTrim, outTrimColors, ring, y - .15, rail);
+        }
+        const radius = Math.min(1.1, Math.max(.4, Math.min(building.width, building.depth) * .04));
+        for (const point of ring) roofPrism(outRoofs, outRoofColors, localPad(point, radius), base, base + height, slab);
+        return;
+      }
+      if (style === 'monument') {
+        const low = base + Math.min(4, height * .14), mid = base + height * .68;
+        const plinth = insetRing(ring, .65), shaft = insetRing(ring, .25), tip = insetRing(ring, .08);
+        roofPrism(outRoofs, outRoofColors, plinth, base, low, roofTint);
+        slopedRing(outRoofs, outRoofColors, plinth, shaft, low, mid, tint);
+        slopedRing(outRoofs, outRoofColors, shaft, tip, mid, base + height, new THREE.Color(0xb5c5c5));
+        roofPlate(outRoofs, outRoofColors, tip, base + height, new THREE.Color(0xe39c72));
+        return;
+      }
+      if (style === 'castle') {
+        const parapet = base + height * .78, stone = roofTint.clone().multiplyScalar(1.15);
+        addWallRing(batch, ring, base, parapet, tint, building, style);
+        roofPlate(outRoofs, outRoofColors, ring, parapet, stone);
+        const radius = Math.min(3, Math.max(1, Math.min(building.width, building.depth) * .07));
+        for (const point of ring) roofPrism(outRoofs, outRoofColors, localPad(point, radius), base + height * .58,
+          base + height, stone);
+        for (let edge = 0; edge < ring.length; edge++) {
+          const a = ring[edge], b = ring[(edge + 1) % ring.length];
+          for (let i = 1; i <= 3; i++) {
+            const p = [a[0] + (b[0] - a[0]) * i / 4, a[1] + (b[1] - a[1]) * i / 4];
+            roofPrism(outRoofs, outRoofColors, localPad(p, radius * .38), parapet, base + height * .88, stone);
+          }
+        }
+        return;
+      }
+      if (style === 'airport') {
+        const terminalTop = base + Math.max(5, height * .63);
+        addWallRing(batch, ring, base, terminalTop, tint, building, style);
+        roofPlate(outRoofs, outRoofColors, ring, terminalTop, roofTint);
+        roofLedge(outRoofs, outRoofColors, ring, insetRing(ring, .83), terminalTop + .25,
+          roofTint.clone().multiplyScalar(1.22));
+        roofPrism(outRoofs, outRoofColors, insetRing(ring, .17), terminalTop,
+          base + height, new THREE.Color(0x7096a8));
+        addTrimBand(outTrim, outTrimColors, ring, base + 2.8, new THREE.Color(0x78d9e9));
+        return;
+      }
+      if (style === 'hospital') {
+        addWallRing(batch, ring, base, base + height, tint, building, style);
+        roofPlate(outRoofs, outRoofColors, ring, base + height, roofTint);
+        facadeCross(outTrim, outTrimColors, ring, base, height, new THREE.Color(0xf07379));
+        if (height > 10) roofPrism(outRoofs, outRoofColors, insetRing(ring, .18), base + height,
+          base + height + Math.min(1.8, height * .06), roofTint);
+        return;
+      }
+      if (style === 'campus') {
+        const eave = base + height - Math.min(4.5, Math.max(1.3, height * .16));
+        addWallRing(batch, ring, base, eave, tint, building, style);
+        if (ring.length === 4) addHouseRoof(outRoofs, outRoofColors, ring, eave, base + height, roofTint, variant % 2);
+        else roofPlate(outRoofs, outRoofColors, ring, base + height, roofTint);
+        addTrimBand(outTrim, outTrimColors, ring, base + Math.min(4, height * .22), new THREE.Color(0xe0bf9c));
+        if (height > 8) {
+          const midpoint = [(ring[0][0] + ring[1][0]) / 2, (ring[0][1] + ring[1][1]) / 2];
+          roofPrism(outRoofs, outRoofColors, localPad(midpoint, Math.min(2, building.width * .08)), base,
+            base + Math.min(4.5, height * .3), new THREE.Color(0xd8c6ac));
+        }
+        return;
+      }
       if (style === 'house' && ring.length === 4 && height >= 4 && variant !== 3) {
         const rise = Math.min(3.6, Math.max(1.1, height * .22));
         addWallRing(batch, ring, base, base + height - rise, tint, building, style);
@@ -746,17 +1044,23 @@
       } else if ((style === 'tower' || style === 'glass') && ring.length === 4 && height >= 38) {
         const firstTop = base + height * (variant === 1 && height > 95 ? .67 : variant === 2 ? .84 : .76);
         const upper = insetRing(ring, variant === 2 ? .68 : .79);
-        addWallRing(batch, ring, base, firstTop, tint, building, style);
+        const lobbyTop = base + Math.min(6, height * .09);
+        addWallRing(batches.storefront[facadeVariant], ring, base, lobbyTop, tint.clone().multiplyScalar(1.16), building, 'storefront');
+        addWallRing(batch, ring, lobbyTop, firstTop, tint, building, style);
+        addTowerAccents(outTrim, outTrimColors, ring, lobbyTop, firstTop, facadeVariant);
         roofLedge(outRoofs, outRoofColors, ring, upper, firstTop, roofTint);
         if (height > 110 && variant === 1) {
           const secondTop = base + height * .91, crown = insetRing(ring, .54);
           addWallRing(batch, upper, firstTop, secondTop, tint.clone().multiplyScalar(.88), building, style);
+          addTowerAccents(outTrim, outTrimColors, upper, firstTop, secondTop, facadeVariant);
           roofLedge(outRoofs, outRoofColors, upper, crown, secondTop, roofTint);
           addWallRing(batch, crown, secondTop, base + height, tint, building, style);
+          addTowerAccents(outTrim, outTrimColors, crown, secondTop, base + height, facadeVariant);
           roofPlate(outRoofs, outRoofColors, crown, base + height, roofTint);
           addTrimBand(outTrim, outTrimColors, crown, secondTop, new THREE.Color(0x67d9e6));
         } else {
           addWallRing(batch, upper, firstTop, base + height, tint.clone().multiplyScalar(.9), building, style);
+          addTowerAccents(outTrim, outTrimColors, upper, firstTop, base + height, facadeVariant);
           roofPlate(outRoofs, outRoofColors, upper, base + height, roofTint);
         }
         if (variant % 2 === 0) addTrimBand(outTrim, outTrimColors, upper, firstTop,
@@ -765,6 +1069,8 @@
         addWallRing(batch, ring, base, base + height, tint, building, style);
         roofPlate(outRoofs, outRoofColors, ring, base + height, roofTint);
       }
+      if (style === 'tower' || style === 'glass')
+        addNamedTowerCrown(outRoofs, outRoofColors, outTrim, outTrimColors, building);
       if (style === 'storefront' || style === 'rowhouse') {
         addTrimBand(outTrim, outTrimColors, ring, base + Math.min(height - .35, 3.4),
           new THREE.Color(style === 'storefront' ? (variant % 2 ? 0xe978ae : 0x70dce3) : 0x8c92a6));
@@ -782,6 +1088,68 @@
       dummy.scale.set(part.width, part.height, part.length || part.depth);
       dummy.updateMatrix(); instance.setMatrixAt(i, dummy.matrix);
     }
+    function addStreetTrees(group, sites) {
+      if (!sites.length) return;
+      const trunk = new THREE.InstancedMesh(new THREE.CylinderGeometry(.13, .19, 1, 5), trunkMat, sites.length);
+      const canopy = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 0), canopyMat, sites.length * 2);
+      trunk.name = 'imported-city-tree-trunks'; canopy.name = 'imported-city-tree-canopy';
+      const transform = new THREE.Object3D();
+      const leafColors = [0x486d5b, 0x587f69, 0x426e67, 0x69816a];
+      sites.forEach((site, i) => {
+        transform.position.set(site.x, site.y + site.height * .3, site.z);
+        transform.scale.set(1, site.height * .6, 1);
+        transform.updateMatrix(); trunk.setMatrixAt(i, transform.matrix);
+        for (let tier = 0; tier < 2; tier++) {
+          const radius = site.height * (tier ? .17 : .24);
+          transform.position.set(site.x + (tier ? .35 : 0), site.y + site.height * (tier ? .94 : .72), site.z);
+          transform.scale.set(radius, radius * .8, radius);
+          transform.updateMatrix(); canopy.setMatrixAt(i * 2 + tier, transform.matrix);
+          canopy.setColorAt(i * 2 + tier, new THREE.Color(leafColors[(site.variant + tier) % leafColors.length]));
+        }
+      });
+      trunk.instanceMatrix.needsUpdate = true; canopy.instanceMatrix.needsUpdate = true;
+      if (canopy.instanceColor) canopy.instanceColor.needsUpdate = true;
+      group.add(trunk, canopy);
+    }
+    function nearBuildingFootprint(x, z, margin = 2) {
+      for (const building of map.nearbyBuildings(x, z, margin)) {
+        const ring = building.footprint;
+        if (!ring || ring.length < 3) continue;
+        let inside = false;
+        for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+          const a = ring[i], b = ring[j];
+          if ((a[1] > z) !== (b[1] > z) &&
+            x < (b[0] - a[0]) * (z - a[1]) / (b[1] - a[1]) + a[0]) inside = !inside;
+          const dx = b[0] - a[0], dz = b[1] - a[1];
+          const t = clamp(((x - a[0]) * dx + (z - a[1]) * dz) / (dx * dx + dz * dz || 1), 0, 1);
+          if (Math.hypot(x - a[0] - t * dx, z - a[1] - t * dz) < margin) return true;
+        }
+        if (inside) return true;
+      }
+      return false;
+    }
+    const junctionRoads = new Map();
+    const junctionKey = (x, z) => Math.round(x / 3) + ',' + Math.round(z / 3);
+    for (const road of map.overviewRoads) {
+      if (isMotorway(road) || isElevated(road.mode)) continue;
+      for (const point of [[road.x1, road.z1], [road.x2, road.z2]]) {
+        const id = junctionKey(point[0], point[1]);
+        if (!junctionRoads.has(id)) junctionRoads.set(id, new Set());
+        junctionRoads.get(id).add(String(road.id));
+      }
+    }
+    function addCrosswalks(out, road, layout, length) {
+      if (layout.highway || length < 14) return;
+      for (const atEnd of [false, true]) {
+        const x = atEnd ? road.x2 : road.x1, z = atEnd ? road.z2 : road.z1;
+        const roads = junctionRoads.get(junctionKey(x, z));
+        if (!roads || roads.size < 3 || !roads.has(String(road.id))) continue;
+        const start = atEnd ? 1 - 5 / length : 2 / length;
+        const end = atEnd ? 1 - 2 / length : 5 / length;
+        for (let offset = layout.carriageMin + .34; offset + .58 < layout.carriageMax - .34; offset += .95)
+          roadStrip(out, road, .29, .115, null, true, offset + .29, start, end);
+      }
+    }
     function renderTile(tile) {
       if (disposed) return;
       const id = key(tile.ix, tile.iz);
@@ -790,30 +1158,67 @@
       group.userData.tile = { ix: tile.ix, iz: tile.iz };
       chunkRoot.add(group); tileGroups.set(id, group);
       const groundPositions = [], groundUVs = [], groundHighways = [], highwayUVs = [];
-      const bridgePositions = [], bridgeUVs = [], lanePositions = [], highwayLanes = [];
+      const bridgePositions = [], bridgeUVs = [], sidewalkPositions = [], sidewalkUVs = [];
+      const curbPositions = [], whiteLines = [], yellowLines = [], crosswalkPositions = [], treeSites = [];
       for (const road of tile.roads) {
-        const highway = isMotorway(road);
-        roadStrip(highway ? groundHighways : groundPositions, road, road.width / 2, .06,
-          highway ? highwayUVs : groundUVs, true);
-        roadStrip(highway ? highwayLanes : lanePositions, road, .12, .085, null, true);
+        const layout = roadLayout(road), length = Math.hypot(road.x2 - road.x1, road.z2 - road.z1);
+        const carriageCenter = (layout.carriageMin + layout.carriageMax) / 2;
+        const carriageHalf = (layout.carriageMax - layout.carriageMin) / 2;
+        roadStrip(layout.highway ? groundHighways : groundPositions, road, carriageHalf, .06,
+          layout.highway ? highwayUVs : groundUVs, true, carriageCenter);
+        markRoad(whiteLines, yellowLines, road, layout, true);
+        addCrosswalks(crosswalkPositions, road, layout, length);
+        if (layout.highway) continue;
+        const endMargin = length > 16 ? Math.min(.16, 3 / length) : 0;
+        for (const side of [-1, 1]) {
+          const width = side < 0 ? layout.leftWalk : layout.rightWalk;
+          if (width < .9) continue;
+          const center = side < 0 ? layout.carriageMin - width / 2 : layout.carriageMax + width / 2;
+          roadStrip(sidewalkPositions, road, width / 2, .16, sidewalkUVs, true,
+            center, endMargin, 1 - endMargin);
+          roadStrip(curbPositions, road, .12, .185, null, true,
+            side < 0 ? layout.carriageMin - .1 : layout.carriageMax + .1,
+            endMargin, 1 - endMargin);
+          if (width < 2.2 || length < 24) continue;
+          const nx = (road.z2 - road.z1) / length, nz = -(road.x2 - road.x1) / length;
+          const lateral = side < 0 ? layout.carriageMin - width * .58 : layout.carriageMax + width * .58;
+          const phase = 11 + hash(String(road.id) + ':' + side) % 12;
+          for (let distance = phase; distance < length - 9 && treeSites.length < 150; distance += 38) {
+            const t = distance / length;
+            const x = road.x1 + (road.x2 - road.x1) * t + nx * lateral;
+            const z = road.z1 + (road.z2 - road.z1) * t + nz * lateral;
+            if (nearBuildingFootprint(x, z)) continue;
+            const y = Math.max(road.y1 + (road.y2 - road.y1) * t, map.terrainHeight(x, z)) + .16;
+            const seed = hash(String(road.id) + ':' + Math.round(distance) + ':' + side);
+            treeSites.push({ x, y, z, height: 4.6 + seed % 26 / 10, variant: seed % 4 });
+          }
+        }
       }
       for (const road of tile.highways) {
         bridgeBox(bridgePositions, bridgeUVs, road);
-        roadStrip(isMotorway(road) ? highwayLanes : lanePositions, road, .12, .04);
+        markRoad(whiteLines, yellowLines, road, roadLayout(road), false);
       }
       mesh('imported-city-road', groundPositions, roadMat, group, null, groundUVs);
       mesh('imported-city-highway-grade', groundHighways, highwayRoadMat, group, null, highwayUVs);
       mesh('imported-city-highway', bridgePositions, elevatedMat, group, null, bridgeUVs);
-      mesh('imported-city-lane-light', lanePositions, laneMat, group);
-      mesh('imported-city-highway-lane', highwayLanes, highwayLaneMat, group);
-      const facades = Object.fromEntries(facadeKinds.map((kind) => [kind, { positions: [], colors: [], uvs: [] }]));
+      mesh('imported-city-sidewalk', sidewalkPositions, sidewalkMat, group, null, sidewalkUVs);
+      mesh('imported-city-curb', curbPositions, curbMat, group);
+      mesh('imported-city-white-marking', whiteLines, whiteMarkingMat, group);
+      mesh('imported-city-yellow-marking', yellowLines, yellowMarkingMat, group);
+      mesh('imported-city-crosswalk', crosswalkPositions, whiteMarkingMat, group);
+      addStreetTrees(group, treeSites);
+      const facades = Object.fromEntries(facadeKinds.map((kind) => [kind,
+        Array.from({ length: facadeVariants }, () => ({ positions: [], colors: [], uvs: [] }))]));
       const roofs = [], roofColors = [], trim = [], trimColors = [];
-      for (const building of tile.buildings) addBuilding(facades, roofs, roofColors, trim, trimColors, building);
+      for (const building of tile.buildings) if (!building.skipVisual)
+        addBuilding(facades, roofs, roofColors, trim, trimColors, building);
       const buildingRoot = new THREE.Group(); buildingRoot.name = 'imported-city-building'; group.add(buildingRoot);
       for (const kind of facadeKinds) {
-        const batch = facades[kind];
-        if (batch.positions.length) mesh('imported-city-building-' + kind, batch.positions,
-          wallMaterial(kind), buildingRoot, batch.colors, batch.uvs);
+        for (let variant = 0; variant < facadeVariants; variant++) {
+          const batch = facades[kind][variant];
+          if (batch.positions.length) mesh('imported-city-building-' + kind, batch.positions,
+            wallMaterial(kind, variant), buildingRoot, batch.colors, batch.uvs);
+        }
       }
       mesh('imported-city-roof', roofs, roofMat, buildingRoot, roofColors);
       mesh('imported-city-building-trim', trim, buildingTrimMat, buildingRoot, trimColors);
@@ -965,16 +1370,20 @@
     }
     for (const stop of map.stops) {
       const beacon = new THREE.Group(); beacon.name = 'imported-city-landmark';
-      beacon.position.set(stop.x, Number.isFinite(stop.y) ? stop.y : map.terrainHeight(stop.x, stop.z), stop.z);
+      const heading = Number.isFinite(stop.heading) ? stop.heading : 0;
+      const edge = Math.max(5, Number.isFinite(stop.roadWidth) ? stop.roadWidth / 2 + 1.4 : 6);
+      const x = stop.x + Math.cos(heading) * edge;
+      const z = stop.z - Math.sin(heading) * edge;
+      beacon.position.set(x, map.terrainHeight(x, z), z);
       const tint = new THREE.Color(stop.color);
-      const pillar = new THREE.Mesh(new THREE.CylinderGeometry(.24, .32, 9, 8), new THREE.MeshBasicMaterial({ color: tint }));
-      pillar.position.set(6, 5, 0);
-      const cap = new THREE.Mesh(new THREE.OctahedronGeometry(1.2), new THREE.MeshBasicMaterial({ color: tint }));
-      cap.position.set(6, 10, 0); beacon.add(pillar, cap);
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(.06, .08, 3.8, 6),
+        new THREE.MeshBasicMaterial({ color: tint.clone().multiplyScalar(.55) }));
+      post.position.y = 1.9; beacon.add(post);
       const texture = signTexture(stop.title.toUpperCase(), stop.color);
-      if (texture) for (const angle of [0, Math.PI]) {
-        const sign = new THREE.Mesh(new THREE.PlaneGeometry(12, 3.2), new THREE.MeshBasicMaterial({ map: texture, side: THREE.FrontSide }));
-        sign.position.set(0, 8.5, angle ? -.05 : .05); sign.rotation.y = angle;
+      if (texture) {
+        const sign = new THREE.Mesh(new THREE.PlaneGeometry(5.2, 1.3),
+          new THREE.MeshBasicMaterial({ map: texture, side: THREE.DoubleSide }));
+        sign.position.y = 4.15; sign.rotation.y = heading;
         beacon.add(sign);
       }
       world.add(beacon);

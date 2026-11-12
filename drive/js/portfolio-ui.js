@@ -220,7 +220,8 @@
       title.textContent = stop.title;
       guide.hidden = true;
       storyView.hidden = false;
-      storyContent.innerHTML = `<p class="city-story-kind">${escapeHtml(story.kind)}</p><h3>${escapeHtml(story.title)}</h3><p class="city-story-intro">${escapeHtml(story.intro)}</p>${story.body}`;
+      const landmark = stop.landmark ? `<p class="city-story-landmark">This stop is near ${escapeHtml(stop.landmark)} in the city I built.</p>` : '';
+      storyContent.innerHTML = `<p class="city-story-kind">${escapeHtml(story.kind)}</p><h3>${escapeHtml(story.title)}</h3><p class="city-story-intro">${escapeHtml(story.intro)}</p>${landmark}${story.body}`;
       driveButton.hidden = typeof onJump !== 'function';
       panel.focus();
       return true;

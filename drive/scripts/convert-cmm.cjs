@@ -11,9 +11,9 @@ const { once } = require('node:events');
 
 const RELEVANT_ROOT = new Set([
   'schema_version', 'metadata', 'sea_level', 'terrain',
-  'networks', 'buildings', 'districts',
+  'networks', 'buildings', 'districts', 'traffic',
 ]);
-const ITEM_ARRAYS = new Set(['networks', 'buildings', 'districts']);
+const ITEM_ARRAYS = new Set(['networks', 'buildings', 'districts', 'traffic.segments']);
 
 function parseTuple(value, length, label) {
   const parts = String(value).split(',').map(Number);
@@ -38,6 +38,7 @@ function parseArgs(argv) {
     else if (key === '--tile-size') args.tileSize = Number(value);
     else if (key === '--terrain-cell') args.terrainCell = Number(value);
     else if (key === '--max-terrain-samples') args.maxTerrainSamples = Number(value);
+    else if (key === '--stops-file') args.stopsFile = value;
     else throw new Error(`Unknown argument ${key}`);
   }
   if (args.help) return args;
@@ -54,6 +55,22 @@ function parseArgs(argv) {
     throw new Error('--bounds must be minX,minZ,maxX,maxZ');
   }
   return args;
+}
+
+function readStopsFile(file) {
+  const source = JSON.parse(fs.readFileSync(path.resolve(file), 'utf8'));
+  if (source?.format !== 'drive-city-stops-v1' || source.coordinateSystem !== 'source-world-xz' || !Array.isArray(source.stops)) {
+    throw new Error('Stops file needs drive-city-stops-v1 source-world-xz stops');
+  }
+  const ids = new Set();
+  for (const stop of source.stops) {
+    if (typeof stop?.id !== 'string' || !stop.id || ids.has(stop.id) ||
+        !Number.isFinite(stop.x) || !Number.isFinite(stop.z)) {
+      throw new Error('Stops file has duplicate or invalid id/x/z');
+    }
+    ids.add(stop.id);
+  }
+  return source;
 }
 
 function round(v, places = 3) {
@@ -351,6 +368,8 @@ class CityConverter {
     this.tiles = new Map();
     this.openTiles = new Map();
     this.counts = { networks: 0, roads: 0, buildings: 0, districts: 0, roadParts: 0 };
+    this.trafficLanes = new Map();
+    this.meshBackedParentIds = new Set();
     this.overviewRoads = 0;
     this.overviewDistricts = [];
     this.seaLevel = 0;
@@ -573,9 +592,30 @@ class CityConverter {
       role: textOf(building.role),
       category: textOf(building.category_name) || textOf(building.category_id) || textOf(building.category),
       name: textOf(building.display_name) || textOf(building.name),
+      prefab: textOf(building.name) || textOf(building.source_raw),
+      parentBuildingId: building.parent_building_id == null ? null : String(building.parent_building_id),
+      geometrySource: textOf(building.geometry_source),
+      growthKind: textOf(building.growth_kind),
     };
+    if (feature.parentBuildingId && /\bmesh\s+\d+\b/i.test(feature.prefab)) {
+      this.meshBackedParentIds.add(feature.parentBuildingId);
+    }
     this.writeFeature(this.tile(ix, iz), feature);
     this.counts.buildings++;
+  }
+
+  trafficSegment(segment) {
+    if (segment?.segment_id == null || !Array.isArray(segment.lanes)) return;
+    const lanes = segment.lanes.filter(lane => lane?.lane_type === 'Vehicle').map(lane => {
+      const position = Number(lane.position), width = Number(lane.width);
+      if (!Number.isFinite(position) || !Number.isFinite(width) || width <= 0) return null;
+      const detail = { position: round(position, 3), width: round(width, 3),
+        direction: lane.direction === 'Backward' ? 'Backward' : 'Forward' };
+      if (Number.isInteger(lane.lane_index)) detail.index = lane.lane_index;
+      if (Number.isFinite(Number(lane.speed_limit_mps))) detail.speed = round(Number(lane.speed_limit_mps), 3);
+      return detail;
+    }).filter(Boolean);
+    if (lanes.length) this.trafficLanes.set(String(segment.segment_id), lanes);
   }
 
   district(district) {
@@ -591,6 +631,7 @@ class CityConverter {
     if (kind === 'networks') this.road(value);
     else if (kind === 'buildings') this.building(value);
     else if (kind === 'districts') this.district(value);
+    else if (kind === 'traffic.segments') this.trafficSegment(value);
   }
 
   finalize() {
@@ -618,7 +659,22 @@ class CityConverter {
       score: round(neighborhoodScore(densest), 2),
       method: 'building-height-and-road-density-3x3',
     } : null;
-    fs.writeSync(this.overviewFd, '],"districts":' + JSON.stringify(this.overviewDistricts) + ',"stops":[]}');
+    const authored = this.args.authoredStops;
+    if (authored?.cityName && authored.cityName !== this.cityName) {
+      throw new Error(`Stops file names ${authored.cityName}, but export is ${this.cityName}`);
+    }
+    const stops = (authored?.stops || []).map(stop => {
+      const x = round(stop.x - this.originWorld[0]), z = round(stop.z - this.originWorld[2]);
+      if (x < this.bounds.minX || x > this.bounds.maxX || z < this.bounds.minZ || z > this.bounds.maxZ) {
+        throw new Error(`Stop ${stop.id} is outside selected city bounds`);
+      }
+      const result = { id: stop.id, x, z };
+      if (typeof stop.landmarkId === 'string') result.landmarkId = stop.landmarkId;
+      if (typeof stop.landmark === 'string') result.landmark = stop.landmark;
+      if (typeof stop.roadId === 'string') result.roadId = stop.roadId;
+      return result;
+    });
+    fs.writeSync(this.overviewFd, '],"districts":' + JSON.stringify(this.overviewDistricts) + ',"stops":' + JSON.stringify(stops) + '}');
     fs.closeSync(this.overviewFd);
 
     const focus = featuredDistrict?.center || [round((this.bounds.minX + this.bounds.maxX) / 2), round((this.bounds.minZ + this.bounds.maxZ) / 2)];
@@ -629,7 +685,10 @@ class CityConverter {
       this.terrainData.height[i] = round(this.terrainData.height[i] - verticalOffset, 2);
     }
     const overview = JSON.parse(fs.readFileSync(this.overviewFile, 'utf8'));
-    for (const road of overview.roads) for (const point of road.points) point[1] = round(point[1] - verticalOffset);
+    for (const road of overview.roads) {
+      for (const point of road.points) point[1] = round(point[1] - verticalOffset);
+      if (this.trafficLanes.has(road.id)) road.laneDetails = this.trafficLanes.get(road.id);
+    }
     fs.writeFileSync(this.overviewFile, JSON.stringify(overview));
     for (const tile of tiles) {
       const file = path.join(this.args.out, tile.file);
@@ -637,6 +696,7 @@ class CityConverter {
       for (const feature of payload.features) {
         if (feature.type === 'road') {
           for (const point of feature.points) point[1] = round(point[1] - verticalOffset);
+          if (this.trafficLanes.has(feature.id)) feature.laneDetails = this.trafficLanes.get(feature.id);
         } else if (feature.type === 'building') {
           feature.baseY = round(feature.baseY - verticalOffset, 2);
         }
@@ -653,6 +713,7 @@ class CityConverter {
       format: 'drive-city-v1', source: { schema: this.schema, cityName: this.cityName || '', seaLevel: this.seaLevel },
       originWorld: this.originWorld.map(x => round(x)), bounds: this.bounds, worldBounds: this.fullBounds,
       verticalOriginWorld,
+      meshBackedParentIds: [...this.meshBackedParentIds].sort((a, b) => Number(a) - Number(b)),
       tileSize: this.args.tileSize, tiles: tiles.map(({ ix, iz, file, roadCount, buildingCount }) => ({ ix, iz, file, roadCount, buildingCount })),
       overview: 'overview.json',
       terrain: { file: 'terrain.json', rows: terrain.rows, cols: terrain.cols, origin: terrain.origin, cell: terrain.cell, sourceRows: this.meta.rows, sourceCols: this.meta.cols, sourceCell: this.meta.cell },
@@ -669,9 +730,10 @@ class CityConverter {
 async function convert(args) {
   const input = path.resolve(args.input), out = path.resolve(args.out);
   if (!fs.existsSync(input)) throw new Error(`Input does not exist: ${input}`);
+  const authoredStops = args.stopsFile ? readStopsFile(args.stopsFile) : null;
   fs.mkdirSync(out, { recursive: true });
   if (fs.readdirSync(out).length) throw new Error(`Output directory must be empty: ${out}`);
-  const converter = new CityConverter({ ...args, out });
+  const converter = new CityConverter({ ...args, out, authoredStops });
   const reader = new CmmReader({
     scalar: (p, v) => converter.scalar(p, v),
     item: (k, v) => converter.item(k, v),
@@ -691,7 +753,7 @@ if (require.main === module) {
   (async () => {
     const args = parseArgs(process.argv.slice(2));
     if (args.help) {
-      console.log('Usage: node scripts/convert-cmm.cjs --input city.cmm.gz --out data/imported-city [--center x,z --radius m | --bounds minX,minZ,maxX,maxZ] [--tile-size 512] [--terrain-cell 32] [--max-terrain-samples 250000]');
+      console.log('Usage: node scripts/convert-cmm.cjs --input city.cmm.gz --out data/imported-city [--center x,z --radius m | --bounds minX,minZ,maxX,maxZ] [--tile-size 512] [--terrain-cell 32] [--max-terrain-samples 250000] [--stops-file stops.json]');
       return;
     }
     const result = await convert(args);
