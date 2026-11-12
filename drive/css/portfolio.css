@@ -74,10 +74,10 @@
 .city-minimap-canvas svg :is(line, path) { fill: none; stroke: #7eb2bb; stroke-width: 1.4; opacity: .8; vector-effect: non-scaling-stroke; }
 .city-minimap-canvas svg .city-map-arterial { stroke: #c2dce1; stroke-width: 2; }
 .city-minimap-canvas svg .city-map-highway { stroke: #f276d2; stroke-width: 2.8; opacity: .9; }
-.city-minimap-cone { position: absolute; z-index: 0; left: 50%; top: 50%; width: 140px; height: 140px; clip-path: polygon(50% 100%, 5% 0, 95% 0); background: linear-gradient(#5eecf34a, #5eecf308); transform-origin: 50% 100%; transform: translate(-50%, -100%) rotate(var(--radar-heading, 0deg)); pointer-events: none; }
+.city-minimap-cone { position: absolute; z-index: 0; left: 50%; top: 50%; width: 140px; height: 140px; clip-path: polygon(50% 100%, 5% 0, 95% 0); background: linear-gradient(#5eecf34a, #5eecf308); transform: translate(-50%, -100%); pointer-events: none; }
 .city-minimap-centers { position: absolute; z-index: 2; inset: 0; }
 .city-minimap-center { position: absolute; width: 5px; height: 5px; transform: translate(-50%, -50%) rotate(45deg); border: 1px solid #ffb8e6; background: #f067cc; box-shadow: 0 0 5px #f067cc; }
-.city-minimap-player { position: absolute; z-index: 3; left: 50%; top: 50%; width: 12px; height: 12px; transform: translate(-50%, -50%) rotate(var(--radar-heading, 0deg)); border: 2px solid white; border-radius: 50%; background: #5eecf3; box-shadow: 0 0 0 3px #5eecf351, 0 0 9px #5eecf3; }
+.city-minimap-player { position: absolute; z-index: 3; left: 50%; top: 50%; width: 12px; height: 12px; transform: translate(-50%, -50%); border: 2px solid white; border-radius: 50%; background: #5eecf3; box-shadow: 0 0 0 3px #5eecf351, 0 0 9px #5eecf3; }
 .city-minimap-player::before { content: ''; position: absolute; left: 50%; top: -9px; transform: translateX(-50%); border-left: 4px solid transparent; border-right: 4px solid transparent; border-bottom: 7px solid white; }
 @media (min-width: 761px) and (min-height: 601px) {
   .city-map-active .garage { top: 294px; right: clamp(18px, 4vw, 60px); left: auto; bottom: auto; }

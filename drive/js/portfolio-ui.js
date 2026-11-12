@@ -176,7 +176,6 @@
     const nearby = host.querySelector('.city-nearby');
     const playerDot = host.querySelector('.city-player-dot');
     const minimap = host.querySelector('.city-minimap');
-    const minimapCone = host.querySelector('.city-minimap-cone');
     const minimapPlayer = host.querySelector('.city-minimap-player');
     const minimapCanvas = host.querySelector('.city-minimap-canvas');
     const minimapCenters = host.querySelector('.city-minimap-centers');
@@ -204,7 +203,7 @@
     let mapView = {left: 0, top: 0, width: 100, height: 100};
     let miniView = {left: 0, top: 0, width: 100, height: 100};
     let miniAspect = 1;
-    let radarPosition = null, radarRoadAnchor = null;
+    let radarPosition = null, radarRoadAnchor = null, radarRoadGroup = null, radarHeading = 0;
     const maxMapZoom = 12;
     const clamp = (value, low, high) => Math.max(low, Math.min(high, value));
     function placeMapMarker(marker, left, top, width, height) {
@@ -233,9 +232,30 @@
         radarPosition?.z ?? locations[0]?.z ?? 0);
       miniView = {left: center.x - width / 2, top: center.y - height / 2, width, height};
       minimapSvg.setAttribute('viewBox', `${miniView.left} ${miniView.top} ${width} ${height}`);
-      for (const marker of minimapCenters.children)
-        placeMapMarker(marker, miniView.left, miniView.top, width, height);
       drawRadarRoads();
+      orientRadar();
+    }
+    function orientRadar() {
+      if (!radarPosition) return;
+      // The full guide stays aligned to the save. In the chase camera, screen
+      // right points opposite its +X axis, so mirror X before turning the
+      // nearby streets around the car. The cone and player arrow stay up.
+      const center = point(radarPosition.x, radarPosition.z);
+      const cosine = Math.cos(radarHeading), sine = Math.sin(radarHeading);
+      const a = -cosine, b = -sine, c = -sine, d = cosine;
+      const e = center.x - a * center.x - c * center.y;
+      const f = center.y - b * center.x - d * center.y;
+      radarRoadGroup?.setAttribute('transform', `matrix(${a} ${b} ${c} ${d} ${e} ${f})`);
+      for (const marker of minimapCenters.children) {
+        const dx = Number(marker.dataset.mapX) - center.x;
+        const dy = Number(marker.dataset.mapY) - center.y;
+        const x = center.x + a * dx + c * dy;
+        const y = center.y + b * dx + d * dy;
+        marker.style.left = (x - miniView.left) / miniView.width * 100 + '%';
+        marker.style.top = (y - miniView.top) / miniView.height * 100 + '%';
+        marker.hidden = x < miniView.left || x > miniView.left + miniView.width ||
+          y < miniView.top || y > miniView.top + miniView.height;
+      }
     }
     function applyMapView() {
       const {width, height} = mapViewSize();
@@ -293,19 +313,21 @@
       const roads = cityMap?.networkRoads || cityMap?.overviewRoads || cityMap?.roadSegments;
       if (!roads?.length || !radarPosition) return;
       const span = Math.max(1, bounds.maxX - bounds.minX, bounds.maxZ - bounds.minZ);
-      const halfX = miniView.width * span / 184 + 180;
-      const halfZ = miniView.height * span / 184 + 180;
+      // Include the diagonal of the rotated viewport plus movement between
+      // spatial refreshes, so turns never expose empty corners.
+      const radius = Math.hypot(miniView.width * span / 184,
+        miniView.height * span / 184) + 180;
       if (radarRoadAnchor &&
           Math.hypot(radarPosition.x - radarRoadAnchor.x, radarPosition.z - radarRoadAnchor.z) < 140 &&
-          Math.abs(halfX - radarRoadAnchor.halfX) < 1 &&
-          Math.abs(halfZ - radarRoadAnchor.halfZ) < 1) return;
-      radarRoadAnchor = {x: radarPosition.x, z: radarPosition.z, halfX, halfZ};
-      const minX = radarPosition.x - halfX, maxX = radarPosition.x + halfX;
-      const minZ = radarPosition.z - halfZ, maxZ = radarPosition.z + halfZ;
+          Math.abs(radius - radarRoadAnchor.radius) < 1) return;
+      radarRoadAnchor = {x: radarPosition.x, z: radarPosition.z, radius};
+      const minX = radarPosition.x - radius, maxX = radarPosition.x + radius;
+      const minZ = radarPosition.z - radius, maxZ = radarPosition.z + radius;
       const nearbyRoads = roads.filter(line =>
         Math.max(line.x1, line.x2) >= minX && Math.min(line.x1, line.x2) <= maxX &&
         Math.max(line.z1, line.z2) >= minZ && Math.min(line.z1, line.z2) <= maxZ);
-      minimapSvg.innerHTML = roadPaths(nearbyRoads);
+      minimapSvg.innerHTML = `<g>${roadPaths(nearbyRoads)}</g>`;
+      radarRoadGroup = minimapSvg.firstElementChild;
     }
     function renderMap() {
       const lines=cityMap?.networkRoads || cityMap?.overviewRoads || cityMap?.roadSegments;
@@ -321,7 +343,8 @@
           return `<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}"/><line x1="${d.x}" y1="${d.y}" x2="${e.x}" y2="${e.y}"/>`;
         }).join('') + '<line class="city-map-highway" x1="50" y1="4" x2="50" y2="96"/>';
         svg.innerHTML=roadMarkup;
-        minimapSvg.innerHTML=roadMarkup;
+        minimapSvg.innerHTML=`<g>${roadMarkup}</g>`;
+        radarRoadGroup = minimapSvg.firstElementChild;
       }
       mapStops.replaceChildren();
       mapCenters.replaceChildren();
@@ -464,13 +487,11 @@
       placeMapMarker(playerDot, mapView.left, mapView.top, mapView.width, mapView.height);
       minimapPlayer.dataset.mapX = mapped.x;
       minimapPlayer.dataset.mapY = mapped.y;
-      const direction = `${heading * 180 / Math.PI}deg`;
-      minimapCone.style.setProperty('--radar-heading', direction);
-      minimapPlayer.style.setProperty('--radar-heading', direction);
+      radarHeading = heading;
       if (!radarPosition || Math.hypot(position.x - radarPosition.x, position.z - radarPosition.z) > .4) {
         radarPosition = {x: position.x, z: position.z};
         applyMinimapView();
-      }
+      } else orientRadar();
       let nearest = null, distance = Infinity;
       for (const stop of locations) {
         const d = Math.hypot(position.x - stop.x, position.z - stop.z);

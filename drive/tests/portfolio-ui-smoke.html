@@ -31,6 +31,19 @@ const miniRect = miniCanvas.getBoundingClientRect();
 check(Math.abs(miniParts[2] / miniParts[3] - miniRect.width / miniRect.height) < .01,
   'minimap keeps the same X/Z proportions as the city');
 const miniPlayer = miniCanvas.querySelector('.city-minimap-player');
+const miniCone = miniCanvas.querySelector('.city-minimap-cone');
+const playerTransform = getComputedStyle(miniPlayer).transform;
+const coneTransform = getComputedStyle(miniCone).transform;
+const radarMatrix = () => miniCanvas.querySelector('svg g')?.getAttribute('transform')
+  ?.match(/matrix\(([^)]+)\)/)?.[1].trim().split(/[\s,]+/).map(Number);
+const radarVector = (matrix, x, y) => ({
+  x: matrix[0] * x + matrix[2] * y,
+  y: matrix[1] * x + matrix[3] * y
+});
+const northRadar = radarMatrix();
+check(northRadar && radarVector(northRadar, 10, 0).x < -9 &&
+  radarVector(northRadar, 0, -10).y < -9,
+  'north-facing radar puts east left and forward up, as in the chase camera');
 check(Math.abs(Number(miniPlayer.dataset.mapY) -
   Number(largeMap.querySelector('.city-player-dot').dataset.mapY)) < .001,
   'minimap and guide put the player on the same side of the road');
@@ -42,9 +55,18 @@ check(movedRadarView !== firstRadarView &&
   Math.abs(radarLeft + radarWidth / 2 - Number(miniPlayer.dataset.mapX)) < .001 &&
   Math.abs(radarTop + radarHeight / 2 - Number(miniPlayer.dataset.mapY)) < .001,
   'local radar follows the car at center');
-check(miniCanvas.querySelector('.city-minimap-cone').style.getPropertyValue('--radar-heading') === '90deg' &&
-  miniPlayer.style.getPropertyValue('--radar-heading') === '90deg',
-  'radar vision cone and car heading turn together');
+const leftTurnRadar = radarMatrix();
+check(leftTurnRadar && Math.abs(radarVector(leftTurnRadar, 10, 0).x) < .001 &&
+  radarVector(leftTurnRadar, 10, 0).y < -9 &&
+  radarVector(leftTurnRadar, 0, -10).x > 9,
+  'left steering keeps the road ahead up while the world turns right');
+check(getComputedStyle(miniCone).transform === coneTransform &&
+  getComputedStyle(miniPlayer).transform === playerTransform,
+  'radar vision cone and car arrow stay fixed up');
+ui.update({x: stops[0].x + 100, z: stops[0].z + 50}, 0, -Math.PI / 2);
+const rightTurnRadar = radarMatrix();
+check(rightTurnRadar && radarVector(rightTurnRadar, 0, -10).x < -9,
+  'right steering turns the world left');
 ui.update({x: stops[0].x, z: stops[0].z}, 0);
 const fitView = mapSvg.getAttribute('viewBox');
 const viewParts = () => mapSvg.getAttribute('viewBox').split(' ').map(Number);
