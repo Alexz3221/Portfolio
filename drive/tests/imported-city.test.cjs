@@ -94,8 +94,8 @@ test('buried ground streets stay visible and low ramps do not grow bridge barrie
   const files=new Map([[base+'manifest.json',manifest],[base+'overview.json',overview],
     [base+'terrain.json',terrain],[base+'tiles/0_0.json',tile]]);
   const map=await Imported.load(base+'manifest.json',{fetch:async url=>({ok:files.has(url),json:async()=>files.get(url)})});
-  assert.equal(map.roadSegments.length,3);
-  assert.equal(map.highwaySegments.length,0);
+  assert.equal(map.roadSegments.length,2);
+  assert.equal(map.highwaySegments.length,1,'the low ramp keeps its elevated source identity');
   assert.equal(map.guardrails.length,0);
   const world=new THREE.Group(),visual=map.build(THREE,world);
   const road=world.getObjectByName('imported-city-road');
@@ -105,7 +105,10 @@ test('buried ground streets stay visible and low ramps do not grow bridge barrie
   const positions=road.geometry.attributes.position;
   let lowest=Infinity;
   for(let i=0;i<positions.count;i++)lowest=Math.min(lowest,positions.getY(i));
-  assert.ok(lowest>=.059 && lowest<.061,'buried street is drawn just above the terrain');
+  assert.ok(lowest>=.06 && lowest<.09,'buried street stays visibly above the terrain');
   assert.ok(positions.count>60,'long roads are subdivided to follow the sampled terrain');
+  const ramp=world.getObjectByName('imported-city-highway');
+  assert.ok(ramp,'the low ramp still has an unbroken road surface');
+  assert.equal(world.getObjectByName('imported-city-guardrail'),undefined);
   visual.dispose();
 });

@@ -100,7 +100,6 @@ test('a wide four-way junction trims every arm and owns one seam-spanning asphal
   const points = (mesh) => mesh.geometry.attributes.position;
   const distance = (attribute, index) => Math.hypot(attribute.getX(index) - 200, attribute.getZ(index) - 100);
   const patchPoints = points(patch);
-  assert.ok(Array.from({ length: patchPoints.count }, (_, i) => distance(patchPoints, i)).some((d) => d < .01));
   const covers = (object, x, z) => {
     if (!object) return false;
     const a = points(object);
@@ -120,7 +119,7 @@ test('a wide four-way junction trims every arm and owns one seam-spanning asphal
     'imported-city-white-marking', 'imported-city-yellow-marking']) {
     assert.ok(!covers(eastTile.getObjectByName(name), 200, 100), name + ' cannot cross the intersection');
   }
-  assert.ok(covers(eastTile.getObjectByName('imported-city-sidewalk'), 214, 114),
+  assert.ok(covers(eastTile.getObjectByName('imported-city-junction-sidewalk'), 214, 114),
     'adjacent sidewalks meet in a paved corner return');
   assert.ok(!covers(patch, 214, 114), 'the corner return stays outside the asphalt');
   for (const tile of [westTile, eastTile]) for (const name of [

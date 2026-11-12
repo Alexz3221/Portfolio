@@ -135,6 +135,41 @@
       const topStart=segment.topStart??segment.y1??0,topEnd=segment.topEnd??segment.y2??0;
       const dx=x2-x1,dz=z2-z1,length=Math.hypot(dx,dz);
       if(length<.01)return null;
+      if(Array.isArray(segment.startMiter)&&Array.isArray(segment.endMiter)) {
+        const half=segment.width/2;
+        const corners=[
+          [x1-segment.startMiter[0]*half,z1-segment.startMiter[1]*half,topStart],
+          [x1+segment.startMiter[0]*half,z1+segment.startMiter[1]*half,topStart],
+          [x2+segment.endMiter[0]*half,z2+segment.endMiter[1]*half,topEnd],
+          [x2-segment.endMiter[0]*half,z2-segment.endMiter[1]*half,topEnd]
+        ];
+        const turns=corners.map((point,i)=>{
+          const next=corners[(i+1)%4],after=corners[(i+2)%4];
+          return (next[0]-point[0])*(after[1]-next[1])-
+            (next[1]-point[1])*(after[0]-next[0]);
+        });
+        if(corners.every(point=>point.every(Number.isFinite))&&turns.every(turn=>turn>1e-5)) {
+          // A graded road with different end miters has a twisted top quad.
+          // CANNON convex hull faces must be planar, so use the same diagonal
+          // as the rendered deck and extrude each surface triangle separately.
+          const center=new C.Vec3((x1+x2)/2,(topStart+topEnd)/2-.25,(z1+z2)/2);
+          const body=new C.Body({mass:0,material:terrainMaterial});
+          for(const indices of [[0,1,3],[1,2,3]]) {
+            const triangle=indices.map(index=>corners[index]);
+            const origin=new C.Vec3(
+              triangle.reduce((sum,p)=>sum+p[0],0)/3,
+              triangle.reduce((sum,p)=>sum+p[2],0)/3-.25,
+              triangle.reduce((sum,p)=>sum+p[1],0)/3);
+            const vertices=[];
+            for(const lower of [true,false])for(const [x,z,y] of triangle)
+              vertices.push(new C.Vec3(x-origin.x,y-(lower?.5:0)-origin.y,z-origin.z));
+            const faces=[[0,1,2],[5,4,3],[0,3,4,1],[1,4,5,2],[2,5,3,0]];
+            body.addShape(new C.ConvexPolyhedron(vertices,faces),origin.vsub(center));
+          }
+          body.position.copy(center);world.addBody(body);
+          return body;
+        }
+      }
       const pitch=-Math.atan2(topEnd-topStart,length),yaw=Math.atan2(dx,dz);
       const slopeLength=Math.hypot(length,topEnd-topStart);
       const centerY=(topStart+topEnd)/2-.25/Math.cos(pitch);

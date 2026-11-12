@@ -76,10 +76,10 @@
   const labels = {about: 'About', projects: 'Projects', experience: 'Experience', education: 'Education', skills: 'Skills', contact: 'Contact'};
   const obamnasAmericaCenters = {
     'center-4_-2': 'Downtown Core',
-    'center-0_3': 'North Center',
+    'center-0_3': 'South Center',
     'center-7_-7': 'Terminus District',
-    'center-9_5': 'Northeast Center',
-    'center--2_10': 'Northwest Center',
+    'center-9_5': 'Southeast Center',
+    'center--2_10': 'Southwest Center',
     'center--5_6': 'Campus District',
     'center-7_2': 'East Center'
   };
@@ -128,7 +128,7 @@
           <span class="city-minimap-centers" aria-hidden="true"></span>
           <span class="city-minimap-player" aria-hidden="true"></span>
         </span>
-        <span class="city-minimap-hint">OPEN / FAST TRAVEL</span>
+        <span class="city-minimap-hint">CLICK OR M / OPEN</span>
       </button>
       <div class="city-overlay" hidden>
         <section class="city-panel" role="dialog" aria-modal="true" aria-labelledby="cityPanelTitle" tabindex="-1">
@@ -136,11 +136,18 @@
           <div class="city-guide-view">
             <p class="city-guide-intro">Take the long way around, or open a stop right here. The city is yours either way.</p>
             <div class="city-guide-layout">
-              <div class="city-map" role="group" aria-label="City map, portfolio stops, and fast travel centers">
+              <div class="city-map" role="group" tabindex="0" aria-label="Interactive city map. Drag to pan, scroll to zoom, or use the map controls. Portfolio stops and city centers are clickable.">
                 <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true" focusable="false"></svg>
                 <span class="city-player-dot" aria-hidden="true"></span>
                 <div class="city-map-centers"></div>
                 <div class="city-map-stops"></div>
+                <div class="city-map-controls" aria-label="Map zoom controls">
+                  <button class="city-map-zoom-in" type="button" aria-label="Zoom in on city map">+</button>
+                  <button class="city-map-zoom-out" type="button" aria-label="Zoom out on city map">−</button>
+                  <button class="city-map-zoom-reset" type="button" aria-label="Fit entire city on map">FIT</button>
+                  <span class="city-map-zoom-level" aria-live="polite">1×</span>
+                </div>
+                <span class="city-map-gesture">SCROLL OR +/− TO ZOOM · THEN DRAG TO PAN</span>
                 <span class="city-map-key">YOU ARE HERE <i></i></span>
                 <span class="city-center-key">◆ CENTERS / FAST TRAVEL</span>
               </div>
@@ -169,6 +176,7 @@
     const playerDot = host.querySelector('.city-player-dot');
     const minimap = host.querySelector('.city-minimap');
     const minimapPlayer = host.querySelector('.city-minimap-player');
+    const minimapCanvas = host.querySelector('.city-minimap-canvas');
     const minimapCenters = host.querySelector('.city-minimap-centers');
     const minimapSvg = host.querySelector('.city-minimap svg');
     const closeButton = host.querySelector('.city-close');
@@ -180,30 +188,93 @@
     const stopList = host.querySelector('.city-stop-list');
     const centerSection = host.querySelector('.city-centers');
     const centerList = host.querySelector('.city-center-list');
+    const mapViewport = host.querySelector('.city-map');
+    const zoomInButton = host.querySelector('.city-map-zoom-in');
+    const zoomOutButton = host.querySelector('.city-map-zoom-out');
+    const zoomResetButton = host.querySelector('.city-map-zoom-reset');
+    const zoomLevel = host.querySelector('.city-map-zoom-level');
     const svg = host.querySelector('.city-map svg');
     const driveFocus = driveTarget || document.querySelector('#drive-scene');
     let bounds={minX:-440,maxX:440,minZ:-440,maxZ:440};
     let centers = [];
     let centersById = new Map();
+    let mapZoom = 1, mapCenterX = 50, mapCenterY = 50, mapDrag = null;
+    let mapView = {left: 0, top: 0, width: 100, height: 100};
+    let miniView = {left: 0, top: 0, width: 100, height: 100};
+    const maxMapZoom = 12;
+    const clamp = (value, low, high) => Math.max(low, Math.min(high, value));
+    function placeMapMarker(marker, left, top, width, height) {
+      const x = Number(marker.dataset.mapX), y = Number(marker.dataset.mapY);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+      marker.style.left = (x - left) / width * 100 + '%';
+      marker.style.top = (y - top) / height * 100 + '%';
+      marker.hidden = x < left || x > left + width || y < top || y > top + height;
+    }
+    function mapViewSize() {
+      const rect = mapViewport.getBoundingClientRect();
+      const aspect = rect.width > 0 && rect.height > 0 ? rect.width / rect.height : 1;
+      return {width: 100 * Math.max(1, aspect) / mapZoom,
+        height: 100 * Math.max(1, 1 / aspect) / mapZoom};
+    }
+    function applyMinimapView() {
+      const rect = minimapCanvas.getBoundingClientRect();
+      const aspect = rect.width > 0 && rect.height > 0 ? rect.width / rect.height : 1;
+      const width = 100 * Math.max(1, aspect), height = 100 * Math.max(1, 1 / aspect);
+      miniView = {left: (100 - width) / 2, top: (100 - height) / 2, width, height};
+      minimapSvg.setAttribute('viewBox', `${miniView.left} ${miniView.top} ${width} ${height}`);
+      for (const marker of [minimapPlayer, ...minimapCenters.children])
+        placeMapMarker(marker, miniView.left, miniView.top, width, height);
+    }
+    function applyMapView() {
+      const {width, height} = mapViewSize();
+      mapCenterX = width >= 100 ? 50 : clamp(mapCenterX, width / 2, 100 - width / 2);
+      mapCenterY = height >= 100 ? 50 : clamp(mapCenterY, height / 2, 100 - height / 2);
+      const left = mapCenterX - width / 2, top = mapCenterY - height / 2;
+      mapView = {left, top, width, height};
+      svg.setAttribute('viewBox', `${left} ${top} ${width} ${height}`);
+      for (const marker of [playerDot, ...mapStops.children, ...mapCenters.children])
+        placeMapMarker(marker, left, top, width, height);
+      const label = `${Number(mapZoom.toFixed(1))}×`;
+      if (zoomLevel.textContent !== label) zoomLevel.textContent = label;
+      zoomInButton.disabled = mapZoom >= maxMapZoom;
+      zoomOutButton.disabled = mapZoom <= 1;
+    }
+    function zoomMap(factor, focalX = .5, focalY = .5) {
+      const before = mapViewSize();
+      const next = clamp(mapZoom * factor, 1, maxMapZoom);
+      if (next === mapZoom) return;
+      const anchorX = mapCenterX + (focalX - .5) * before.width;
+      const anchorY = mapCenterY + (focalY - .5) * before.height;
+      mapZoom = next;
+      const after = mapViewSize();
+      mapCenterX = anchorX - (focalX - .5) * after.width;
+      mapCenterY = anchorY - (focalY - .5) * after.height;
+      applyMapView();
+    }
+    function resetMapView() { mapZoom = 1; mapCenterX = mapCenterY = 50; applyMapView(); }
     function point(x,z) {
       const span=Math.max(1,bounds.maxX-bounds.minX,bounds.maxZ-bounds.minZ);
       const midX=(bounds.minX+bounds.maxX)/2,midZ=(bounds.minZ+bounds.maxZ)/2;
+      // Three.js is Y-up: from above, +X goes right and +Z goes down.
+      // Keep the guide in the same handedness as the driveable city.
       return {x:Math.max(0,Math.min(100,50+(x-midX)*92/span)),
-        y:Math.max(0,Math.min(100,50-(z-midZ)*92/span))};
+        y:Math.max(0,Math.min(100,50+(z-midZ)*92/span))};
     }
     function renderMap() {
-      const lines=cityMap?.overviewRoads || cityMap?.roadSegments;
+      const lines=cityMap?.networkRoads || cityMap?.overviewRoads || cityMap?.roadSegments;
       if(lines?.length) {
-        const stride=Math.max(1,Math.ceil(lines.length/700));
-        const roadMarkup=lines.filter((_,i)=>i%stride===0).map(line=>{
+        const roadLine = line => {
           const a=point(line.x1,line.z1),b=point(line.x2,line.z2);
           const highway=/highway|motorway|freeway|express/i.test(String(line.roadClass||line.kind||'')) ||
-            /elevated|bridge|viaduct|overpass/i.test(String(line.mode||'')) || Number(line.width)>=24;
-          const roadClass=highway?' class="city-map-highway"':'';
+            /elevated|bridge|viaduct|overpass/i.test(String(line.mode||''));
+          const arterial=/arterial|main/i.test(String(line.roadClass||''));
+          const roadClass=highway?' class="city-map-highway"':arterial?' class="city-map-arterial"':'';
           return `<line${roadClass} x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}"/>`;
-        }).join('');
-        svg.innerHTML=roadMarkup;
-        minimapSvg.innerHTML=roadMarkup;
+        };
+        svg.innerHTML = lines.map(roadLine).join('');
+        const miniLines = cityMap?.overviewRoads || lines;
+        const stride = Math.max(1, Math.ceil(miniLines.length / 700));
+        minimapSvg.innerHTML = miniLines.filter((_, i) => i % stride === 0).map(roadLine).join('');
       } else {
         const roads = [-400,-320,-240,-160,-80,0,80,160,240,320,400];
         const roadMarkup = roads.map(c => {
@@ -226,6 +297,8 @@
         dot.className = 'city-map-stop';
         dot.style.left = mapped.x + '%';
         dot.style.top = mapped.y + '%';
+        dot.dataset.mapX = mapped.x;
+        dot.dataset.mapY = mapped.y;
         const stopColor = typeof stop.color === 'string' && /^#[\da-f]{6}$/i.test(stop.color)
           ? stop.color : '#' + Number(stop.color || 0x66e7f1).toString(16).padStart(6, '0');
         dot.style.setProperty('--stop-color', stopColor);
@@ -250,6 +323,8 @@
         marker.className = 'city-map-center';
         marker.style.left = mapped.x + '%';
         marker.style.top = mapped.y + '%';
+        marker.dataset.mapX = mapped.x;
+        marker.dataset.mapY = mapped.y;
         marker.dataset.center = center.id;
         marker.setAttribute('aria-label', `Fast travel to ${center.title}`);
         marker.title = center.title;
@@ -258,6 +333,8 @@
         miniMarker.className = 'city-minimap-center';
         miniMarker.style.left = mapped.x + '%';
         miniMarker.style.top = mapped.y + '%';
+        miniMarker.dataset.mapX = mapped.x;
+        miniMarker.dataset.mapY = mapped.y;
         minimapCenters.appendChild(miniMarker);
         const item = document.createElement('button');
         item.type = 'button';
@@ -267,6 +344,8 @@
         item.innerHTML = `<span>${String(index + 1).padStart(2, '0')} / CENTER</span><strong>${escapeHtml(center.title)}</strong><small>JUMP TO STREET ↗</small>`;
         centerList.appendChild(item);
       });
+      resetMapView();
+      applyMinimapView();
     }
     function setCity(nextCity) {
       cityMap=nextCity || null;
@@ -297,6 +376,7 @@
       title.textContent = 'City Guide';
       guide.hidden = false;
       storyView.hidden = true;
+      applyMapView();
       panel.focus();
     }
     function open(id, returnFocus) {
@@ -331,15 +411,18 @@
       host.hidden = map !== 'city';
       guideButton.hidden = map !== 'city';
       if (map !== 'city') nearby.hidden = true;
+      else applyMinimapView();
     }
     function update(position, speed = 0) {
       if (map !== 'city' || !position) return;
       currentSpeed = speed;
       const mapped=point(position.x,position.z);
-      playerDot.style.left = mapped.x + '%';
-      playerDot.style.top = mapped.y + '%';
-      minimapPlayer.style.left = mapped.x + '%';
-      minimapPlayer.style.top = mapped.y + '%';
+      playerDot.dataset.mapX = mapped.x;
+      playerDot.dataset.mapY = mapped.y;
+      placeMapMarker(playerDot, mapView.left, mapView.top, mapView.width, mapView.height);
+      minimapPlayer.dataset.mapX = mapped.x;
+      minimapPlayer.dataset.mapY = mapped.y;
+      placeMapMarker(minimapPlayer, miniView.left, miniView.top, miniView.width, miniView.height);
       let nearest = null, distance = Infinity;
       for (const stop of locations) {
         const d = Math.hypot(position.x - stop.x, position.z - stop.z);
@@ -356,6 +439,52 @@
 
     guideButton.addEventListener('click', event => activeView ? close(event.detail > 0) : openGuide(event.detail > 0 ? driveFocus : guideButton));
     minimap.addEventListener('click', () => openGuide(driveFocus));
+    zoomInButton.addEventListener('click', () => zoomMap(1.5));
+    zoomOutButton.addEventListener('click', () => zoomMap(1 / 1.5));
+    zoomResetButton.addEventListener('click', resetMapView);
+    mapViewport.addEventListener('wheel', event => {
+      if ((event.deltaY > 0 && mapZoom <= 1) ||
+          (event.deltaY < 0 && mapZoom >= maxMapZoom)) return;
+      event.preventDefault();
+      const rect = mapViewport.getBoundingClientRect();
+      zoomMap(event.deltaY < 0 ? 1.25 : 1 / 1.25,
+        clamp((event.clientX - rect.left) / Math.max(1, rect.width), 0, 1),
+        clamp((event.clientY - rect.top) / Math.max(1, rect.height), 0, 1));
+    }, { passive: false });
+    mapViewport.addEventListener('pointerdown', event => {
+      if (event.button !== 0 || event.target.closest?.('button')) return;
+      mapDrag = { id: event.pointerId, x: event.clientX, y: event.clientY,
+        centerX: mapCenterX, centerY: mapCenterY };
+      mapViewport.setPointerCapture?.(event.pointerId);
+    });
+    mapViewport.addEventListener('pointermove', event => {
+      if (!mapDrag || event.pointerId !== mapDrag.id) return;
+      const rect = mapViewport.getBoundingClientRect();
+      const {width, height} = mapViewSize();
+      mapCenterX = mapDrag.centerX - (event.clientX - mapDrag.x) / Math.max(1, rect.width) * width;
+      mapCenterY = mapDrag.centerY - (event.clientY - mapDrag.y) / Math.max(1, rect.height) * height;
+      applyMapView();
+    });
+    for (const eventName of ['pointerup', 'pointercancel', 'lostpointercapture'])
+      mapViewport.addEventListener(eventName, event => {
+        if (mapDrag?.id === event.pointerId) mapDrag = null;
+      });
+    mapViewport.addEventListener('keydown', event => {
+      const key = event.key.toLowerCase();
+      if (mapZoom === 1 && key.startsWith('arrow')) return;
+      if (['+', '=', '-', '_', '0', 'arrowleft', 'arrowright', 'arrowup', 'arrowdown'].includes(key)) {
+        event.preventDefault(); event.stopPropagation();
+        if (key === '+' || key === '=') zoomMap(1.5);
+        else if (key === '-' || key === '_') zoomMap(1 / 1.5);
+        else if (key === '0') resetMapView();
+        else {
+          const {width, height} = mapViewSize();
+          mapCenterX += key === 'arrowright' ? width * .18 : key === 'arrowleft' ? -width * .18 : 0;
+          mapCenterY += key === 'arrowdown' ? height * .18 : key === 'arrowup' ? -height * .18 : 0;
+          applyMapView();
+        }
+      }
+    });
     closeButton.addEventListener('click', event => close(event.detail > 0));
     backButton.addEventListener('click', () => openGuide());
     nearby.addEventListener('click', event => { if (nearbyStop && !nearby.disabled) open(nearbyStop.id, event.detail > 0 ? driveFocus : nearby); });
@@ -378,6 +507,13 @@
     });
     document.addEventListener('keydown', event => {
       if (map !== 'city') return;
+      if (!event.repeat && event.key.toLowerCase() === 'm' &&
+          !event.target.matches?.('input, select, textarea, [contenteditable]')) {
+        event.preventDefault(); event.stopPropagation();
+        if (activeView === 'guide') close(true);
+        else openGuide(driveFocus);
+        return;
+      }
       if (activeView) {
         if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close(); return; }
         if (event.key === 'Tab') {
@@ -389,7 +525,7 @@
           }
           return;
         }
-        if (/^(w|a|s|d|c|r|[1-4]|arrowup|arrowdown|arrowleft|arrowright| )$/i.test(event.key)) {
+        if (/^(w|a|s|d|c|f|r|[1-4]|arrowup|arrowdown|arrowleft|arrowright| )$/i.test(event.key)) {
           if (event.key === ' ' && !event.target.matches?.('button, a, input, select, textarea')) event.preventDefault();
           event.stopPropagation();
         }
@@ -402,6 +538,11 @@
         open(nearbyStop.id, driveFocus);
       }
     });
+    window.addEventListener('resize', () => { applyMapView(); applyMinimapView(); });
+    if (typeof window.ResizeObserver === 'function') {
+      new window.ResizeObserver(applyMapView).observe(mapViewport);
+      new window.ResizeObserver(applyMinimapView).observe(minimapCanvas);
+    }
     setCity(cityMap);
     return {setCity, setMap, update, isOpen, open, close};
   }

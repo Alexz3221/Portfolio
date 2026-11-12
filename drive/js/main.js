@@ -562,6 +562,26 @@
     if (physics) vehicle.position.y = physics.body.position.y - 1.05;
     camera.position.set(vehicle.position.x - Math.sin(motion.heading) * 9, vehicle.position.y + 5, vehicle.position.z - Math.cos(motion.heading) * 9);
   }
+  function recoverVehicleInPlace() {
+    if (!physics) return;
+    const body = physics.body;
+    const x = body.position.x, z = body.position.z, previousY = body.position.y;
+    const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(body.quaternion);
+    const heading = Math.hypot(forward.x, forward.z) > .12
+      ? Math.atan2(forward.x, forward.z) : motion.heading;
+    resetOrbit();
+    releaseControls();
+    physics.reset(x, z, heading);
+    // Preserve an elevated deck or an airborne recovery instead of dropping
+    // the car to the terrain underneath its current position.
+    body.position.y = Math.max(body.position.y, previousY + .45);
+    physics.syncRenderState();
+    motion.speed = 0;
+    motion.heading = heading;
+    updateVehicle(0);
+    camera.position.set(vehicle.position.x - Math.sin(heading) * 9,
+      vehicle.position.y + 5, vehicle.position.z - Math.cos(heading) * 9);
+  }
   function jumpToStop(stop) {
     if (selectedMap !== 'city' || !physics) return;
     releaseControls();
@@ -689,6 +709,7 @@
     if (!event.repeat && ['1', '2', '3', '4'].includes(key)) chooseCar(['comet', 'rally', 'pickup', 'hypercar'][Number(key) - 1]);
     if (!event.repeat && key === 'c') setCameraMode();
     if (!event.repeat && key === 'r') resetVehicle();
+    if (!event.repeat && key === 'f') recoverVehicleInPlace();
   });
   window.addEventListener('keyup', event => {
     const key = event.key.toLowerCase(); keyboardKeys.delete(key); syncInputKey(key);
@@ -777,7 +798,7 @@
       else model.rearLamp.color.setHex(braking?0xff8090:0xff354e);
       document.querySelector('#speedValue').textContent=String(Math.round(physics.body.velocity.length()*2.236936));
       const up=new THREE.Vector3(0,1,0).applyQuaternion(vehicle.quaternion);
-      document.querySelector('#surfaceValue').textContent=selectedMap==='racetrack'&&physics.body.position.y<-2?'Fell off course · Press R / Reset':up.y<.1?'Overturned? Press R / reset':state.grounded?state.grounded+' wheels grounded':'AIRBORNE · ↑↓ pitch / ←→ roll';
+      document.querySelector('#surfaceValue').textContent=selectedMap==='racetrack'&&physics.body.position.y<-2?'Fell off course · Press R / Reset':up.y<.1?'Overturned? Press F / flip in place':state.grounded?state.grounded+' wheels grounded':'AIRBORNE · ↑↓ pitch / ←→ roll';
       const fallLimit=selectedMap==='city' && city.terrain
         ? physics.terrainHeight(physics.body.position.x,physics.body.position.z)-30 : -30;
       if(physics.body.position.y < fallLimit) resetVehicle();

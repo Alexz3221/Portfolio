@@ -1,0 +1,29 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Road geometry preview</title>
+<style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#0c1720;color:white;font:13px monospace}canvas{display:block;width:100%;height:100%}#label{position:fixed;top:12px;left:12px;padding:8px;background:#091926d9}</style></head>
+<body><canvas id="view"></canvas><div id="label">Loading city geometry…</div>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<script src="../js/imported-city.js"></script><script>
+(async()=>{
+  const params=new URLSearchParams(location.search);
+  const x=Number(params.get('x')||1840.721), z=Number(params.get('z')||-1052.141);
+  const span=Number(params.get('span')||100);
+  const map=await DriveImportedCity.load('../data/imported-city/manifest.json');
+  await map.ensureNear(x,z,Math.max(320,map.tileSize*.7));
+  const scene=new THREE.Scene();scene.background=new THREE.Color(0x7b9ba3);
+  scene.add(new THREE.HemisphereLight(0xffffff,0x74849b,1.25));
+  const sun=new THREE.DirectionalLight(0xffffff,.7);sun.position.set(x-30,80,z-20);scene.add(sun);
+  const world=new THREE.Group();scene.add(world);
+  const visual=map.build(THREE,world);
+  const aspect=innerWidth/innerHeight;
+  const camera=new THREE.OrthographicCamera(-span*aspect/2,span*aspect/2,span/2,-span/2,.1,2000);
+  if(params.has('oblique')) camera.position.set(x+span*.65,map.terrainHeight(x,z)+span*.9,z+span*.65);
+  else camera.position.set(x,map.terrainHeight(x,z)+500,z+.01);
+  camera.up.set(0,0,-1);camera.lookAt(x,map.terrainHeight(x,z),z);
+  visual.update(camera,0);
+  const renderer=new THREE.WebGLRenderer({canvas:document.getElementById('view'),antialias:true});
+  renderer.setSize(innerWidth,innerHeight);renderer.outputEncoding=THREE.sRGBEncoding;
+  renderer.render(scene,camera);
+  document.getElementById('label').textContent=`${x.toFixed(3)}, ${z.toFixed(3)} · span ${span}m`;
+  document.documentElement.dataset.ready='yes';
+})().catch(error=>{document.getElementById('label').textContent=error.message;document.documentElement.dataset.ready='error';});
+</script></body></html>

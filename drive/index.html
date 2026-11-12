@@ -11,7 +11,7 @@
   <meta name="description" content="Drive through Alex's rainy neon portfolio city, explore six personal stops, or take on a cliffside road and stunt course.">
   <title>Car Go Vroom / Alex</title>
   <link rel="stylesheet" href="css/style.css?v=10">
-  <link rel="stylesheet" href="css/portfolio.css?v=3">
+  <link rel="stylesheet" href="css/portfolio.css?v=4">
 </head>
 <body>
   <canvas id="drive-scene" tabindex="0" aria-label="3D driving playground. Use W A S D or the arrow keys to drive. Drag or swipe the scene to look around."></canvas>
@@ -20,7 +20,7 @@
   <section class="route-picker" aria-label="Choose a map"><label for="mapSelect">EXPLORE A ROUTE</label><select id="mapSelect"><option value="city">Alex after dark / city</option><option value="mountain">Cliffside mountain</option><option value="racetrack">Racetrack / stunt course</option></select><p id="mapDescription">Alex after dark · six stops, one city to explore</p><button id="resetButton" type="button" title="Return to the road (R)">↺ BACK TO ROAD</button></section>
   <aside class="drive-hud"><span class="hud-label">SPEED</span><strong><span id="speedValue">0</span> <small>mph</small></strong><span id="topSpeedValue">141 mph target top speed</span><span id="modelStatus" role="status">Loading car model…</span><span id="surfaceValue">on the road</span><a class="model-credit" href="credits.html" target="_blank" rel="noopener">Car models: Comrade1280 · credits ↗</a></aside>
   <section class="garage" aria-label="Choose a car"><p>pick a car <span>1 / 2 / 3 / 4</span></p><div class="garage-options"><button class="active" data-car="comet" type="button"><i class="swatch comet"></i><span>Comet<small>141 mph</small></span></button><button data-car="rally" type="button"><i class="swatch rally"></i><span>Rally<small>115 mph</small></span></button><button data-car="pickup" type="button"><i class="swatch pickup"></i><span>Pickup<small>99 mph</small></span></button><button data-car="hypercar" type="button"><i class="swatch hypercar"></i><span>Hypercar<small>205 mph</small></span></button></div></section>
-  <div class="drive-help">WASD / ARROWS TO DRIVE <span>·</span> SPACE TO BRAKE <span>·</span> E TO EXPLORE A NEARBY STOP <span>·</span> C FOR CAMERA · DRAG TO LOOK (RETURNS AFTER 4s) <span>·</span> R TO RESET <span>·</span> IN AIR: ↑↓ PITCH / ←→ ROLL</div>
+  <div class="drive-help">WASD / ARROWS TO DRIVE <span>·</span> SPACE TO BRAKE <span>·</span> E TO EXPLORE A NEARBY STOP <span>·</span> M FOR MAP <span>·</span> C FOR CAMERA · DRAG TO LOOK (RETURNS AFTER 4s) <span>·</span> F TO FLIP IN PLACE <span>·</span> R TO RESET <span>·</span> IN AIR: ↑↓ PITCH / ←→ ROLL</div>
   <div class="touch-controls" aria-label="Touch driving controls"><div><button data-key="arrowleft" type="button" aria-label="Steer left">←</button><button data-key="arrowright" type="button" aria-label="Steer right">→</button></div><div><button data-key=" " type="button" aria-label="Brake">■</button><button data-key="arrowdown" type="button" aria-label="Reverse">↓</button><button data-key="arrowup" type="button" aria-label="Accelerate">↑</button></div></div>
   <div class="load-message" id="loadMessage">Loading the road…</div>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
@@ -28,10 +28,10 @@
   <script src="js/vehicle-assets.js?v=2"></script>
   <script src="js/vendor/cannon.min.js"></script>
   <script src="js/city.js?v=1"></script>
-  <script src="js/imported-city.js?v=4"></script>
-  <script src="js/physics.js?v=15"></script>
+  <script src="js/imported-city.js?v=5"></script>
+  <script src="js/physics.js?v=16"></script>
   <script src="js/mobile-ui.js?v=1"></script>
-  <script src="js/portfolio-ui.js?v=5"></script>
-  <script src="js/main.js?v=17"></script>
+  <script src="js/portfolio-ui.js?v=6"></script>
+  <script src="js/main.js?v=18"></script>
 </body>
 </html>

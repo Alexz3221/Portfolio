@@ -15,6 +15,70 @@ check(!document.querySelector('.city-nearby').hidden, 'nearby prompt visible');
 document.querySelector('.city-guide-trigger').click();
 check(ui.isOpen(), 'guide opens');
 check(document.querySelectorAll('.city-stop-item').length === 6, 'all six cards');
+const largeMap = document.querySelector('.city-map');
+const mapSvg = largeMap.querySelector('svg');
+const stopsByZ = [...stops].sort((a, b) => a.z - b.z);
+check(Number(largeMap.querySelector(`.city-map-stop[data-stop="${stopsByZ.at(-1).id}"]`).dataset.mapY) >
+  Number(largeMap.querySelector(`.city-map-stop[data-stop="${stopsByZ[0].id}"]`).dataset.mapY),
+  'map Z direction matches the overhead driving view');
+const miniCanvas = document.querySelector('.city-minimap-canvas');
+const miniParts = miniCanvas.querySelector('svg').getAttribute('viewBox').split(' ').map(Number);
+const miniRect = miniCanvas.getBoundingClientRect();
+check(Math.abs(miniParts[2] / miniParts[3] - miniRect.width / miniRect.height) < .01,
+  'minimap keeps the same X/Z proportions as the city');
+const miniPlayer = miniCanvas.querySelector('.city-minimap-player');
+check(Math.abs(Number(miniPlayer.dataset.mapY) -
+  Number(largeMap.querySelector('.city-player-dot').dataset.mapY)) < .001,
+  'minimap and guide put the player on the same side of the road');
+const fitView = mapSvg.getAttribute('viewBox');
+const viewParts = () => mapSvg.getAttribute('viewBox').split(' ').map(Number);
+const aspectMatches = () => {
+  const [, , width, height] = viewParts();
+  const rect = largeMap.getBoundingClientRect();
+  return Math.abs(width / height - rect.width / rect.height) < .01;
+};
+const markerMatches = () => {
+  const [left, top, width, height] = viewParts();
+  const marker = largeMap.querySelector('.city-map-stop[data-stop="about"]');
+  const mapRect = largeMap.getBoundingClientRect(), markerRect = marker.getBoundingClientRect();
+  const expectedX = (Number(marker.dataset.mapX) - left) / width;
+  const expectedY = (Number(marker.dataset.mapY) - top) / height;
+  return Math.abs(parseFloat(marker.style.left) - expectedX * 100) < .01 &&
+    Math.abs(parseFloat(marker.style.top) - expectedY * 100) < .01 &&
+    (marker.hidden || (Math.abs(markerRect.left + markerRect.width / 2 - (mapRect.left + expectedX * mapRect.width)) < 3 &&
+      Math.abs(markerRect.top + markerRect.height / 2 - (mapRect.top + expectedY * mapRect.height)) < 3));
+};
+check(aspectMatches(), 'map keeps geographic proportions');
+check(markerMatches(), 'stop marker aligns with the map');
+check(viewParts()[0] <= 0 && viewParts()[1] <= 0 &&
+  viewParts()[0] + viewParts()[2] >= 100 && viewParts()[1] + viewParts()[3] >= 100,
+  'fit includes the full city');
+document.querySelector('.city-map-zoom-in').click();
+const zoomView = mapSvg.getAttribute('viewBox');
+check(zoomView !== fitView && viewParts()[2] < Number(fitView.split(' ')[2]), 'map zooms in');
+check(aspectMatches() && markerMatches(), 'zoom preserves map and marker alignment');
+largeMap.dispatchEvent(new KeyboardEvent('keydown', {key:'ArrowDown', bubbles:true}));
+check(mapSvg.getAttribute('viewBox') !== zoomView, 'map pans with keyboard');
+check(markerMatches(), 'pan preserves stop marker alignment');
+const clickableStop = [...largeMap.querySelectorAll('.city-map-stop')].find(marker => {
+  if (marker.hidden) return false;
+  const rect = marker.getBoundingClientRect();
+  return document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2) === marker;
+});
+check(!!clickableStop, 'a zoomed stop has a pointer hit target');
+if (clickableStop) {
+  clickableStop.click();
+  check(document.querySelector('.city-story-content h3')?.textContent === DrivePortfolioUI.stories[clickableStop.dataset.stop].title,
+    'zoomed map marker opens its story');
+  document.querySelector('.city-back').click();
+}
+document.querySelector('.city-map-zoom-reset').click();
+check(mapSvg.getAttribute('viewBox') === fitView, 'map fit restores full city');
+largeMap.style.width = '75%';
+window.dispatchEvent(new Event('resize'));
+check(aspectMatches() && markerMatches(), 'resize refreshes map and marker positions');
+largeMap.style.width = '';
+window.dispatchEvent(new Event('resize'));
 document.querySelector('.city-stop-item[data-stop="projects"]').click();
 check(document.querySelector('.city-story-content h3')?.textContent === 'Things you can actually touch.', 'direct card opens story');
 document.querySelector('.city-drive-here').click();
@@ -44,7 +108,12 @@ check(jumped === 'center-0_0' && !ui.isOpen(), 'center fast travel jumps and clo
 check(document.activeElement === document.querySelector('#drive-scene'), 'fast travel returns focus to the canvas');
 ui.setMap('course');
 check(document.querySelector('.city-guide-trigger').hidden, 'guide hidden off city');
-document.getElementById('results').textContent = failures.length ? 'FAIL: ' + failures.join(', ') : 'PASS: guide, six cards, direct open, city minimap, center fast travel, E prompt, Escape, callbacks, map switch';
+ui.setMap('city');
+document.querySelector('#drive-scene').dispatchEvent(new KeyboardEvent('keydown', {key:'m', bubbles:true}));
+check(ui.isOpen(), 'M opens city map');
+document.dispatchEvent(new KeyboardEvent('keydown', {key:'m', bubbles:true}));
+check(!ui.isOpen(), 'M closes city map');
+document.getElementById('results').textContent = failures.length ? 'FAIL: ' + failures.join(', ') : 'PASS: guide, large zoomable map, pan, M hotkey, center fast travel, E prompt, Escape';
 document.documentElement.dataset.result = failures.length ? 'fail' : 'pass';
 if (new URLSearchParams(location.search).has('preview')) {
   if (new URLSearchParams(location.search).has('narrow')) {

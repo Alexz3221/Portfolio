@@ -129,6 +129,31 @@ test('keyboard native controls retain Space and select arrow-key behavior', () =
   assert.equal(sim.keys.size,0);
 });
 
+test('F rights the car at its current location while R returns to the route start', () => {
+  const {sim, window} = harness();
+  const body = sim.physics().body;
+  const spawn = sim.samples()[0].point;
+  body.position.x += 17;
+  body.position.z += 6;
+  body.position.y += 9;
+  body.quaternion.setFromEuler(Math.PI, .4, 0);
+  body.velocity.set(12, -3, 4);
+  body.angularVelocity.set(1, 2, 3);
+  const before = {x: body.position.x, y: body.position.y, z: body.position.z};
+  sim.keys.add('w');
+  window.keydown({key:'f', target:{matches:()=>false}, repeat:false});
+  assert.ok(Math.abs(body.position.x - before.x) < .001);
+  assert.ok(Math.abs(body.position.z - before.z) < .001);
+  assert.ok(body.position.y >= before.y, 'in-place recovery preserves elevated position');
+  assert.ok(new THREE.Vector3(0, 1, 0).applyQuaternion(body.quaternion).y > .99);
+  assert.equal(body.velocity.length(), 0);
+  assert.equal(body.angularVelocity.length(), 0);
+  assert.equal(sim.keys.size, 0);
+  window.keydown({key:'r', target:{matches:()=>false}, repeat:false});
+  assert.ok(Math.abs(body.position.x - spawn.x) < .001);
+  assert.ok(Math.abs(body.position.z - spawn.z) < .001);
+});
+
 
 test('hood camera stays on the car at high speed rather than trailing behind', () => {
   const {sim} = harness();

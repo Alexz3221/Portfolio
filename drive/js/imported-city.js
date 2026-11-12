@@ -60,17 +60,41 @@
     if (points.length < 2) return [];
     const width = clamp(finite(record.width, 12), 2.5, 80);
     const segments = [];
+    let pathDistance = 0;
+    // Offset every piece of a sampled curve from the same shared corner.
+    // Independent rectangular strips leave a triangle open at each bend.
+    const normals = [];
+    for (let i = 0; i < points.length - 1; i++) {
+      const dx = points[i + 1][0] - points[i][0], dz = points[i + 1][2] - points[i][2];
+      const length = Math.hypot(dx, dz);
+      normals.push(length > .1 ? [dz / length, -dx / length] : null);
+    }
+    const corner = (index, fallback) => {
+      const before = normals[index - 1], after = normals[index];
+      if (!before || !after) return before || after || fallback;
+      const cosine = before[0] * after[0] + before[1] * after[1];
+      if (cosine < -.8) return after;
+      const scale = 1 / (1 + cosine);
+      const x = (before[0] + after[0]) * scale;
+      const z = (before[1] + after[1]) * scale;
+      const magnitude = Math.hypot(x, z);
+      return magnitude > 3 ? [x * 3 / magnitude, z * 3 / magnitude] : [x, z];
+    };
     for (let i = 0; i < points.length - 1; i++) {
       const a = points[i], b = points[i + 1];
-      if (Math.hypot(b[0] - a[0], b[2] - a[2]) < .1) continue;
+      const length = Math.hypot(b[0] - a[0], b[2] - a[2]);
+      if (length < .1) continue;
+      const normal = normals[i];
       segments.push({
         id: record.id, part: record.part, x1: a[0], y1: a[1], z1: a[2],
         x2: b[0], y2: b[1], z2: b[2], width,
+        startMiter: corner(i, normal), endMiter: corner(i + 1, normal), pathDistance,
         kind: record.kind || 'street', roadClass: record.roadClass || null,
         name: record.name || '', mode: record.mode || 'normal', level: record.level ?? null,
         lanes: record.lanes || null,
         laneDetails: Array.isArray(record.laneDetails) ? record.laneDetails : null
       });
+      pathDistance += length;
     }
     return segments;
   }
@@ -353,6 +377,34 @@
       const base = options.baseUrl || '';
       const queue = [];
       let active = 0;
+      const endpointCells = new Map();
+      for (const feature of overview.roads || []) {
+        if (!Array.isArray(feature.points) || feature.points.length < 2 || isTunnel(feature.mode)) continue;
+        for (const raw of [feature.points[0], feature.points[feature.points.length - 1]]) {
+          const [x, y, z] = point(raw), cell = key(Math.floor(x / 3), Math.floor(z / 3));
+          if (!endpointCells.has(cell)) endpointCells.set(cell, []);
+          endpointCells.get(cell).push({ x, y, z, id: String(feature.id) });
+        }
+      }
+      function branchNodeAt(x, y, z) {
+        const ix = Math.floor(x / 3), iz = Math.floor(z / 3), roads = new Set();
+        for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++)
+          for (const end of endpointCells.get(key(ix + dx, iz + dz)) || [])
+            if (Math.hypot(end.x - x, end.z - z) < 1.8 && Math.abs(end.y - y) < 2.5)
+              roads.add(end.id);
+        return roads.size >= 3;
+      }
+      const branchNodesByRoad = new Map();
+      for (const feature of overview.roads || []) {
+        if (!Array.isArray(feature.points) || feature.points.length < 2) continue;
+        for (const raw of [feature.points[0], feature.points[feature.points.length - 1]]) {
+          const [x, y, z] = point(raw);
+          if (!branchNodeAt(x, y, z)) continue;
+          const id = String(feature.id);
+          if (!branchNodesByRoad.has(id)) branchNodesByRoad.set(id, []);
+          branchNodesByRoad.get(id).push({x, y, z});
+        }
+      }
       function roadBounds(road) {
         return { minX: Math.min(road.x1, road.x2) - road.width, maxX: Math.max(road.x1, road.x2) + road.width,
           minZ: Math.min(road.z1, road.z2) - road.width, maxZ: Math.max(road.z1, road.z2) + road.width };
@@ -362,13 +414,43 @@
         const horizontal = Math.hypot(dx, dz), slopeLength = Math.hypot(horizontal, dy);
         const yaw = Math.atan2(dx, dz), pitch = -Math.atan2(dy, horizontal);
         const centerX = (road.x1 + road.x2) / 2, centerZ = (road.z1 + road.z2) / 2;
+        const clearanceAt = (t) => {
+          const x = road.x1 + dx * t, z = road.z1 + dz * t;
+          return road.y1 + dy * t - terrainHeight(x, z);
+        };
+        const firstClearance = clearanceAt(0), lastClearance = clearanceAt(1);
+        // Rails begin where the ramp has room for a barrier. Keep the deck
+        // continuous through the ground-to-elevated transition instead of
+        // cutting its entire segment at an arbitrary clearance threshold.
+        let railStart = 0, railEnd = 1;
+        const barrierClearance = 2.5;
+        if (firstClearance < barrierClearance && lastClearance < barrierClearance) railEnd = 0;
+        else if (firstClearance < barrierClearance && lastClearance >= barrierClearance)
+          railStart = clamp((barrierClearance - firstClearance) / (lastClearance - firstClearance), 0, 1);
+        else if (lastClearance < barrierClearance && firstClearance >= barrierClearance)
+          railEnd = clamp((barrierClearance - firstClearance) / (lastClearance - firstClearance), 0, 1);
+        for (const node of branchNodesByRoad.get(String(road.id)) || []) {
+          const d0 = Math.hypot(road.x1 - node.x, road.z1 - node.z);
+          const d1 = Math.hypot(road.x2 - node.x, road.z2 - node.z);
+          if (Math.min(d0, d1) >= 6 ||
+            Math.min(Math.abs(road.y1 - node.y), Math.abs(road.y2 - node.y)) >= 2.5) continue;
+          if (d0 < 6 && d1 < 6) { railStart = 1; railEnd = 0; }
+          else if (d0 < 6) railStart = Math.max(railStart, clamp((6 - d0) / (d1 - d0), 0, 1));
+          else railEnd = Math.min(railEnd, clamp((d0 - 6) / (d0 - d1), 0, 1));
+        }
+        road.railStart = railStart;
+        road.railEnd = railEnd;
         const rails = [];
-        for (const side of [-1, 1]) rails.push({
-          x: centerX + side * Math.cos(yaw) * (road.width / 2 - .22),
-          y: (road.y1 + road.y2) / 2 + .55 / Math.cos(pitch),
-          z: centerZ - side * Math.sin(yaw) * (road.width / 2 - .22),
-          width: .35, height: 1.1, length: slopeLength, yaw, pitch
-        });
+        if ((railEnd - railStart) * horizontal > 2) {
+          const mid = (railStart + railEnd) / 2, centerY = road.y1 + dy * mid;
+          for (const side of [-1, 1]) rails.push({
+            roadId: road.id,
+            x: road.x1 + dx * mid + side * Math.cos(yaw) * (road.width / 2 - .22),
+            y: centerY + .55 / Math.cos(pitch),
+            z: road.z1 + dz * mid - side * Math.sin(yaw) * (road.width / 2 - .22),
+            width: .24, height: 1.1, length: slopeLength * (railEnd - railStart), yaw, pitch
+          });
+        }
         const supports = [];
         const clearance = (road.y1 + road.y2) / 2 - terrainHeight(centerX, centerZ);
         if (horizontal >= 25 && clearance >= 3) for (const side of [-1, 1]) {
@@ -415,13 +497,10 @@
                 if (!feature || !feature.type) continue;
                 if (feature.type === 'road') for (const road of normalizeRoad(feature)) {
                   if (isTunnel(road.mode)) continue;
-                  const middleX = (road.x1 + road.x2) / 2, middleZ = (road.z1 + road.z2) / 2;
-                  const clearance = Math.min(road.y1 - terrainHeight(road.x1, road.z1), road.y2 - terrainHeight(road.x2, road.z2),
-                    (road.y1 + road.y2) / 2 - terrainHeight(middleX, middleZ));
-                  // The 42 m terrain grid can sit metres below a normal ground
-                  // road. Only the game's elevated designation makes a bridge;
-                  // otherwise thousands of tiny grade fragments gain fake rails.
-                  if (isElevated(road.mode) && clearance > 2.5) {
+                  // Keep every source-elevated road in one continuous deck.
+                  // Segment-by-segment clearance classification cut ramps at
+                  // the first 2.5 m of lift, leaving a visible slab end.
+                  if (isElevated(road.mode)) {
                     const slab = { ...road, topStart: road.y1, topEnd: road.y2 };
                     tileHighways.push(slab);
                     const parts = generateBridgeParts(slab);
@@ -569,7 +648,8 @@
       emissive: 0x0d352d, emissiveIntensity: .12 });
     const terrainMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .95, metalness: .06, side: THREE.DoubleSide });
     const roofMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .65, metalness: .28, side: THREE.DoubleSide });
-    const bridgePartMat = new THREE.MeshStandardMaterial({ color: 0x58718c, metalness: .48, roughness: .43 });
+    const bridgePartMat = new THREE.MeshStandardMaterial({ color: 0x58718c, metalness: .48,
+      roughness: .43, side: THREE.DoubleSide });
     const districtMat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: .3, depthWrite: false, side: THREE.DoubleSide });
     const box = new THREE.BoxGeometry(1, 1, 1);
     const tileGroups = new Map(), terrainChunks = new Map();
@@ -667,20 +747,108 @@
       out.push(ua, va, ub, va, ub, vb, ua, va, ub, vb, ua, vb);
     }
     function roadStrip(out, road, halfWidth, yOffset, uvs, followTerrain = false,
-      centerOffset = 0, start = 0, end = 1) {
+      centerOffset = 0, start = 0, end = 1, maxStep = 10) {
       const dx = road.x2 - road.x1, dz = road.z2 - road.z1, length = Math.hypot(dx, dz);
       if (length < .1 || end - start < .00001) return;
       const nx = dz / length, nz = -dx / length;
-      const steps = followTerrain ? Math.max(1, Math.ceil(length * (end - start) / 10)) : 1;
+      const steps = followTerrain ? Math.max(1, Math.ceil(length * (end - start) / maxStep)) : 1;
       const phase = (road.x1 * dx + road.z1 * dz) / length / 5;
+      function gridSurface(target, t, offset) {
+        for (const grid of target.surfaceGrids || []) {
+          if (t < grid.start - .00001 || t > grid.end + .00001) continue;
+          const row = clamp((t - grid.start) / (grid.end - grid.start) * grid.steps, 0, grid.steps);
+          const column = clamp((1 - (offset - grid.centerOffset) / grid.halfWidth) * .5 * grid.columns,
+            0, grid.columns);
+          const r = Math.min(grid.steps - 1, Math.floor(row)), c = Math.min(grid.columns - 1, Math.floor(column));
+          const fr = row - r, fc = column - c, stride = grid.columns + 1;
+          const a = grid.heights[r * stride + c], b = grid.heights[(r + 1) * stride + c];
+          const d = grid.heights[r * stride + c + 1], corner = grid.heights[(r + 1) * stride + c + 1];
+          return fr >= fc ? a * (1 - fr) + b * (fr - fc) + corner * fc :
+            a * (1 - fc) + d * (fc - fr) + corner * fr;
+        }
+        return -Infinity;
+      }
+      function carriageSurface(t, offset, x, z) {
+        let highest = gridSurface(road, t, offset);
+        if (t > .2 && t < .8) return highest;
+        for (const adjacent of road.surfaceNeighbors || []) {
+          const ax = adjacent.x2 - adjacent.x1, az = adjacent.z2 - adjacent.z1;
+          const lengthSquared = ax * ax + az * az;
+          if (lengthSquared < .01) continue;
+          const raw = ((x - adjacent.x1) * ax + (z - adjacent.z1) * az) / lengthSquared;
+          if (raw < -.03 || raw > 1.03) continue;
+          const position = clamp(raw, 0, 1);
+          const baseX = adjacent.x1 + ax * position, baseZ = adjacent.z1 + az * position;
+          const first = adjacent.startMiter || [az / Math.sqrt(lengthSquared), -ax / Math.sqrt(lengthSquared)];
+          const last = adjacent.endMiter || first;
+          const mx = first[0] * (1 - position) + last[0] * position;
+          const mz = first[1] * (1 - position) + last[1] * position;
+          const side = ((x - baseX) * mx + (z - baseZ) * mz) / (mx * mx + mz * mz || 1);
+          if (Math.abs(side) > adjacent.width / 2 + .5) continue;
+          highest = Math.max(highest, gridSurface(adjacent, position, side));
+        }
+        return highest;
+      }
       function vertex(t, side) {
         const offset = centerOffset + halfWidth * side;
-        const x = road.x1 + dx * t + nx * offset, z = road.z1 + dz * t + nz * offset;
+        const first = road.startMiter || [nx, nz], last = road.endMiter || [nx, nz];
+        const x = road.x1 + dx * t + (first[0] * (1 - t) + last[0] * t) * offset;
+        const z = road.z1 + dz * t + (first[1] * (1 - t) + last[1] * t) * offset;
         const sourceY = road.y1 + (road.y2 - road.y1) * t;
         // Coarse terrain samples can bury the source centerline. Sample both
         // road edges and subdivide long spans so asphalt remains visible.
         const surfaceY = followTerrain ? Math.max(sourceY, map.terrainHeight(x, z)) : sourceY;
-        return [x, surfaceY + yOffset, z];
+        const roadY = yOffset >= .09 && yOffset < .14 ? carriageSurface(t, offset, x, z) : -Infinity;
+        return [x, Math.max(surfaceY + yOffset, roadY + .045), z];
+      }
+      if (followTerrain && maxStep <= 5) {
+        // Junction approaches can cross a steep terrain-cell diagonal across
+        // their width. Sample a two-dimensional ribbon, not only its edges.
+        const columns = Math.max(1, Math.ceil(halfWidth * 2 / (maxStep <= 2 ? 2.5 : 4)));
+        const vertices = [], faces = [], rowLength = columns + 1;
+        for (let row = 0; row <= steps; row++) {
+          const t = start + (end - start) * row / steps;
+          for (let column = 0; column <= columns; column++) {
+            const side = 1 - 2 * column / columns;
+            const p = vertex(t, side);
+            vertices.push([p[0], p[1], p[2], halfWidth * 2 / 5 * column / columns,
+              phase + length * t / 5, t, centerOffset + halfWidth * side]);
+          }
+        }
+        for (let row = 0; row < steps; row++) for (let column = 0; column < columns; column++) {
+          const a = row * rowLength + column, b = a + rowLength;
+          const c = b + 1, d = a + 1;
+          faces.push([a, c, b], [a, d, c]);
+        }
+        const probes = [[1 / 3, 1 / 3, 1 / 3], [.6, .2, .2], [.2, .6, .2],
+          [.2, .2, .6], [.5, .5, 0], [0, .5, .5], [.5, 0, .5]];
+        for (const indices of faces) {
+          const points = indices.map((index) => vertices[index]);
+          let lift = 0;
+          for (const weights of probes) {
+            const x = points.reduce((sum, p, index) => sum + p[0] * weights[index], 0);
+            const z = points.reduce((sum, p, index) => sum + p[2] * weights[index], 0);
+            const y = points.reduce((sum, p, index) => sum + p[1] * weights[index], 0);
+            lift = Math.max(lift, map.terrainHeight(x, z) + .075 - y);
+            if (yOffset >= .09 && yOffset < .14 && road.surfaceGrids?.length) {
+              const t = points.reduce((sum, p, index) => sum + p[5] * weights[index], 0);
+              const lateral = points.reduce((sum, p, index) => sum + p[6] * weights[index], 0);
+              lift = Math.max(lift, carriageSurface(t, lateral, x, z) + .045 - y);
+            }
+          }
+          if (lift > 0) for (const index of indices) vertices[index][1] += lift;
+        }
+        for (const indices of faces) {
+          const [a, b, c] = indices.map((index) => vertices[index]);
+          triangle(out, a.slice(0, 3), b.slice(0, 3), c.slice(0, 3));
+          if (uvs) uvs.push(a[3], a[4], b[3], b[4], c[3], c[4]);
+        }
+        if (maxStep === 5 && yOffset === .06) {
+          if (!road.surfaceGrids) road.surfaceGrids = [];
+          road.surfaceGrids.push({ start, end, steps, columns, halfWidth, centerOffset,
+            heights: vertices.map((p) => p[1]) });
+        }
+        return;
       }
       for (let step = 0; step < steps; step++) {
         const t0 = start + (end - start) * step / steps;
@@ -717,53 +885,105 @@
       return { lanes, highway, carriageMin, carriageMax,
         leftWalk: Math.max(0, carriageMin + half), rightWalk: Math.max(0, half - carriageMax) };
     }
-    function dashStripe(out, road, offset, halfWidth, yOffset, followTerrain, start = 0, end = 1) {
+    function dashStripe(out, road, offset, halfWidth, yOffset, followTerrain,
+      start = 0, end = 1, maxStep = 10) {
       const length = Math.hypot(road.x2 - road.x1, road.z2 - road.z1);
-      if (length < 3) return;
+      if (length < .1) return;
       const phase = hash(String(road.id) + ':marking') % 8;
-      for (let distance = -phase; distance < length; distance += 8) {
+      const pathStart = finite(road.pathDistance);
+      for (let distance = -((pathStart + phase) % 8); distance < length; distance += 8) {
         const from = Math.max(length * start, distance), to = Math.min(length * end, distance + 4);
         if (to - from > .7) roadStrip(out, road, halfWidth, yOffset, null, followTerrain,
-          offset, from / length, to / length);
+          offset, from / length, to / length, maxStep);
       }
     }
     function markRoad(outWhite, outYellow, road, layout, followTerrain, intervals = [[0, 1]]) {
       const lanes = layout.lanes;
+      const markStep = road.surfaceGrids?.length ? 2 : 10;
       const leftEdge = lanes[0].position - lanes[0].width / 2;
       const rightEdge = lanes[lanes.length - 1].position + lanes[lanes.length - 1].width / 2;
       for (const [start, end] of intervals) {
-        roadStrip(outWhite, road, .09, followTerrain ? .096 : .055, null, followTerrain, leftEdge - .13, start, end);
-        roadStrip(outWhite, road, .09, followTerrain ? .096 : .055, null, followTerrain, rightEdge + .13, start, end);
+        roadStrip(outWhite, road, .09, followTerrain ? .096 : .055, null, followTerrain, leftEdge - .13, start, end, markStep);
+        roadStrip(outWhite, road, .09, followTerrain ? .096 : .055, null, followTerrain, rightEdge + .13, start, end, markStep);
         for (let index = 0; index < lanes.length - 1; index++) {
           const a = lanes[index], b = lanes[index + 1];
           const boundary = (a.position + a.width / 2 + b.position - b.width / 2) / 2;
           if (a.direction !== b.direction && a.direction && b.direction) {
-            roadStrip(outYellow, road, .065, followTerrain ? .101 : .06, null, followTerrain, boundary - .13, start, end);
-            roadStrip(outYellow, road, .065, followTerrain ? .101 : .06, null, followTerrain, boundary + .13, start, end);
-          } else dashStripe(outWhite, road, boundary, .085, followTerrain ? .096 : .055, followTerrain, start, end);
+            roadStrip(outYellow, road, .065, followTerrain ? .101 : .06, null, followTerrain, boundary - .13, start, end, markStep);
+            roadStrip(outYellow, road, .065, followTerrain ? .101 : .06, null, followTerrain, boundary + .13, start, end, markStep);
+          } else dashStripe(outWhite, road, boundary, .085, followTerrain ? .096 : .055, followTerrain, start, end, markStep);
         }
       }
     }
+    function elevatedPoint(road, t, offset) {
+      const dx = road.x2 - road.x1, dz = road.z2 - road.z1;
+      const length = Math.hypot(dx, dz);
+      const first = road.startMiter || [dz / length, -dx / length];
+      const last = road.endMiter || [dz / length, -dx / length];
+      const x = road.x1 + dx * t + (first[0] * (1 - t) + last[0] * t) * offset;
+      const z = road.z1 + dz * t + (first[1] * (1 - t) + last[1] * t) * offset;
+      const sourceY = road.y1 + (road.y2 - road.y1) * t;
+      const ground = map.terrainHeight(x, z);
+      return { x, y: Math.max(sourceY, ground) + .06, z,
+        clearance: Math.max(0, sourceY - ground) };
+    }
+    function elevatedVertex(point, rise = 0) { return [point.x, point.y + rise, point.z]; }
     function bridgeBox(out, uvs, road) {
-      const dx = road.x2 - road.x1, dz = road.z2 - road.z1, dy = road.y2 - road.y1;
-      const flat = Math.hypot(dx, dz), length = Math.hypot(flat, dy);
-      if (flat < .1) return;
-      const yaw = Math.atan2(dx, dz), pitch = -Math.atan2(dy, flat);
-      const cy = (road.y1 + road.y2) / 2 - .25 / Math.cos(pitch);
-      const cx = (road.x1 + road.x2) / 2, cz = (road.z1 + road.z2) / 2;
-      function vertex(x, y, z) {
-        const yy = y * Math.cos(pitch) - z * Math.sin(pitch);
-        const zz = y * Math.sin(pitch) + z * Math.cos(pitch);
-        return [cx + x * Math.cos(yaw) + zz * Math.sin(yaw), cy + yy,
-          cz - x * Math.sin(yaw) + zz * Math.cos(yaw)];
+      const length = Math.hypot(road.x2 - road.x1, road.z2 - road.z1);
+      if (length < .1) return;
+      // The same mitered edge coordinates as the road markings are used for
+      // every piece of deck. Subdivision follows the heightfield at low ramps;
+      // a full-width box per curve sample left seams and hard slab ends.
+      const steps = Math.max(1, Math.ceil(length / 8));
+      const half = road.width / 2;
+      const columns = Math.max(1, Math.ceil(road.width / 4));
+      for (let i = 0; i < steps; i++) {
+        const t0 = i / steps, t1 = (i + 1) / steps;
+        for (let column = 0; column < columns; column++) {
+          const offset0 = -half + road.width * column / columns;
+          const offset1 = -half + road.width * (column + 1) / columns;
+          const left0 = elevatedPoint(road, t0, offset0);
+          const right0 = elevatedPoint(road, t0, offset1);
+          const right1 = elevatedPoint(road, t1, offset1);
+          const left1 = elevatedPoint(road, t1, offset0);
+          quad(out, elevatedVertex(left0), elevatedVertex(right0),
+            elevatedVertex(right1), elevatedVertex(left1));
+          uvQuad(uvs, (offset0 + half) / 5, length * t0 / 5,
+            (offset1 + half) / 5, length * t1 / 5);
+        }
+        const a = elevatedPoint(road, t0, -half), b = elevatedPoint(road, t0, half);
+        const c = elevatedPoint(road, t1, half), d = elevatedPoint(road, t1, -half);
+        const under = (p) => elevatedVertex(p, -Math.min(.5, p.clearance));
+        if (Math.max(a.clearance, b.clearance, c.clearance, d.clearance) < .08) continue;
+        quad(out, under(d), under(c), under(b), under(a));
+        uvQuad(uvs, 0, length * t0 / 5, road.width / 5, length * t1 / 5);
+        quad(out, elevatedVertex(a), elevatedVertex(d), under(d), under(a));
+        uvQuad(uvs, 0, length * t0 / 5, .5 / 5, length * t1 / 5);
+        quad(out, elevatedVertex(c), elevatedVertex(b), under(b), under(c));
+        uvQuad(uvs, 0, length * t0 / 5, .5 / 5, length * t1 / 5);
       }
-      const w = road.width / 2, l = length / 2;
-      const a = vertex(-w, -.25, -l), b = vertex(w, -.25, -l), c = vertex(w, -.25, l), d = vertex(-w, -.25, l);
-      const e = vertex(-w, .25, -l), f = vertex(w, .25, -l), g = vertex(w, .25, l), h = vertex(-w, .25, l);
-      quad(out, e, h, g, f); quad(out, d, a, b, c);
-      quad(out, a, e, f, b); quad(out, b, f, g, c);
-      quad(out, c, g, h, d); quad(out, d, h, e, a);
-      for (let face = 0; face < 6; face++) uvQuad(uvs, 0, 0, road.width / 5, length / 5);
+    }
+    function bridgeRail(out, road) {
+      const from = road.railStart ?? 0, to = road.railEnd ?? 1;
+      if (to - from < .001) return;
+      const length = Math.hypot(road.x2 - road.x1, road.z2 - road.z1);
+      if (length * (to - from) <= 2) return;
+      const half = road.width / 2;
+      const steps = Math.max(1, Math.ceil(length * (to - from) / 8));
+      for (const side of [-1, 1]) for (let i = 0; i < steps; i++) {
+        const t0 = from + (to - from) * i / steps, t1 = from + (to - from) * (i + 1) / steps;
+        const inner0 = elevatedPoint(road, t0, side * (half - .40));
+        const outer0 = elevatedPoint(road, t0, side * (half - .10));
+        const inner1 = elevatedPoint(road, t1, side * (half - .40));
+        const outer1 = elevatedPoint(road, t1, side * (half - .10));
+        const b0 = elevatedVertex(inner0, .08), b1 = elevatedVertex(inner1, .08);
+        const b2 = elevatedVertex(outer1, .08), b3 = elevatedVertex(outer0, .08);
+        const t0v = elevatedVertex(inner0, 1.12), t1v = elevatedVertex(inner1, 1.12);
+        const t2v = elevatedVertex(outer1, 1.12), t3v = elevatedVertex(outer0, 1.12);
+        quad(out, b0, b1, t1v, t0v);
+        quad(out, b3, t3v, t2v, b2);
+        quad(out, t0v, t1v, t2v, t3v);
+      }
     }
     function buildingStyle(building) {
       const role = String(building.role || '').toLowerCase();
@@ -1349,13 +1569,14 @@
     // The overview keeps the original network endpoints; tile features contain
     // extra clipped endpoints and curve samples. Only the former define nodes.
     const endpointCells = new Map(), endpointNodes = [];
-    function attachEndpoint(road, atStart) {
+    const elevatedEndpointCells = new Map(), elevatedEndpointNodes = [];
+    function attachEndpoint(road, atStart, cells = endpointCells, nodes = endpointNodes) {
       const x = atStart ? road.x1 : road.x2, y = atStart ? road.y1 : road.y2;
       const z = atStart ? road.z1 : road.z2;
       const ix = Math.floor(x / 3), iz = Math.floor(z / 3);
       let node = null;
       for (let dx = -1; dx <= 1 && !node; dx++) for (let dz = -1; dz <= 1 && !node; dz++) {
-        for (const candidate of endpointCells.get(key(ix + dx, iz + dz)) || []) {
+        for (const candidate of cells.get(key(ix + dx, iz + dz)) || []) {
           if (Math.hypot(candidate.x - x, candidate.z - z) < 1.8 && Math.abs(candidate.y - y) < 2.5) {
             node = candidate; break;
           }
@@ -1363,10 +1584,10 @@
       }
       if (!node) {
         node = { x, y, z, samples: 0, arms: [] };
-        endpointNodes.push(node);
+        nodes.push(node);
         const cell = key(ix, iz);
-        if (!endpointCells.has(cell)) endpointCells.set(cell, []);
-        endpointCells.get(cell).push(node);
+        if (!cells.has(cell)) cells.set(cell, []);
+        cells.get(cell).push(node);
       }
       node.x = (node.x * node.samples + x) / (node.samples + 1);
       node.y = (node.y * node.samples + y) / (node.samples + 1);
@@ -1378,10 +1599,46 @@
         ux: sign * (road.x2 - road.x1) / length, uz: sign * (road.z2 - road.z1) / length });
     }
     for (const road of map.networkRoads || map.overviewRoads) {
-      if (isElevated(road.mode) || isTunnel(road.mode)) continue;
-      attachEndpoint(road, true); attachEndpoint(road, false);
+      if (isTunnel(road.mode)) continue;
+      if (isElevated(road.mode)) {
+        attachEndpoint(road, true, elevatedEndpointCells, elevatedEndpointNodes);
+        attachEndpoint(road, false, elevatedEndpointCells, elevatedEndpointNodes);
+      } else { attachEndpoint(road, true); attachEndpoint(road, false); }
     }
     const junctionsByRoad = new Map(), junctionsByTile = new Map();
+    const smoothJoinsByRoad = new Map();
+    function smoothJoin(node) {
+      if (node.arms.length !== 2) return false;
+      const [a, b] = node.arms;
+      const first = roadLayout(a.road), second = roadLayout(b.road);
+      const widthA = first.carriageMax - first.carriageMin;
+      const widthB = second.carriageMax - second.carriageMin;
+      if (Math.abs(a.road.width - b.road.width) > .55 ||
+          Math.abs(widthA - widthB) > .7 ||
+          Math.abs((first.carriageMin + first.carriageMax) / 2) > .7 ||
+          Math.abs((second.carriageMin + second.carriageMax) / 2) > .7 ||
+          Math.abs(first.leftWalk - second.leftWalk) > .7 ||
+          Math.abs(first.rightWalk - second.rightWalk) > .7) return false;
+      const originalNormal = (arm) => {
+        const road = arm.road;
+        return [(road.z2 - road.z1) / arm.length, -(road.x2 - road.x1) / arm.length];
+      };
+      const normalA = originalNormal(a), normalB = originalNormal(b);
+      const relation = a.atStart === b.atStart ? -1 : 1;
+      const alignedB = [normalB[0] * relation, normalB[1] * relation];
+      const cosine = normalA[0] * alignedB[0] + normalA[1] * alignedB[1];
+      if (cosine < -.72) return false;
+      const vector = [(normalA[0] + alignedB[0]) / (1 + cosine),
+        (normalA[1] + alignedB[1]) / (1 + cosine)];
+      if (Math.hypot(...vector) > 2.7) return false;
+      for (const [arm, direction] of [[a, 1], [b, relation]]) {
+        const id = String(arm.road.id);
+        if (!smoothJoinsByRoad.has(id)) smoothJoinsByRoad.set(id, []);
+        smoothJoinsByRoad.get(id).push({ x: node.x, z: node.z,
+          vector: [vector[0] * direction, vector[1] * direction] });
+      }
+      return true;
+    }
     function tileOwner(node) {
       const ix = Math.floor(node.x / map.tileSize), iz = Math.floor(node.z / map.tileSize);
       if (map.loadedTiles.has(key(ix, iz))) return key(ix, iz);
@@ -1398,8 +1655,7 @@
     for (const node of endpointNodes) {
       if (node.arms.length < 2) continue;
       node.arms.sort((a, b) => Math.atan2(a.uz, a.ux) - Math.atan2(b.uz, b.ux));
-      if (node.arms.length === 2 && node.arms[0].ux * node.arms[1].ux +
-        node.arms[0].uz * node.arms[1].uz < -.966) continue;
+      if (smoothJoin(node)) continue;
       const owner = tileOwner(node);
       if (!owner) continue;
       const width = Math.max(...node.arms.map((arm) => arm.road.width));
@@ -1419,6 +1675,7 @@
       if (!junctionsByTile.has(owner)) junctionsByTile.set(owner, []);
       junctionsByTile.get(owner).push(node);
     }
+    for (const node of elevatedEndpointNodes) if (node.arms.length === 2) smoothJoin(node);
     map.junctionStats = {
       nodes: [...junctionsByTile.values()].reduce((sum, nodes) => sum + nodes.length, 0),
       intersections: [...junctionsByTile.values()].reduce((sum, nodes) =>
@@ -1426,6 +1683,14 @@
       bends: [...junctionsByTile.values()].reduce((sum, nodes) =>
         sum + nodes.filter((node) => node.arms.length === 2).length, 0)
     };
+    function applySmoothJoins(road) {
+      for (const join of smoothJoinsByRoad.get(String(road.id)) || []) {
+        if (Math.hypot(road.x1 - join.x, road.z1 - join.z) < 1.8)
+          road.startMiter = join.vector;
+        if (Math.hypot(road.x2 - join.x, road.z2 - join.z) < 1.8)
+          road.endMiter = join.vector;
+      }
+    }
     function visibleRoadIntervals(road) {
       const hits = junctionsByRoad.get(String(road.id));
       if (!hits) return [[0, 1]];
@@ -1448,48 +1713,155 @@
       }
       return visible;
     }
+    function prepareJunction(node) {
+      for (const arm of node.arms) {
+        arm.mouth = null;
+        const radius = Math.min(arm.length * .49, arm.cut + .35);
+        let best = null, bestScore = Infinity;
+        for (const road of map.nearbyRoads(node.x, node.z, radius + 8)) {
+          if (String(road.id) !== String(arm.road.id)) continue;
+          const dx = road.x2 - road.x1, dz = road.z2 - road.z1;
+          const px = road.x1 - node.x, pz = road.z1 - node.z;
+          const a = dx * dx + dz * dz;
+          if (a < .01) continue;
+          const b = 2 * (px * dx + pz * dz), c = px * px + pz * pz - radius * radius;
+          const disc = b * b - 4 * a * c;
+          if (disc < 0) continue;
+          for (const t of [(-b - Math.sqrt(disc)) / (2 * a), (-b + Math.sqrt(disc)) / (2 * a)]) {
+            if (t < -.0001 || t > 1.0001) continue;
+            const x = road.x1 + dx * t, z = road.z1 + dz * t;
+            const outward = (x - node.x) * arm.ux + (z - node.z) * arm.uz;
+            if (outward < -1) continue;
+            const startDistance = Math.hypot(road.x1 - node.x, road.z1 - node.z);
+            const endDistance = Math.hypot(road.x2 - node.x, road.z2 - node.z);
+            // A curve can enter the same radius more than once. Keep the first
+            // outward crossing in the source road's direction from this node.
+            const orientation = arm.atStart ? endDistance - startDistance : startDistance - endDistance;
+            const score = (orientation < -.01 ? 1000 : 0) + Math.abs(outward - radius);
+            if (score >= bestScore) continue;
+            const normal = [(road.startMiter?.[0] ?? dz / Math.sqrt(a)) * (1 - t) +
+              (road.endMiter?.[0] ?? dz / Math.sqrt(a)) * t,
+            (road.startMiter?.[1] ?? -dx / Math.sqrt(a)) * (1 - t) +
+              (road.endMiter?.[1] ?? -dx / Math.sqrt(a)) * t];
+            best = { x, z, y: road.y1 + (road.y2 - road.y1) * t,
+              normal, ux: (arm.atStart ? 1 : -1) * dx / Math.sqrt(a),
+              uz: (arm.atStart ? 1 : -1) * dz / Math.sqrt(a) };
+            bestScore = score;
+          }
+        }
+        if (best) arm.mouth = best;
+      }
+    }
     function junctionPoint(arm, offset, rise) {
-      const road = arm.road, length = arm.length;
-      const distance = Math.min(length * .49, arm.cut + .35);
-      const t = arm.atStart ? distance / length : 1 - distance / length;
-      const nx = (road.z2 - road.z1) / length, nz = -(road.x2 - road.x1) / length;
-      const x = road.x1 + (road.x2 - road.x1) * t + nx * offset;
-      const z = road.z1 + (road.z2 - road.z1) * t + nz * offset;
-      const sourceY = road.y1 + (road.y2 - road.y1) * t;
+      const mouth = arm.mouth;
+      let x, z, sourceY;
+      if (mouth) {
+        x = mouth.x + mouth.normal[0] * offset;
+        z = mouth.z + mouth.normal[1] * offset;
+        sourceY = mouth.y;
+      } else {
+        const road = arm.road, length = arm.length;
+        const distance = Math.min(length * .49, arm.cut + .35);
+        const t = arm.atStart ? distance / length : 1 - distance / length;
+        const nx = (road.z2 - road.z1) / length, nz = -(road.x2 - road.x1) / length;
+        x = road.x1 + (road.x2 - road.x1) * t + nx * offset;
+        z = road.z1 + (road.z2 - road.z1) * t + nz * offset;
+        sourceY = road.y1 + (road.y2 - road.y1) * t;
+      }
       return { x, y: Math.max(sourceY, map.terrainHeight(x, z)) + rise, z };
     }
-    function junctionHull(node) {
-      const corners = [];
-      for (const arm of node.arms) {
+    function edgeIntersection(a, armA, b, armB) {
+      const ux = -(armA.mouth?.ux ?? armA.ux), uz = -(armA.mouth?.uz ?? armA.uz);
+      const vx = -(armB.mouth?.ux ?? armB.ux), vz = -(armB.mouth?.uz ?? armB.uz);
+      const determinant = ux * vz - uz * vx;
+      if (Math.abs(determinant) < .04) return null;
+      const dx = b.x - a.x, dz = b.z - a.z;
+      const ta = (dx * vz - dz * vx) / determinant;
+      const tb = (dx * uz - dz * ux) / determinant;
+      if (ta < 0 || tb < 0 || ta > armA.cut + armA.road.width ||
+          tb > armB.cut + armB.road.width) return null;
+      const x = a.x + ux * ta, z = a.z + uz * ta;
+      if (Math.hypot(x - armA.road.x1, z - armA.road.z1) > 200) return null;
+      return { x, z, y: Math.max(map.terrainHeight(x, z) + .068, (a.y + b.y) / 2) };
+    }
+    function junctionOutline(node) {
+      const mouths = node.arms.map((arm) => {
         const layout = roadLayout(arm.road);
-        corners.push(junctionPoint(arm, layout.carriageMin, .068),
-          junctionPoint(arm, layout.carriageMax, .068));
+        return { right: junctionPoint(arm, arm.atStart ? layout.carriageMax : layout.carriageMin, .068),
+          left: junctionPoint(arm, arm.atStart ? layout.carriageMin : layout.carriageMax, .068) };
+      });
+      const outline = [];
+      for (let i = 0; i < node.arms.length; i++) {
+        const arm = node.arms[i], next = node.arms[(i + 1) % node.arms.length];
+        const mouth = mouths[i], nextMouth = mouths[(i + 1) % node.arms.length];
+        outline.push(mouth.right, mouth.left);
+        const angleA = Math.atan2(arm.uz, arm.ux), angleB = Math.atan2(next.uz, next.ux);
+        const sector = (angleB - angleA + 2 * Math.PI) % (2 * Math.PI);
+        const corner = sector < Math.PI - .04 ? edgeIntersection(mouth.left, arm, nextMouth.right, next) : null;
+        if (corner) outline.push(corner);
+        else if (sector > Math.PI + .04) outline.push({ x: node.x, z: node.z,
+          y: Math.max(node.y, map.terrainHeight(node.x, node.z)) + .068 });
       }
-      corners.sort((a, b) => a.x - b.x || a.z - b.z);
-      const cross = (a, b, c) => (b.x - a.x) * (c.z - a.z) - (b.z - a.z) * (c.x - a.x);
-      const lower = [], upper = [];
-      for (const corner of corners) {
-        while (lower.length > 1 && cross(lower[lower.length - 2], lower[lower.length - 1], corner) <= .0001) lower.pop();
-        lower.push(corner);
-      }
-      for (let i = corners.length - 1; i >= 0; i--) {
-        const corner = corners[i];
-        while (upper.length > 1 && cross(upper[upper.length - 2], upper[upper.length - 1], corner) <= .0001) upper.pop();
-        upper.push(corner);
-      }
-      lower.pop(); upper.pop();
-      return lower.concat(upper);
+      return outline;
     }
     function addJunction(out, uvs, node) {
-      const hull = junctionHull(node);
-      if (hull.length < 3) return;
-      const center = { x: hull.reduce((sum, p) => sum + p.x, 0) / hull.length,
-        z: hull.reduce((sum, p) => sum + p.z, 0) / hull.length };
-      center.y = Math.max(node.y, map.terrainHeight(center.x, center.z)) + .068;
-      for (let i = 0; i < hull.length; i++) {
-        const a = hull[i], b = hull[(i + 1) % hull.length];
-        triangle(out, [center.x, center.y, center.z], [b.x, b.y, b.z], [a.x, a.y, a.z]);
-        uvs.push(center.x / 5, center.z / 5, b.x / 5, b.z / 5, a.x / 5, a.z / 5);
+      const outline = junctionOutline(node);
+      if (outline.length < 3) return;
+      const faces = THREE.ShapeUtils.triangulateShape(outline.map((p) => new THREE.Vector2(p.x, p.z)), []);
+      const vertices = [], triangleIndices = [], byPosition = new Map();
+      const vertexIndex = (p) => {
+        const id = `${p[0].toFixed(4)},${p[2].toFixed(4)}`;
+        let index = byPosition.get(id);
+        if (index === undefined) {
+          index = vertices.length;
+          vertices.push(p);
+          byPosition.set(id, index);
+        } else vertices[index][1] = Math.max(vertices[index][1], p[1]);
+        return index;
+      };
+      for (const [ia, ib, ic] of faces) {
+        const a = outline[ia], b = outline[ib], c = outline[ic];
+        const longest = Math.max(Math.hypot(a.x - b.x, a.z - b.z),
+          Math.hypot(b.x - c.x, b.z - c.z), Math.hypot(c.x - a.x, c.z - a.z));
+        const steps = Math.max(1, Math.ceil(longest / 4));
+        const at = (i, j) => {
+          const wa = 1 - (i + j) / steps, wb = i / steps, wc = j / steps;
+          const x = a.x * wa + b.x * wb + c.x * wc;
+          const z = a.z * wa + b.z * wb + c.z * wc;
+          return [x, Math.max(a.y * wa + b.y * wb + c.y * wc,
+            map.terrainHeight(x, z) + .075), z];
+        };
+        const grid = [];
+        for (let i = 0; i <= steps; i++) {
+          grid[i] = [];
+          for (let j = 0; j <= steps - i; j++) grid[i][j] = vertexIndex(at(i, j));
+        }
+        for (let i = 0; i < steps; i++) for (let j = 0; j < steps - i; j++) {
+          triangleIndices.push([grid[i][j], grid[i + 1][j], grid[i][j + 1]]);
+          if (i + j + 1 < steps) triangleIndices.push([grid[i + 1][j], grid[i + 1][j + 1], grid[i][j + 1]]);
+        }
+      }
+      // The terrain heightfield changes plane at its grid diagonals. Lift a
+      // shared vertex when an interior sample would fall below that plane;
+      // neighboring triangles inherit the same correction without a crack.
+      const probes = [[1 / 3, 1 / 3, 1 / 3], [.6, .2, .2], [.2, .6, .2],
+        [.2, .2, .6], [.5, .5, 0], [0, .5, .5], [.5, 0, .5],
+        [.8, .1, .1], [.1, .8, .1], [.1, .1, .8]];
+      for (const indices of triangleIndices) {
+        const points = indices.map((index) => vertices[index]);
+        let lift = 0;
+        for (const weights of probes) {
+          const x = points.reduce((sum, p, index) => sum + p[0] * weights[index], 0);
+          const z = points.reduce((sum, p, index) => sum + p[2] * weights[index], 0);
+          const y = points.reduce((sum, p, index) => sum + p[1] * weights[index], 0);
+          lift = Math.max(lift, map.terrainHeight(x, z) + .065 - y);
+        }
+        if (lift > 0) for (const index of indices) vertices[index][1] += lift;
+      }
+      for (const indices of triangleIndices) {
+        const [a, b, c] = indices.map((index) => vertices[index]);
+        triangle(out, a, b, c);
+        uvs.push(a[0] / 5, a[2] / 5, b[0] / 5, b[2] / 5, c[0] / 5, c[2] / 5);
       }
     }
     function addCornerSidewalks(outWalks, outUVs, outCurbs, node) {
@@ -1533,18 +1905,36 @@
       group.userData.tile = { ix: tile.ix, iz: tile.iz };
       chunkRoot.add(group); tileGroups.set(id, group);
       const groundPositions = [], groundUVs = [], groundHighways = [], highwayUVs = [];
-      const bridgePositions = [], bridgeUVs = [], junctionPositions = [], junctionUVs = [];
+      const bridgePositions = [], bridgeUVs = [], bridgeRailPositions = [];
+      const junctionPositions = [], junctionUVs = [];
+      const approachPositions = [], approachUVs = [];
       const sidewalkPositions = [], sidewalkUVs = [];
+      const junctionSidewalks = [], junctionSidewalkUVs = [], junctionCurbs = [];
       const curbPositions = [], whiteLines = [], yellowLines = [], crosswalkPositions = [], treeSites = [];
+      const markQueue = [];
       for (const road of tile.roads) {
+        applySmoothJoins(road);
+        road.surfaceGrids = [];
+        road.surfaceNeighbors = [];
         const layout = roadLayout(road), length = Math.hypot(road.x2 - road.x1, road.z2 - road.z1);
         const intervals = visibleRoadIntervals(road);
-        if (!intervals.length) continue;
         const carriageCenter = (layout.carriageMin + layout.carriageMax) / 2;
         const carriageHalf = (layout.carriageMax - layout.carriageMin) / 2;
+        // A junction's outline cannot assume that a curved source road follows
+        // the overview's straight tangent. Keep its real swept carriageway
+        // beneath the node surface, while stopping all lines and walks.
+        let cursor = 0;
+        for (const [start, end] of intervals) {
+          if (start > cursor + .00001) roadStrip(approachPositions, road, carriageHalf,
+            .065, approachUVs, true, carriageCenter, cursor, start, 2);
+          cursor = end;
+        }
+        if (cursor < 1 - .00001) roadStrip(approachPositions, road, carriageHalf,
+          .065, approachUVs, true, carriageCenter, cursor, 1, 2);
+        if (!intervals.length) continue;
         for (const [start, end] of intervals) roadStrip(layout.highway ? groundHighways : groundPositions,
-          road, carriageHalf, .06, layout.highway ? highwayUVs : groundUVs, true, carriageCenter, start, end);
-        markRoad(whiteLines, yellowLines, road, layout, true, intervals);
+          road, carriageHalf, .06, layout.highway ? highwayUVs : groundUVs, true, carriageCenter, start, end, 5);
+        markQueue.push({ road, layout, intervals });
         if (layout.highway) continue;
         for (const side of [-1, 1]) {
           const width = side < 0 ? layout.leftWalk : layout.rightWalk;
@@ -1571,21 +1961,46 @@
           }
         }
       }
+      const endpointGroups = new Map();
+      for (const road of tile.roads) for (const [x, y, z] of [
+        [road.x1, road.y1, road.z1], [road.x2, road.y2, road.z2]
+      ]) {
+        const id = `${x.toFixed(2)},${z.toFixed(2)}`;
+        if (!endpointGroups.has(id)) endpointGroups.set(id, []);
+        endpointGroups.get(id).push({ road, y });
+      }
+      for (const group of endpointGroups.values()) for (let i = 0; i < group.length; i++)
+        for (let j = i + 1; j < group.length; j++) {
+          const a = group[i], b = group[j];
+          if (a.road === b.road || Math.abs(a.y - b.y) > 2.5 ||
+              Math.abs(a.road.width - b.road.width) > 1) continue;
+          a.road.surfaceNeighbors.push(b.road);
+          b.road.surfaceNeighbors.push(a.road);
+        }
+      for (const entry of markQueue) markRoad(whiteLines, yellowLines,
+        entry.road, entry.layout, true, entry.intervals);
       for (const node of junctionsByTile.get(id) || []) {
+        prepareJunction(node);
         addJunction(junctionPositions, junctionUVs, node);
-        addCornerSidewalks(sidewalkPositions, sidewalkUVs, curbPositions, node);
+        addCornerSidewalks(junctionSidewalks, junctionSidewalkUVs, junctionCurbs, node);
         addCrosswalks(crosswalkPositions, node);
       }
       for (const road of tile.highways) {
+        applySmoothJoins(road);
         bridgeBox(bridgePositions, bridgeUVs, road);
-        markRoad(whiteLines, yellowLines, road, roadLayout(road), false);
+        bridgeRail(bridgeRailPositions, road);
+        markRoad(whiteLines, yellowLines, road, roadLayout(road), true);
       }
       mesh('imported-city-road', groundPositions, roadMat, group, null, groundUVs);
+      mesh('imported-city-junction-approach', approachPositions, roadMat, group, null, approachUVs);
       mesh('imported-city-junction', junctionPositions, roadMat, group, null, junctionUVs);
       mesh('imported-city-highway-grade', groundHighways, highwayRoadMat, group, null, highwayUVs);
       mesh('imported-city-highway', bridgePositions, elevatedMat, group, null, bridgeUVs);
+      mesh('imported-city-guardrail', bridgeRailPositions, bridgePartMat, group);
       mesh('imported-city-sidewalk', sidewalkPositions, sidewalkMat, group, null, sidewalkUVs);
       mesh('imported-city-curb', curbPositions, curbMat, group);
+      mesh('imported-city-junction-sidewalk', junctionSidewalks, sidewalkMat, group, null, junctionSidewalkUVs);
+      mesh('imported-city-junction-curb', junctionCurbs, curbMat, group);
       mesh('imported-city-white-marking', whiteLines, whiteMarkingMat, group);
       mesh('imported-city-yellow-marking', yellowLines, yellowMarkingMat, group);
       mesh('imported-city-crosswalk', crosswalkPositions, whiteMarkingMat, group);
@@ -1605,12 +2020,6 @@
       }
       mesh('imported-city-roof', roofs, roofMat, buildingRoot, roofColors);
       mesh('imported-city-building-trim', trim, buildingTrimMat, buildingRoot, trimColors);
-      if (tile.guardrails.length) {
-        const rails = new THREE.InstancedMesh(box, bridgePartMat, tile.guardrails.length);
-        rails.name = 'imported-city-guardrail'; rails.castShadow = true;
-        tile.guardrails.forEach((part, i) => placeBox(rails, part, i));
-        rails.instanceMatrix.needsUpdate = true; group.add(rails);
-      }
       if (tile.supports.length) {
         const supports = new THREE.InstancedMesh(box, bridgePartMat, tile.supports.length);
         supports.name = 'imported-city-support'; supports.castShadow = true;
@@ -1624,7 +2033,38 @@
       group.traverse((object) => { if (object.geometry && object.geometry !== box) object.geometry.dispose(); });
       chunkRoot.remove(group); tileGroups.delete(id);
     }
-    const unsubscribe = map.onTileChanged(({ type, tile }) => type === 'load' ? renderTile(tile) : dropTile(tile));
+    function refreshJunctionTile(id) {
+      const group = tileGroups.get(id), nodes = junctionsByTile.get(id);
+      if (!group || !nodes?.length) return;
+      const pavement = [], pavementUVs = [], walks = [], walkUVs = [], curbs = [];
+      for (const node of nodes) {
+        prepareJunction(node);
+        addJunction(pavement, pavementUVs, node);
+        addCornerSidewalks(walks, walkUVs, curbs, node);
+      }
+      for (const [name, positions, material, uvs] of [
+        ['imported-city-junction', pavement, roadMat, pavementUVs],
+        ['imported-city-junction-sidewalk', walks, sidewalkMat, walkUVs],
+        ['imported-city-junction-curb', curbs, curbMat, null]
+      ]) {
+        const previous = group.getObjectByName(name);
+        if (previous) { previous.geometry.dispose(); group.remove(previous); }
+        mesh(name, positions, material, group, null, uvs);
+      }
+    }
+    function refreshAffectedJunctions(tile) {
+      const changed = new Set(tile.roads.map((road) => String(road.id)));
+      for (const [id, nodes] of junctionsByTile) {
+        if (!tileGroups.has(id) || id === key(tile.ix, tile.iz)) continue;
+        if (nodes.some((node) => node.arms.some((arm) => changed.has(String(arm.road.id)))))
+          refreshJunctionTile(id);
+      }
+    }
+    const unsubscribe = map.onTileChanged(({ type, tile }) => {
+      if (type === 'load') renderTile(tile);
+      else dropTile(tile);
+      refreshAffectedJunctions(tile);
+    });
     for (const entry of map.loadedTiles.values()) if (entry.state === 'loaded' && entry.data) renderTile(entry.data);
 
     // CMM labels factories and facilities PARK_ZONE too. Only names that
