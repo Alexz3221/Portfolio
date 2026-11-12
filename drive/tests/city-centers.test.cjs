@@ -52,8 +52,8 @@ test('all seven exported Obamna centers land on ground city streets', () => {
   const centers = deriveCenters(city);
   assert.equal(manifest.centerCandidates.length, 7);
   assert.deepEqual(centers.map(center => center.title), [
-    'Downtown Core', 'South Center', 'Terminus District', 'Southeast Center',
-    'Southwest Center', 'Campus District', 'East Center'
+    'Downtown Core', 'North Center', 'Terminus District', 'Northwest Center',
+    'Northeast Center', 'Campus District', 'West Center'
   ]);
   for (const center of centers) {
     const street = city.networkRoads.find(road => road.id === center.roadId);

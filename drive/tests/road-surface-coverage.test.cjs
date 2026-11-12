@@ -187,6 +187,72 @@ test('real exported road curves keep their outer edge paved', async () => {
   }
 });
 
+test('sampled Fawn Street curve has continuous heights and asphalt UVs', async () => {
+  const map = await loadCity();
+  await map.ensureNear(1585, -840, 0);
+  const world = new THREE.Group(), visual = map.build(THREE, world);
+  try {
+    const roads = map.roadSegments.filter((road) => road.id === '3152560');
+    const starts = new Map(roads.map((road) => [`${road.x1},${road.z1}`, road]));
+    let joins = 0;
+    for (const road of roads) {
+      const next = starts.get(`${road.x2},${road.z2}`);
+      const end = road.surfaceGrids?.find((grid) => Math.abs(grid.end - 1) < 1e-5);
+      const start = next?.surfaceGrids?.find((grid) => Math.abs(grid.start) < 1e-5);
+      if (!end || !start || end.columns !== start.columns) continue;
+      for (let column = 0; column <= end.columns; column++) {
+        const side = 1 - 2 * column / end.columns;
+        const aOffset = end.centerOffset + end.halfWidth * side;
+        const bOffset = start.centerOffset + start.halfWidth * side;
+        const aX = road.x2 + road.endMiter[0] * aOffset;
+        const aZ = road.z2 + road.endMiter[1] * aOffset;
+        const bX = next.x1 + next.startMiter[0] * bOffset;
+        const bZ = next.z1 + next.startMiter[1] * bOffset;
+        assert.ok(Math.hypot(aX - bX, aZ - bZ) < .001,
+          `sampled road ${road.id} joins at the same horizontal vertex`);
+        const a = end.heights[end.steps * (end.columns + 1) + column];
+        const b = start.heights[column];
+        assert.ok(Math.abs(a - b) < 1e-4,
+          `sampled road ${road.id} joins with no exposed vertical edge (${a} vs ${b})`);
+      }
+      joins++;
+    }
+    assert.ok(joins >= 80, `checked ${joins} joins across the real exported curve`);
+
+    let mapped = 0, elevatedDecks = 0;
+    world.traverse((object) => {
+      if (object.name === 'imported-city-highway') {
+        // Each bridge batch begins with a top-deck quad; underside and walls
+        // deliberately keep their own UV layout.
+        const positions = object.geometry.attributes.position;
+        const uv = object.geometry.attributes.uv;
+        for (let i = 0; i < 6; i++) {
+          assert.ok(Math.abs(uv.getX(i) - positions.getX(i) / 5) < .001 &&
+            Math.abs(uv.getY(i) - positions.getZ(i) / 5) < .001,
+          'elevated deck starts with the same world-space asphalt texture');
+        }
+        elevatedDecks++;
+      }
+      if (!['imported-city-road', 'imported-city-junction',
+        'imported-city-junction-approach', 'imported-city-highway-grade'].includes(object.name)) return;
+      const positions = object.geometry.attributes.position;
+      const uv = object.geometry.attributes.uv;
+      for (let i = 0; i < positions.count; i++) {
+        const x = positions.getX(i), z = positions.getZ(i);
+        if (x < 1550 || x > 1620 || z < -900 || z > -780) continue;
+        assert.ok(Math.abs(uv.getX(i) - x / 5) < .001 &&
+          Math.abs(uv.getY(i) - z / 5) < .001,
+        'road and junction share a continuous world-space asphalt texture');
+        mapped++;
+      }
+    });
+    assert.ok(mapped >= 100, `checked ${mapped} nearby asphalt vertices`);
+    assert.ok(elevatedDecks >= 1, 'checked a nearby elevated road deck');
+  } finally {
+    visual.dispose();
+  }
+});
+
 test('real exported right-angle node has pavement across the bend', async () => {
   const map = await loadCity();
   const world = new THREE.Group(), visual = map.build(THREE, world);

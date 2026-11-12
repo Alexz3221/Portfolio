@@ -379,6 +379,25 @@
         const rolling=grounded&&!throttle&&!input.brake&&horizontalSpeed>.001
           ? spec.mass*Math.min(.45/horizontalSpeed,120):0;
         body.force.x-=v.x*(drag+rolling);body.force.y-=v.y*drag;body.force.z-=v.z*(drag+rolling);
+        if(options.antiFlip!==false) {
+          const up=body.quaternion.vmult(new C.Vec3(0,1,0));
+          // Resist a developing rollover while the tires still have support.
+          // A short, low hop keeps a little damping after contact is lost;
+          // elevated ramps and fully airborne stunts keep their own motion.
+          let support=0;
+          if(grounded>=2) support=1;
+          else if(grounded===1) support=.8;
+          else if(isCity && airTime<.22 && body.position.y-height(body.position.x,body.position.z)<spec.radius+1.7) support=.4;
+          if(support && up.y>.25) {
+            const inverse=body.quaternion.conjugate();
+            const localUp=inverse.vmult(new C.Vec3(0,1,0));
+            const localRate=inverse.vmult(body.angularVelocity);
+            const pace=Math.min(1.4,Math.max(.65,horizontalSpeed/20));
+            const rollTorque=Math.max(-14000,Math.min(14000,
+              -(localUp.x*8200+localRate.z*3400)*pace*support));
+            body.torque.vadd(body.quaternion.vmult(new C.Vec3(0,0,rollTorque)),body.torque);
+          }
+        }
         // Air control is torque, never an orientation snap. Existing touch buttons work too.
         if(!grounded){
           // Carrying throttle off a ramp used to immediately pitch the nose down.

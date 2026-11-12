@@ -18,9 +18,13 @@ check(document.querySelectorAll('.city-stop-item').length === 6, 'all six cards'
 const largeMap = document.querySelector('.city-map');
 const mapSvg = largeMap.querySelector('svg');
 const stopsByZ = [...stops].sort((a, b) => a.z - b.z);
-check(Number(largeMap.querySelector(`.city-map-stop[data-stop="${stopsByZ.at(-1).id}"]`).dataset.mapY) >
+const stopsByX = [...stops].sort((a, b) => a.x - b.x);
+check(Number(largeMap.querySelector(`.city-map-stop[data-stop="${stopsByZ.at(-1).id}"]`).dataset.mapY) <
   Number(largeMap.querySelector(`.city-map-stop[data-stop="${stopsByZ[0].id}"]`).dataset.mapY),
-  'map Z direction matches the overhead driving view');
+  'city map has its upright Z orientation');
+check(Number(largeMap.querySelector(`.city-map-stop[data-stop="${stopsByX.at(-1).id}"]`).dataset.mapX) <
+  Number(largeMap.querySelector(`.city-map-stop[data-stop="${stopsByX[0].id}"]`).dataset.mapX),
+  'city map rotates both axes together');
 const miniCanvas = document.querySelector('.city-minimap-canvas');
 const miniParts = miniCanvas.querySelector('svg').getAttribute('viewBox').split(' ').map(Number);
 const miniRect = miniCanvas.getBoundingClientRect();
@@ -30,6 +34,18 @@ const miniPlayer = miniCanvas.querySelector('.city-minimap-player');
 check(Math.abs(Number(miniPlayer.dataset.mapY) -
   Number(largeMap.querySelector('.city-player-dot').dataset.mapY)) < .001,
   'minimap and guide put the player on the same side of the road');
+const firstRadarView = miniCanvas.querySelector('svg').getAttribute('viewBox');
+ui.update({x: stops[0].x + 100, z: stops[0].z + 50}, 0, Math.PI / 2);
+const movedRadarView = miniCanvas.querySelector('svg').getAttribute('viewBox');
+const [radarLeft, radarTop, radarWidth, radarHeight] = movedRadarView.split(' ').map(Number);
+check(movedRadarView !== firstRadarView &&
+  Math.abs(radarLeft + radarWidth / 2 - Number(miniPlayer.dataset.mapX)) < .001 &&
+  Math.abs(radarTop + radarHeight / 2 - Number(miniPlayer.dataset.mapY)) < .001,
+  'local radar follows the car at center');
+check(miniCanvas.querySelector('.city-minimap-cone').style.getPropertyValue('--radar-heading') === '-90deg' &&
+  miniPlayer.style.getPropertyValue('--radar-heading') === '-90deg',
+  'radar vision cone and car heading turn together');
+ui.update({x: stops[0].x, z: stops[0].z}, 0);
 const fitView = mapSvg.getAttribute('viewBox');
 const viewParts = () => mapSvg.getAttribute('viewBox').split(' ').map(Number);
 const aspectMatches = () => {
@@ -95,10 +111,11 @@ document.querySelector('.city-guide-trigger').focus();
 document.activeElement.dispatchEvent(new KeyboardEvent('keydown', {key:'e', bubbles:true}));
 check(!ui.isOpen(), 'E does not activate a focused guide button');
 document.querySelector('#drive-scene').focus();
-ui.setCity({stops, bounds:{minX:-500,maxX:500,minZ:-500,maxZ:500},
+const centerCity = {stops, bounds:{minX:-500,maxX:500,minZ:-500,maxZ:500},
   overviewRoads:[{x1:-400,z1:0,x2:400,z2:0,width:16}],
   manifest:{source:{cityName:'Test City'},centerCandidates:[{id:'center-0_0',x:0,z:0}]},
-  snapToRoad(x,z){return {x:x+4,z,heading:0,distance:4,roadId:'street-1'};}});
+  snapToRoad(x,z){return {x:x+4,z,heading:0,distance:4,roadId:'street-1'};}};
+ui.setCity(centerCity);
 check(document.querySelectorAll('.city-center-item').length === 1, 'one road-safe city center');
 check(document.querySelectorAll('.city-minimap-center').length === 1, 'minimap shows the center');
 document.querySelector('.city-minimap').click();
@@ -106,6 +123,29 @@ check(ui.isOpen() && document.activeElement === document.querySelector('.city-pa
 document.querySelector('.city-center-item').click();
 check(jumped === 'center-0_0' && !ui.isOpen(), 'center fast travel jumps and closes guide');
 check(document.activeElement === document.querySelector('#drive-scene'), 'fast travel returns focus to the canvas');
+const networkRoads = Array.from({length:2400}, (_, i) => ({
+  x1:-400 + i % 80 * 10, z1:-400 + Math.floor(i / 80) * 20,
+  x2:-390 + i % 80 * 10, z2:-390 + Math.floor(i / 80) * 20,
+  roadClass:i % 8 === 0 ? 'highway' : i % 3 === 0 ? 'arterial' : 'street'
+}));
+ui.setCity({...centerCity, networkRoads});
+const batchedPaths = [...document.querySelectorAll('.city-map svg path')];
+check(batchedPaths.length <= 4 && document.querySelectorAll('.city-map svg line').length === 0,
+  'large city network uses a few batched SVG paths');
+check(batchedPaths.filter(path => !path.classList.contains('city-map-highway-glow'))
+  .reduce((count, path) => count + Number(path.dataset.segments), 0) === networkRoads.length,
+  'batched map keeps every source road segment');
+const radarPaths = [...document.querySelectorAll('.city-minimap svg path')];
+check(radarPaths.length <= 3 && radarPaths.reduce((count, path) => count + Number(path.dataset.segments), 0) > 0,
+  'local radar batches nearby streets from the full road network');
+document.querySelector('.city-guide-trigger').click();
+document.querySelector('.city-map-zoom-in').click();
+const panStart = performance.now();
+for (let i = 0; i < 50; i++)
+  largeMap.dispatchEvent(new KeyboardEvent('keydown', {key:'ArrowRight', bubbles:true}));
+document.documentElement.dataset.panMs = (performance.now() - panStart).toFixed(1);
+document.querySelector('.city-close').click();
+ui.setCity(centerCity);
 ui.setMap('course');
 check(document.querySelector('.city-guide-trigger').hidden, 'guide hidden off city');
 ui.setMap('city');

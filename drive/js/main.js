@@ -656,7 +656,7 @@
       }
     });
     portfolio.setMap(selectedMap);
-    portfolio.update(physics.body.position, 0);
+    portfolio.update(physics.body.position, 0, motion.heading);
   }
 
   if (window.DriveImportedCity?.load) {
@@ -845,7 +845,7 @@
     updateVehicle(portfolio?.isOpen() ? 0 : delta);
     updateCamera(delta);
     cityVisual?.update?.(camera, delta);
-    portfolio?.update(physics.body.position, motion.speed);
+    portfolio?.update(physics.body.position, motion.speed, motion.heading);
     renderer.render(scene, camera);
     if (firstFrame) { message.classList.add('done'); firstFrame = false; }
     requestAnimationFrame(animate);

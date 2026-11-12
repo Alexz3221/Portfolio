@@ -14,6 +14,13 @@
   const sun=new THREE.DirectionalLight(0xffffff,.7);sun.position.set(x-30,80,z-20);scene.add(sun);
   const world=new THREE.Group();scene.add(world);
   const visual=map.build(THREE,world);
+  if(params.has('plain')) {
+    const diagnostic=new THREE.MeshBasicMaterial({color:0xf12549,side:THREE.DoubleSide});
+    world.traverse(object=>{
+      if(/^imported-city-(?:road|junction|highway)/.test(object.name) && object.isMesh)
+        object.material=diagnostic;
+    });
+  }
   const aspect=innerWidth/innerHeight;
   const camera=new THREE.OrthographicCamera(-span*aspect/2,span*aspect/2,span/2,-span/2,.1,2000);
   if(params.has('oblique')) camera.position.set(x+span*.65,map.terrainHeight(x,z)+span*.9,z+span*.65);

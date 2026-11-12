@@ -746,8 +746,11 @@
     function uvQuad(out, ua, va, ub, vb) {
       out.push(ua, va, ub, va, ub, vb, ua, va, ub, vb, ua, vb);
     }
+    function worldUvQuad(out, a, b, c, d) {
+      for (const point of [a, b, c, a, c, d]) out.push(point[0] / 5, point[2] / 5);
+    }
     function roadStrip(out, road, halfWidth, yOffset, uvs, followTerrain = false,
-      centerOffset = 0, start = 0, end = 1, maxStep = 10) {
+      centerOffset = 0, start = 0, end = 1, maxStep = 10, worldUV = false) {
       const dx = road.x2 - road.x1, dz = road.z2 - road.z1, length = Math.hypot(dx, dz);
       if (length < .1 || end - start < .00001) return;
       const nx = dz / length, nz = -dx / length;
@@ -811,8 +814,10 @@
           for (let column = 0; column <= columns; column++) {
             const side = 1 - 2 * column / columns;
             const p = vertex(t, side);
-            vertices.push([p[0], p[1], p[2], halfWidth * 2 / 5 * column / columns,
-              phase + length * t / 5, t, centerOffset + halfWidth * side]);
+            vertices.push([p[0], p[1], p[2],
+              worldUV ? p[0] / 5 : halfWidth * 2 / 5 * column / columns,
+              worldUV ? p[2] / 5 : phase + length * t / 5,
+              t, centerOffset + halfWidth * side]);
           }
         }
         for (let row = 0; row < steps; row++) for (let column = 0; column < columns; column++) {
@@ -856,8 +861,13 @@
         const a = vertex(t0, 1), b = vertex(t1, 1), c = vertex(t1, -1), d = vertex(t0, -1);
         triangle(out, a, c, b); triangle(out, a, d, c);
         if (uvs) {
-          const u = halfWidth * 2 / 5, v0 = phase + length * t0 / 5, v1 = phase + length * t1 / 5;
-          uvs.push(0, v0, u, v1, 0, v1, 0, v0, u, v0, u, v1);
+          if (worldUV) uvs.push(a[0] / 5, a[2] / 5, c[0] / 5, c[2] / 5,
+            b[0] / 5, b[2] / 5, a[0] / 5, a[2] / 5,
+            d[0] / 5, d[2] / 5, c[0] / 5, c[2] / 5);
+          else {
+            const u = halfWidth * 2 / 5, v0 = phase + length * t0 / 5, v1 = phase + length * t1 / 5;
+            uvs.push(0, v0, u, v1, 0, v1, 0, v0, u, v0, u, v1);
+          }
         }
       }
     }
@@ -946,10 +956,10 @@
           const right0 = elevatedPoint(road, t0, offset1);
           const right1 = elevatedPoint(road, t1, offset1);
           const left1 = elevatedPoint(road, t1, offset0);
-          quad(out, elevatedVertex(left0), elevatedVertex(right0),
-            elevatedVertex(right1), elevatedVertex(left1));
-          uvQuad(uvs, (offset0 + half) / 5, length * t0 / 5,
-            (offset1 + half) / 5, length * t1 / 5);
+          const a = elevatedVertex(left0), b = elevatedVertex(right0);
+          const c = elevatedVertex(right1), d = elevatedVertex(left1);
+          quad(out, a, b, c, d);
+          worldUvQuad(uvs, a, b, c, d);
         }
         const a = elevatedPoint(road, t0, -half), b = elevatedPoint(road, t0, half);
         const c = elevatedPoint(road, t1, half), d = elevatedPoint(road, t1, -half);
@@ -1897,6 +1907,49 @@
           roadStrip(out, road, .29, .115, null, true, offset + .29, start, end);
       }
     }
+    function alignSampledRoadJoins(tile, batches) {
+      // Every segment of an exported curve is tessellated against terrain on
+      // its own. Interior lift probes can raise one side of their shared edge
+      // a few centimetres more than the next, exposing a hairline of terrain.
+      const joins = new Map(), lifted = new Map();
+      const coordinate = (value) => Math.round(value * 1000);
+      for (const road of tile.roads) for (const grid of road.surfaceGrids || []) {
+        const dx = road.x2 - road.x1, dz = road.z2 - road.z1;
+        const length = Math.hypot(dx, dz);
+        if (length < .1) continue;
+        const first = road.startMiter || [dz / length, -dx / length];
+        const last = road.endMiter || [dz / length, -dx / length];
+        const stride = grid.columns + 1;
+        for (const [t, row] of [[grid.start, 0], [grid.end, grid.steps]]) {
+          if (t > .00001 && t < .99999) continue;
+          const sourceY = road.y1 + (road.y2 - road.y1) * t;
+          for (let column = 0; column <= grid.columns; column++) {
+            const offset = grid.centerOffset + grid.halfWidth * (1 - 2 * column / grid.columns);
+            const x = road.x1 + dx * t + (first[0] * (1 - t) + last[0] * t) * offset;
+            const z = road.z1 + dz * t + (first[1] * (1 - t) + last[1] * t) * offset;
+            const index = row * stride + column, y = grid.heights[index];
+            const key = `${road.id}:${coordinate(x)}:${coordinate(z)}:${coordinate(sourceY)}`;
+            if (!joins.has(key)) joins.set(key, []);
+            joins.get(key).push({ grid, index, x, z, y });
+          }
+        }
+      }
+      for (const entries of joins.values()) {
+        if (entries.length < 2) continue;
+        const height = Math.max(...entries.map((entry) => entry.y));
+        for (const entry of entries) {
+          if (height - entry.y < .00001) continue;
+          entry.grid.heights[entry.index] = height;
+          lifted.set(`${coordinate(entry.x)}:${coordinate(entry.z)}:${coordinate(entry.y)}`, height);
+        }
+      }
+      if (!lifted.size) return;
+      for (const positions of batches) for (let i = 0; i < positions.length; i += 3) {
+        const key = `${coordinate(positions[i])}:${coordinate(positions[i + 2])}:${coordinate(positions[i + 1])}`;
+        const height = lifted.get(key);
+        if (height !== undefined) positions[i + 1] = height;
+      }
+    }
     function renderTile(tile) {
       if (disposed) return;
       const id = key(tile.ix, tile.iz);
@@ -1926,14 +1979,15 @@
         let cursor = 0;
         for (const [start, end] of intervals) {
           if (start > cursor + .00001) roadStrip(approachPositions, road, carriageHalf,
-            .065, approachUVs, true, carriageCenter, cursor, start, 2);
+            .065, approachUVs, true, carriageCenter, cursor, start, 2, true);
           cursor = end;
         }
         if (cursor < 1 - .00001) roadStrip(approachPositions, road, carriageHalf,
-          .065, approachUVs, true, carriageCenter, cursor, 1, 2);
+          .065, approachUVs, true, carriageCenter, cursor, 1, 2, true);
         if (!intervals.length) continue;
         for (const [start, end] of intervals) roadStrip(layout.highway ? groundHighways : groundPositions,
-          road, carriageHalf, .06, layout.highway ? highwayUVs : groundUVs, true, carriageCenter, start, end, 5);
+          road, carriageHalf, .06, layout.highway ? highwayUVs : groundUVs,
+          true, carriageCenter, start, end, 5, true);
         markQueue.push({ road, layout, intervals });
         if (layout.highway) continue;
         for (const side of [-1, 1]) {
@@ -1961,6 +2015,7 @@
           }
         }
       }
+      alignSampledRoadJoins(tile, [groundPositions, groundHighways]);
       const endpointGroups = new Map();
       for (const road of tile.roads) for (const [x, y, z] of [
         [road.x1, road.y1, road.z1], [road.x2, road.y2, road.z2]

@@ -76,12 +76,12 @@
   const labels = {about: 'About', projects: 'Projects', experience: 'Experience', education: 'Education', skills: 'Skills', contact: 'Contact'};
   const obamnasAmericaCenters = {
     'center-4_-2': 'Downtown Core',
-    'center-0_3': 'South Center',
+    'center-0_3': 'North Center',
     'center-7_-7': 'Terminus District',
-    'center-9_5': 'Southeast Center',
-    'center--2_10': 'Southwest Center',
+    'center-9_5': 'Northwest Center',
+    'center--2_10': 'Northeast Center',
     'center--5_6': 'Campus District',
-    'center-7_2': 'East Center'
+    'center-7_2': 'West Center'
   };
   const escapeHtml = value => String(value).replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
   function deriveCenters(cityMap) {
@@ -124,6 +124,7 @@
       <button class="city-minimap" type="button" aria-label="Open city map and fast travel">
         <span class="city-minimap-label">CITY MAP <b>↗</b></span>
         <span class="city-minimap-canvas">
+          <span class="city-minimap-cone" aria-hidden="true"></span>
           <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true" focusable="false"></svg>
           <span class="city-minimap-centers" aria-hidden="true"></span>
           <span class="city-minimap-player" aria-hidden="true"></span>
@@ -175,6 +176,7 @@
     const nearby = host.querySelector('.city-nearby');
     const playerDot = host.querySelector('.city-player-dot');
     const minimap = host.querySelector('.city-minimap');
+    const minimapCone = host.querySelector('.city-minimap-cone');
     const minimapPlayer = host.querySelector('.city-minimap-player');
     const minimapCanvas = host.querySelector('.city-minimap-canvas');
     const minimapCenters = host.querySelector('.city-minimap-centers');
@@ -201,6 +203,8 @@
     let mapZoom = 1, mapCenterX = 50, mapCenterY = 50, mapDrag = null;
     let mapView = {left: 0, top: 0, width: 100, height: 100};
     let miniView = {left: 0, top: 0, width: 100, height: 100};
+    let miniAspect = 1;
+    let radarPosition = null, radarRoadAnchor = null;
     const maxMapZoom = 12;
     const clamp = (value, low, high) => Math.max(low, Math.min(high, value));
     function placeMapMarker(marker, left, top, width, height) {
@@ -216,14 +220,22 @@
       return {width: 100 * Math.max(1, aspect) / mapZoom,
         height: 100 * Math.max(1, 1 / aspect) / mapZoom};
     }
-    function applyMinimapView() {
+    function measureMinimap() {
       const rect = minimapCanvas.getBoundingClientRect();
-      const aspect = rect.width > 0 && rect.height > 0 ? rect.width / rect.height : 1;
-      const width = 100 * Math.max(1, aspect), height = 100 * Math.max(1, 1 / aspect);
-      miniView = {left: (100 - width) / 2, top: (100 - height) / 2, width, height};
+      if (rect.width > 0 && rect.height > 0) miniAspect = rect.width / rect.height;
+      applyMinimapView();
+    }
+    function applyMinimapView() {
+      const span = Math.max(1, bounds.maxX - bounds.minX, bounds.maxZ - bounds.minZ);
+      // About 650 metres of nearby streets vertically, regardless of city size.
+      const height = Math.min(92, 650 * 92 / span), width = height * miniAspect;
+      const center = point(radarPosition?.x ?? locations[0]?.x ?? 0,
+        radarPosition?.z ?? locations[0]?.z ?? 0);
+      miniView = {left: center.x - width / 2, top: center.y - height / 2, width, height};
       minimapSvg.setAttribute('viewBox', `${miniView.left} ${miniView.top} ${width} ${height}`);
-      for (const marker of [minimapPlayer, ...minimapCenters.children])
+      for (const marker of minimapCenters.children)
         placeMapMarker(marker, miniView.left, miniView.top, width, height);
+      drawRadarRoads();
     }
     function applyMapView() {
       const {width, height} = mapViewSize();
@@ -255,26 +267,54 @@
     function point(x,z) {
       const span=Math.max(1,bounds.maxX-bounds.minX,bounds.maxZ-bounds.minZ);
       const midX=(bounds.minX+bounds.maxX)/2,midZ=(bounds.minZ+bounds.maxZ)/2;
-      // Three.js is Y-up: from above, +X goes right and +Z goes down.
-      // Keep the guide in the same handedness as the driveable city.
-      return {x:Math.max(0,Math.min(100,50+(x-midX)*92/span)),
-        y:Math.max(0,Math.min(100,50+(z-midZ)*92/span))};
+      // Rotate both map axes together. A single-axis flip reverses the side
+      // of the road shown in the guide relative to the driving camera.
+      return {x:Math.max(0,Math.min(100,50-(x-midX)*92/span)),
+        y:Math.max(0,Math.min(100,50-(z-midZ)*92/span))};
+    }
+    function roadPaths(roads, glow = false) {
+      const paths = {street: [], arterial: [], highway: []};
+      const compact = value => Math.round(value * 10000) / 10000;
+      for (const line of roads) {
+        const a = point(line.x1, line.z1), b = point(line.x2, line.z2);
+        const highway = /highway|motorway|freeway|express/i.test(String(line.roadClass || line.kind || '')) ||
+          /elevated|bridge|viaduct|overpass/i.test(String(line.mode || ''));
+        const arterial = /arterial|main/i.test(String(line.roadClass || ''));
+        paths[highway ? 'highway' : arterial ? 'arterial' : 'street'].push(
+          `M${compact(a.x)} ${compact(a.y)}L${compact(b.x)} ${compact(b.y)}`);
+      }
+      const path = (className, segments) => segments.length
+        ? `<path class="${className}" data-segments="${segments.length}" d="${segments.join('')}"/>` : '';
+      return path('city-map-street', paths.street) +
+        path('city-map-arterial', paths.arterial) +
+        (glow ? path('city-map-highway-glow', paths.highway) : '') +
+        path('city-map-highway', paths.highway);
+    }
+    function drawRadarRoads() {
+      const roads = cityMap?.networkRoads || cityMap?.overviewRoads || cityMap?.roadSegments;
+      if (!roads?.length || !radarPosition) return;
+      const span = Math.max(1, bounds.maxX - bounds.minX, bounds.maxZ - bounds.minZ);
+      const halfX = miniView.width * span / 184 + 180;
+      const halfZ = miniView.height * span / 184 + 180;
+      if (radarRoadAnchor &&
+          Math.hypot(radarPosition.x - radarRoadAnchor.x, radarPosition.z - radarRoadAnchor.z) < 140 &&
+          Math.abs(halfX - radarRoadAnchor.halfX) < 1 &&
+          Math.abs(halfZ - radarRoadAnchor.halfZ) < 1) return;
+      radarRoadAnchor = {x: radarPosition.x, z: radarPosition.z, halfX, halfZ};
+      const minX = radarPosition.x - halfX, maxX = radarPosition.x + halfX;
+      const minZ = radarPosition.z - halfZ, maxZ = radarPosition.z + halfZ;
+      const nearbyRoads = roads.filter(line =>
+        Math.max(line.x1, line.x2) >= minX && Math.min(line.x1, line.x2) <= maxX &&
+        Math.max(line.z1, line.z2) >= minZ && Math.min(line.z1, line.z2) <= maxZ);
+      minimapSvg.innerHTML = roadPaths(nearbyRoads);
     }
     function renderMap() {
       const lines=cityMap?.networkRoads || cityMap?.overviewRoads || cityMap?.roadSegments;
       if(lines?.length) {
-        const roadLine = line => {
-          const a=point(line.x1,line.z1),b=point(line.x2,line.z2);
-          const highway=/highway|motorway|freeway|express/i.test(String(line.roadClass||line.kind||'')) ||
-            /elevated|bridge|viaduct|overpass/i.test(String(line.mode||''));
-          const arterial=/arterial|main/i.test(String(line.roadClass||''));
-          const roadClass=highway?' class="city-map-highway"':arterial?' class="city-map-arterial"':'';
-          return `<line${roadClass} x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}"/>`;
-        };
-        svg.innerHTML = lines.map(roadLine).join('');
-        const miniLines = cityMap?.overviewRoads || lines;
-        const stride = Math.max(1, Math.ceil(miniLines.length / 700));
-        minimapSvg.innerHTML = miniLines.filter((_, i) => i % stride === 0).map(roadLine).join('');
+        // Keep every source segment, but batch by style. Thousands of SVG
+        // elements made every viewBox pan and zoom trigger expensive paint.
+        svg.innerHTML = roadPaths(lines, true);
+        radarRoadAnchor = null;
       } else {
         const roads = [-400,-320,-240,-160,-80,0,80,160,240,320,400];
         const roadMarkup = roads.map(c => {
@@ -345,7 +385,7 @@
         centerList.appendChild(item);
       });
       resetMapView();
-      applyMinimapView();
+      measureMinimap();
     }
     function setCity(nextCity) {
       cityMap=nextCity || null;
@@ -357,6 +397,8 @@
       centersById=new Map(centers.map(center=>[center.id,center]));
       if(currentStop)currentStop=byId.get(currentStop.id) || null;
       nearbyStop=null;
+      radarPosition = locations[0] || cityMap?.focus || {x:0,z:0};
+      radarRoadAnchor = null;
       renderMap();
     }
 
@@ -409,11 +451,12 @@
       map = nextMap;
       if (map !== 'city') close(true);
       host.hidden = map !== 'city';
+      document.body.classList.toggle('city-map-active', map === 'city');
       guideButton.hidden = map !== 'city';
       if (map !== 'city') nearby.hidden = true;
-      else applyMinimapView();
+      else measureMinimap();
     }
-    function update(position, speed = 0) {
+    function update(position, speed = 0, heading = 0) {
       if (map !== 'city' || !position) return;
       currentSpeed = speed;
       const mapped=point(position.x,position.z);
@@ -422,7 +465,13 @@
       placeMapMarker(playerDot, mapView.left, mapView.top, mapView.width, mapView.height);
       minimapPlayer.dataset.mapX = mapped.x;
       minimapPlayer.dataset.mapY = mapped.y;
-      placeMapMarker(minimapPlayer, miniView.left, miniView.top, miniView.width, miniView.height);
+      const direction = `${-heading * 180 / Math.PI}deg`;
+      minimapCone.style.setProperty('--radar-heading', direction);
+      minimapPlayer.style.setProperty('--radar-heading', direction);
+      if (!radarPosition || Math.hypot(position.x - radarPosition.x, position.z - radarPosition.z) > .4) {
+        radarPosition = {x: position.x, z: position.z};
+        applyMinimapView();
+      }
       let nearest = null, distance = Infinity;
       for (const stop of locations) {
         const d = Math.hypot(position.x - stop.x, position.z - stop.z);
@@ -538,10 +587,10 @@
         open(nearbyStop.id, driveFocus);
       }
     });
-    window.addEventListener('resize', () => { applyMapView(); applyMinimapView(); });
+    window.addEventListener('resize', () => { applyMapView(); measureMinimap(); });
     if (typeof window.ResizeObserver === 'function') {
       new window.ResizeObserver(applyMapView).observe(mapViewport);
-      new window.ResizeObserver(applyMinimapView).observe(minimapCanvas);
+      new window.ResizeObserver(measureMinimap).observe(minimapCanvas);
     }
     setCity(cityMap);
     return {setCity, setMap, update, isOpen, open, close};

@@ -35,6 +35,26 @@ test('gentle neutral air assist damps rotation but does not snap upright',()=>{
   const rates=[false,true].map(antiFlip=>{const p=P.create({antiFlip});p.body.position.set(0,100,0);p.body.angularVelocity.set(2,0,1);run(p,60);assert.ok(Math.abs(p.body.quaternion.x)>.1);return p.body.angularVelocity.length();});
   assert.ok(rates[1]<rates[0]*.95);assert.ok(rates[1]>rates[0]*.5);
 });
+test('grounded anti-roll keeps a fast car on its wheels after a sideways impulse',()=>{
+  const C=require('cannon');
+  const outcomes=[false,true].map(antiFlip=>{
+    const p=P.create({map:'city',antiFlip});p.reset(80,-120);run(p,120);
+    p.body.velocity.set(0,0,25);
+    p.body.angularVelocity.set(0,0,6);
+    let maxTilt=0,leastContact=4;
+    for(let i=0;i<90;i++){
+      const state=p.step(1/60);
+      const up=p.body.quaternion.vmult(new C.Vec3(0,1,0));
+      maxTilt=Math.max(maxTilt,Math.acos(Math.max(-1,Math.min(1,up.y))));
+      leastContact=Math.min(leastContact,state.grounded);
+    }
+    return {maxTilt,leastContact};
+  });
+  assert.ok(outcomes[0].maxTilt>Math.PI/2,'the impulse rolls an unstabilized car');
+  assert.ok(outcomes[1].maxTilt<Math.PI/3,'assisted car stays short of a rollover');
+  assert.ok(outcomes[1].maxTilt<outcomes[0].maxTilt*.4,'the assist materially reduces tilt');
+  assert.ok(outcomes[1].leastContact>=2,'the assisted car retains tire contact');
+});
 test('all cars settle, accelerate, brake and reverse on the fixture and city',()=>{
   for(const map of ['course','city'])for(const car of Object.keys(P.vehicles)){
     const p=P.create({map,car});p.reset(map==='city'?-80:-100,map==='city'?-120:-100);let s=run(p,120);assert.equal(s.grounded,4,`${map}/${car} settled`);
