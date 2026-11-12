@@ -27,9 +27,24 @@ document.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: tru
 check(!ui.isOpen(), 'Escape closes');
 check(document.activeElement === document.querySelector('#drive-scene'), 'Escape returns focus to driving');
 check(opens === closes && opens === 2, 'open and close callbacks');
+document.querySelector('.city-guide-trigger').focus();
+document.activeElement.dispatchEvent(new KeyboardEvent('keydown', {key:'e', bubbles:true}));
+check(!ui.isOpen(), 'E does not activate a focused guide button');
+document.querySelector('#drive-scene').focus();
+ui.setCity({stops, bounds:{minX:-500,maxX:500,minZ:-500,maxZ:500},
+  overviewRoads:[{x1:-400,z1:0,x2:400,z2:0,width:16}],
+  manifest:{source:{cityName:'Test City'},centerCandidates:[{id:'center-0_0',x:0,z:0}]},
+  snapToRoad(x,z){return {x:x+4,z,heading:0,distance:4,roadId:'street-1'};}});
+check(document.querySelectorAll('.city-center-item').length === 1, 'one road-safe city center');
+check(document.querySelectorAll('.city-minimap-center').length === 1, 'minimap shows the center');
+document.querySelector('.city-minimap').click();
+check(ui.isOpen() && document.activeElement === document.querySelector('.city-panel'), 'minimap opens the guide and focuses panel');
+document.querySelector('.city-center-item').click();
+check(jumped === 'center-0_0' && !ui.isOpen(), 'center fast travel jumps and closes guide');
+check(document.activeElement === document.querySelector('#drive-scene'), 'fast travel returns focus to the canvas');
 ui.setMap('course');
 check(document.querySelector('.city-guide-trigger').hidden, 'guide hidden off city');
-document.getElementById('results').textContent = failures.length ? 'FAIL: ' + failures.join(', ') : 'PASS: guide, six cards, direct open, fast travel, E prompt, Escape, callbacks, map switch';
+document.getElementById('results').textContent = failures.length ? 'FAIL: ' + failures.join(', ') : 'PASS: guide, six cards, direct open, city minimap, center fast travel, E prompt, Escape, callbacks, map switch';
 document.documentElement.dataset.result = failures.length ? 'fail' : 'pass';
 if (new URLSearchParams(location.search).has('preview')) {
   if (new URLSearchParams(location.search).has('narrow')) {

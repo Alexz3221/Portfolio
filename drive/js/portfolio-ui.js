@@ -74,7 +74,34 @@
     }
   };
   const labels = {about: 'About', projects: 'Projects', experience: 'Experience', education: 'Education', skills: 'Skills', contact: 'Contact'};
+  const obamnasAmericaCenters = {
+    'center-4_-2': 'Downtown Core',
+    'center-0_3': 'North Center',
+    'center-7_-7': 'Terminus District',
+    'center-9_5': 'Northeast Center',
+    'center--2_10': 'Northwest Center',
+    'center--5_6': 'Campus District',
+    'center-7_2': 'East Center'
+  };
   const escapeHtml = value => String(value).replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+  function deriveCenters(cityMap) {
+    if (!Array.isArray(cityMap?.manifest?.centerCandidates) || typeof cityMap.snapToRoad !== 'function') return [];
+    const bounds = cityMap.detailBounds || cityMap.bounds;
+    return cityMap.manifest.centerCandidates.flatMap((candidate, index) => {
+      const x = Number(candidate.x), z = Number(candidate.z);
+      if (!Number.isFinite(x) || !Number.isFinite(z) || !bounds ||
+          x < bounds.minX || x > bounds.maxX || z < bounds.minZ || z > bounds.maxZ) return [];
+      const street = cityMap.snapToRoad(x, z);
+      if (!street || !Number.isFinite(street.x) || !Number.isFinite(street.z) ||
+          !Number.isFinite(street.heading) || !Number.isFinite(street.distance) || street.distance > 350 ||
+          street.x < bounds.minX || street.x > bounds.maxX || street.z < bounds.minZ || street.z > bounds.maxZ) return [];
+      const title = cityMap.manifest.source?.cityName === "Obamna's America"
+        ? obamnasAmericaCenters[candidate.id] : null;
+      return [{ ...street, id: String(candidate.id || `center-${index + 1}`),
+        title: title || `City Center ${String(index + 1).padStart(2, '0')}`,
+        score: Number(candidate.score) || 0 }];
+    });
+  }
   function create({document, window, stops, city, onJump, onOpen, onClose, driveTarget}) {
     if (!document?.createElement || !document?.body) throw new Error('Portfolio UI needs a browser document');
     let cityMap = city || null;
@@ -94,20 +121,35 @@
     host.hidden = true;
     host.innerHTML = `
       <button class="city-nearby" type="button" hidden></button>
+      <button class="city-minimap" type="button" aria-label="Open city map and fast travel">
+        <span class="city-minimap-label">CITY MAP <b>↗</b></span>
+        <span class="city-minimap-canvas">
+          <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true" focusable="false"></svg>
+          <span class="city-minimap-centers" aria-hidden="true"></span>
+          <span class="city-minimap-player" aria-hidden="true"></span>
+        </span>
+        <span class="city-minimap-hint">OPEN / FAST TRAVEL</span>
+      </button>
       <div class="city-overlay" hidden>
         <section class="city-panel" role="dialog" aria-modal="true" aria-labelledby="cityPanelTitle" tabindex="-1">
           <div class="city-panel-head"><div><p class="city-panel-kicker">ALEX / AFTER DARK</p><h2 id="cityPanelTitle">City Guide</h2></div><button class="city-close" type="button" aria-label="Close city guide">×</button></div>
           <div class="city-guide-view">
             <p class="city-guide-intro">Take the long way around, or open a stop right here. The city is yours either way.</p>
             <div class="city-guide-layout">
-              <div class="city-map" role="group" aria-label="City map and portfolio stops">
+              <div class="city-map" role="group" aria-label="City map, portfolio stops, and fast travel centers">
                 <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true" focusable="false"></svg>
                 <span class="city-player-dot" aria-hidden="true"></span>
+                <div class="city-map-centers"></div>
                 <div class="city-map-stops"></div>
                 <span class="city-map-key">YOU ARE HERE <i></i></span>
+                <span class="city-center-key">◆ CENTERS / FAST TRAVEL</span>
               </div>
               <div class="city-stop-list"></div>
             </div>
+            <section class="city-centers" hidden aria-label="City center fast travel">
+              <div class="city-centers-head"><h3>City centers</h3><span>FAST TRAVEL / STREET LEVEL</span></div>
+              <div class="city-center-list"></div>
+            </section>
           </div>
           <div class="city-story-view" hidden>
             <button class="city-back" type="button">← CITY GUIDE</button>
@@ -125,14 +167,24 @@
     const storyContent = host.querySelector('.city-story-content');
     const nearby = host.querySelector('.city-nearby');
     const playerDot = host.querySelector('.city-player-dot');
+    const minimap = host.querySelector('.city-minimap');
+    const minimapPlayer = host.querySelector('.city-minimap-player');
+    const minimapCenters = host.querySelector('.city-minimap-centers');
+    const minimapSvg = host.querySelector('.city-minimap svg');
     const closeButton = host.querySelector('.city-close');
     const backButton = host.querySelector('.city-back');
     const driveButton = host.querySelector('.city-drive-here');
     const mapStops = host.querySelector('.city-map-stops');
+    const mapCenters = host.querySelector('.city-map-centers');
+    const centerKey = host.querySelector('.city-center-key');
     const stopList = host.querySelector('.city-stop-list');
+    const centerSection = host.querySelector('.city-centers');
+    const centerList = host.querySelector('.city-center-list');
     const svg = host.querySelector('.city-map svg');
     const driveFocus = driveTarget || document.querySelector('#drive-scene');
     let bounds={minX:-440,maxX:440,minZ:-440,maxZ:440};
+    let centers = [];
+    let centersById = new Map();
     function point(x,z) {
       const span=Math.max(1,bounds.maxX-bounds.minX,bounds.maxZ-bounds.minZ);
       const midX=(bounds.minX+bounds.maxX)/2,midZ=(bounds.minZ+bounds.maxZ)/2;
@@ -143,22 +195,29 @@
       const lines=cityMap?.overviewRoads || cityMap?.roadSegments;
       if(lines?.length) {
         const stride=Math.max(1,Math.ceil(lines.length/700));
-        svg.innerHTML=lines.filter((_,i)=>i%stride===0).map(line=>{
+        const roadMarkup=lines.filter((_,i)=>i%stride===0).map(line=>{
           const a=point(line.x1,line.z1),b=point(line.x2,line.z2);
           const highway=/highway|motorway|freeway|express/i.test(String(line.roadClass||line.kind||'')) ||
             /elevated|bridge|viaduct|overpass/i.test(String(line.mode||'')) || Number(line.width)>=24;
           const roadClass=highway?' class="city-map-highway"':'';
           return `<line${roadClass} x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}"/>`;
         }).join('');
+        svg.innerHTML=roadMarkup;
+        minimapSvg.innerHTML=roadMarkup;
       } else {
         const roads = [-400,-320,-240,-160,-80,0,80,160,240,320,400];
-        svg.innerHTML = roads.map(c => {
+        const roadMarkup = roads.map(c => {
           const a=point(c,-400),b=point(c,400),d=point(-400,c),e=point(400,c);
           return `<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}"/><line x1="${d.x}" y1="${d.y}" x2="${e.x}" y2="${e.y}"/>`;
         }).join('') + '<line class="city-map-highway" x1="50" y1="4" x2="50" y2="96"/>';
+        svg.innerHTML=roadMarkup;
+        minimapSvg.innerHTML=roadMarkup;
       }
       mapStops.replaceChildren();
+      mapCenters.replaceChildren();
+      minimapCenters.replaceChildren();
       stopList.replaceChildren();
+      centerList.replaceChildren();
       locations.forEach((stop, index) => {
         const number = String(index + 1).padStart(2, '0');
         const mapped=point(stop.x,stop.z);
@@ -182,6 +241,32 @@
         item.innerHTML = `<span>${number} / ${escapeHtml(labels[stop.id])}</span><strong>${escapeHtml(stop.title)}</strong><small>OPEN STOP ↗</small>`;
         stopList.appendChild(item);
       });
+      centerSection.hidden = !centers.length || typeof onJump !== 'function';
+      centerKey.hidden = centerSection.hidden;
+      centers.forEach((center, index) => {
+        const mapped = point(center.x, center.z);
+        const marker = document.createElement('button');
+        marker.type = 'button';
+        marker.className = 'city-map-center';
+        marker.style.left = mapped.x + '%';
+        marker.style.top = mapped.y + '%';
+        marker.dataset.center = center.id;
+        marker.setAttribute('aria-label', `Fast travel to ${center.title}`);
+        marker.title = center.title;
+        mapCenters.appendChild(marker);
+        const miniMarker = document.createElement('span');
+        miniMarker.className = 'city-minimap-center';
+        miniMarker.style.left = mapped.x + '%';
+        miniMarker.style.top = mapped.y + '%';
+        minimapCenters.appendChild(miniMarker);
+        const item = document.createElement('button');
+        item.type = 'button';
+        item.className = 'city-center-item';
+        item.dataset.center = center.id;
+        item.setAttribute('aria-label', `Fast travel to ${center.title}`);
+        item.innerHTML = `<span>${String(index + 1).padStart(2, '0')} / CENTER</span><strong>${escapeHtml(center.title)}</strong><small>JUMP TO STREET ↗</small>`;
+        centerList.appendChild(item);
+      });
     }
     function setCity(nextCity) {
       cityMap=nextCity || null;
@@ -189,6 +274,8 @@
       bounds=cityMap?.bounds || {minX:-edge,maxX:edge,minZ:-edge,maxZ:edge};
       locations=(cityMap?.stops || stops || []).filter(stop=>stories[stop.id]);
       byId=new Map(locations.map(stop=>[stop.id,stop]));
+      centers=deriveCenters(cityMap);
+      centersById=new Map(centers.map(center=>[center.id,center]));
       if(currentStop)currentStop=byId.get(currentStop.id) || null;
       nearbyStop=null;
       renderMap();
@@ -232,7 +319,7 @@
       currentStop = null;
       overlay.hidden = true;
       onClose?.();
-      const desiredFocus = toDrive ? driveFocus : previousFocus;
+      const desiredFocus = driveFocus || previousFocus;
       const returnTarget = desiredFocus && desiredFocus !== document.body && desiredFocus.isConnected &&
         !desiredFocus.closest?.('[hidden]') ? desiredFocus : driveFocus || guideButton;
       returnTarget.focus?.();
@@ -251,6 +338,8 @@
       const mapped=point(position.x,position.z);
       playerDot.style.left = mapped.x + '%';
       playerDot.style.top = mapped.y + '%';
+      minimapPlayer.style.left = mapped.x + '%';
+      minimapPlayer.style.top = mapped.y + '%';
       let nearest = null, distance = Infinity;
       for (const stop of locations) {
         const d = Math.hypot(position.x - stop.x, position.z - stop.z);
@@ -266,6 +355,7 @@
     function isOpen() { return activeView !== null; }
 
     guideButton.addEventListener('click', event => activeView ? close(event.detail > 0) : openGuide(event.detail > 0 ? driveFocus : guideButton));
+    minimap.addEventListener('click', () => openGuide(driveFocus));
     closeButton.addEventListener('click', event => close(event.detail > 0));
     backButton.addEventListener('click', () => openGuide());
     nearby.addEventListener('click', event => { if (nearbyStop && !nearby.disabled) open(nearbyStop.id, event.detail > 0 ? driveFocus : nearby); });
@@ -276,6 +366,12 @@
       }
     });
     host.addEventListener('click', event => {
+      const centerButton = event.target.closest('[data-center]');
+      if (centerButton && activeView === 'guide' && typeof onJump === 'function') {
+        const center = centersById.get(centerButton.dataset.center);
+        if (center) { onJump(center); close(true); }
+        return;
+      }
       const stopButton = event.target.closest('[data-stop]');
       if (stopButton) open(stopButton.dataset.stop);
       else if (event.target === overlay) close(true);
@@ -300,7 +396,7 @@
         return;
       }
       if (!event.repeat && (event.key === 'e' || event.key === 'E') && nearbyStop && Math.abs(currentSpeed || 0) < 3 &&
-          !event.target.matches?.('input, select, textarea, [contenteditable]')) {
+          !event.target.matches?.('input, select, textarea, button, a, [contenteditable]')) {
         event.preventDefault();
         event.stopPropagation();
         open(nearbyStop.id, driveFocus);
@@ -310,5 +406,5 @@
     return {setCity, setMap, update, isOpen, open, close};
   }
 
-  return {create, stories};
+  return {create, stories, deriveCenters};
 });

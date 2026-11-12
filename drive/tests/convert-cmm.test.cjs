@@ -157,6 +157,22 @@ test('traffic lane positions and mesh-backed landmark identity survive conversio
   assert.equal(proxy.prefab, 'NightOwl Landmark mesh 0');
 });
 
+test('city center candidates favor real dense structures over parent lot containers', async () => {
+  const source = fixture();
+  source.buildings = Array.from({ length: 12 }, (_, i) => ({
+    ...source.buildings[0], id: 1000 + i, height_m: 120,
+    geometry_source: 'cs2:structure-container'
+  }));
+  const containers = await run(source);
+  assert.deepEqual(containers.manifest.centerCandidates, []);
+  source.buildings.forEach(building => { building.geometry_source = 'cs2:mesh-bounds'; });
+  const actual = await run(source);
+  assert.equal(actual.manifest.centerCandidates.length, 1);
+  assert.deepEqual(actual.manifest.centerCandidates[0].id, 'center-0_-1');
+  assert.deepEqual([actual.manifest.centerCandidates[0].x, actual.manifest.centerCandidates[0].z], [10, -10]);
+  assert.ok(actual.manifest.centerCandidates[0].score >= 80);
+});
+
 test('authored portfolio stops use source world coordinates and preserve landmark references', async () => {
   const { overview } = await run(fixture(), { stopsData: {
     format: 'drive-city-stops-v1', coordinateSystem: 'source-world-xz', cityName: 'Testopolis',

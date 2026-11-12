@@ -16,6 +16,12 @@
     { id: 'skills', title: 'The Toolbox', color: '#9bf5ae', fx: .2, fz: .5 },
     { id: 'contact', title: 'Signal Tower', color: '#ff87dd', fx: .8, fz: .5 }
   ];
+  // Five geometric recipes per family are selected from the stable source ID.
+  // Facade colors and window atlases vary separately from these silhouettes.
+  const modelFamilies = ['house', 'rowhouse', 'apartments', 'tower', 'storefront', 'glass',
+    'industrial', 'civic', 'campus', 'hospital', 'castle', 'airport', 'stadium', 'parking', 'monument'];
+  const modelCatalog = Object.freeze(modelFamilies.flatMap((style) =>
+    Array.from({ length: 5 }, (_, variant) => `${style}:${variant}`)));
   const finite = (value, fallback = 0) => Number.isFinite(Number(value)) ? Number(value) : fallback;
   const clamp = (value, low, high) => Math.max(low, Math.min(high, value));
   const key = (ix, iz) => ix + ',' + iz;
@@ -68,25 +74,69 @@
     }
     return segments;
   }
+  function insetConvexFootprint(ring, distance) {
+    if (ring.length < 3 || distance <= 0) return ring;
+    let area = 0;
+    for (let i = 0; i < ring.length; i++) {
+      const a = ring[i], b = ring[(i + 1) % ring.length];
+      area += a[0] * b[1] - b[0] * a[1];
+    }
+    if (Math.abs(area) < .01) return ring;
+    const winding = Math.sign(area), edges = [];
+    for (let i = 0; i < ring.length; i++) {
+      const a = ring[i], b = ring[(i + 1) % ring.length];
+      const dx = b[0] - a[0], dz = b[1] - a[1], length = Math.hypot(dx, dz);
+      if (length < .05) return ring;
+      edges.push({ x: a[0] - winding * dz / length * distance,
+        z: a[1] + winding * dx / length * distance, dx, dz });
+    }
+    const result = [];
+    for (let i = 0; i < edges.length; i++) {
+      const previous = edges[(i + edges.length - 1) % edges.length], current = edges[i];
+      const det = previous.dx * current.dz - previous.dz * current.dx;
+      if (Math.abs(det) < 1e-5) return ring;
+      const qx = current.x - previous.x, qz = current.z - previous.z;
+      const t = (qx * current.dz - qz * current.dx) / det;
+      const point = [previous.x + previous.dx * t, previous.z + previous.dz * t];
+      if (!point.every(Number.isFinite) || Math.hypot(point[0] - ring[i][0], point[1] - ring[i][1]) > distance * 8) return ring;
+      result.push(point);
+    }
+    let innerArea = 0;
+    for (let i = 0; i < result.length; i++) {
+      const a = result[i], b = result[(i + 1) % result.length];
+      innerArea += a[0] * b[1] - b[0] * a[1];
+    }
+    return Math.sign(innerArea) === winding && Math.abs(innerArea) > 1 ? result : ring;
+  }
   function normalizeBuilding(record, terrainHeight, meshBackedParentIds) {
-    const footprint = Array.isArray(record.footprint) ? record.footprint
+    const sourceFootprint = Array.isArray(record.footprint) ? record.footprint
       .map((p) => [finite(p[0], NaN), finite(p[1], NaN)])
       .filter((p) => p.every(Number.isFinite)) : [];
-    if (footprint.length > 2 && Math.hypot(footprint[0][0] - footprint[footprint.length - 1][0], footprint[0][1] - footprint[footprint.length - 1][1]) < .001) footprint.pop();
-    if (footprint.length < 3) return null;
+    if (sourceFootprint.length > 2 && Math.hypot(sourceFootprint[0][0] - sourceFootprint[sourceFootprint.length - 1][0], sourceFootprint[0][1] - sourceFootprint[sourceFootprint.length - 1][1]) < .001) sourceFootprint.pop();
+    if (sourceFootprint.length < 3) return null;
+    const skipParent = meshBackedParentIds?.has(String(record.id)) || false;
+    const landscape = isLandscapeCategory(record.category);
+    const edges = sourceFootprint.map((point, i) => Math.hypot(
+      sourceFootprint[(i + 1) % sourceFootprint.length][0] - point[0],
+      sourceFootprint[(i + 1) % sourceFootprint.length][1] - point[1]));
+    const proxy = record.geometrySource === 'cs2:mesh-bounds';
+    const rowhouse = /row housing|old town/i.test(String(record.category || ''));
+    const desiredSetback = proxy ? .12 : skipParent || landscape ? 0 : rowhouse ? .34 :
+      record.growthKind === 'placed' ? .42 : .72 + (hash('setback:' + record.id) % 5) * .16;
+    const setback = Math.min(desiredSetback, Math.min(...edges) * .14);
+    const footprint = insetConvexFootprint(sourceFootprint, setback);
     const xs = footprint.map((p) => p[0]), zs = footprint.map((p) => p[1]);
     const minX = Math.min(...xs), maxX = Math.max(...xs), minZ = Math.min(...zs), maxZ = Math.max(...zs);
     if (maxX - minX < .3 || maxZ - minZ < .3) return null;
     const x = (minX + maxX) / 2, z = (minZ + maxZ) / 2;
     const height = clamp(finite(record.height, 12), 2, 600);
     const baseY = Number.isFinite(Number(record.baseY)) ? Number(record.baseY) : terrainHeight(x, z);
-    const skipParent = meshBackedParentIds?.has(String(record.id)) || false;
-    const landscape = isLandscapeCategory(record.category);
     return { id: record.id, x, z, width: maxX - minX, depth: maxZ - minZ,
-      height, baseY, footprint, role: record.role || '', category: record.category || '', name: record.name || '',
+      height, baseY, footprint, sourceFootprint, setback, role: record.role || '', category: record.category || '', name: record.name || '',
       prefab: record.prefab || '', parentBuildingId: record.parentBuildingId || null,
       growthKind: record.growthKind || '', geometrySource: record.geometrySource || '',
-      skipVisual: skipParent, skipCollider: skipParent || landscape, landscape };
+      skipVisual: skipParent, skipCollider: skipParent || landscape, landscape,
+      modelVariant: hash('model:' + record.id) % 5 };
   }
   function terrainFromRaw(raw) {
     if (!raw || raw.format !== 'drive-city-terrain-v1') throw new Error('Imported city terrain has an unsupported format');
@@ -252,8 +302,21 @@
         .map((p) => [finite(p[0], NaN), finite(p[1], NaN)]).filter((p) => p.every(Number.isFinite)) : []
     })).filter((district) => district.polygon.length >= 3);
     const map = { source: 'CSLModernMap', imported: true, manifest, bounds, detailBounds, worldBounds, focus, edge, tileSize, terrain,
-      roadHalfWidth, overviewRoads, stops, routeSamples, buildings: [], roadSegments: [],
+      roadHalfWidth, overviewRoads, networkRoads: allOverviewRoads, stops, routeSamples, buildings: [], roadSegments: [],
       highwaySegments: [], guardrails: [], supports: [], districts, terrainHeight };
+    map.snapToRoad = (x, z) => {
+      const normal = (road) => !isElevated(road.mode) && !isMotorway(road);
+      const match = closestRoad(x, z, detailedRoads, normal) || closestRoad(x, z, detailedRoads);
+      if (!match) return null;
+      const road = match.road, t = match.t;
+      return {
+        x: road.x1 + (road.x2 - road.x1) * t,
+        y: road.y1 + (road.y2 - road.y1) * t,
+        z: road.z1 + (road.z2 - road.z1) * t,
+        heading: Math.atan2(road.x2 - road.x1, road.z2 - road.z1) + (t > .5 ? Math.PI : 0),
+        roadWidth: road.width, roadId: road.id, distance: match.distance
+      };
+    };
     const tiles = new Map();
     const listeners = new Set();
     const changeListeners = new Set();
@@ -427,7 +490,7 @@
     async function getJson(path) {
       // Keep regenerated map tiles fresh on static hosts while fixture fetches
       // continue to use their exact in-memory paths.
-      const requestPath = options.fetch ? path : path + (path.includes('?') ? '&' : '?') + 'v=3';
+      const requestPath = options.fetch ? path : path + (path.includes('?') ? '&' : '?') + 'v=4';
       const response = await requester(requestPath);
       if (!response || !response.ok) throw new Error('Could not load imported city asset: ' + path);
       return response.json();
@@ -606,7 +669,7 @@
     function roadStrip(out, road, halfWidth, yOffset, uvs, followTerrain = false,
       centerOffset = 0, start = 0, end = 1) {
       const dx = road.x2 - road.x1, dz = road.z2 - road.z1, length = Math.hypot(dx, dz);
-      if (length < .1) return;
+      if (length < .1 || end - start < .00001) return;
       const nx = dz / length, nz = -dx / length;
       const steps = followTerrain ? Math.max(1, Math.ceil(length * (end - start) / 10)) : 1;
       const phase = (road.x1 * dx + road.z1 * dz) / length / 5;
@@ -654,29 +717,31 @@
       return { lanes, highway, carriageMin, carriageMax,
         leftWalk: Math.max(0, carriageMin + half), rightWalk: Math.max(0, half - carriageMax) };
     }
-    function dashStripe(out, road, offset, halfWidth, yOffset, followTerrain) {
+    function dashStripe(out, road, offset, halfWidth, yOffset, followTerrain, start = 0, end = 1) {
       const length = Math.hypot(road.x2 - road.x1, road.z2 - road.z1);
       if (length < 3) return;
       const phase = hash(String(road.id) + ':marking') % 8;
       for (let distance = -phase; distance < length; distance += 8) {
-        const from = Math.max(0, distance), to = Math.min(length, distance + 4);
+        const from = Math.max(length * start, distance), to = Math.min(length * end, distance + 4);
         if (to - from > .7) roadStrip(out, road, halfWidth, yOffset, null, followTerrain,
           offset, from / length, to / length);
       }
     }
-    function markRoad(outWhite, outYellow, road, layout, followTerrain) {
+    function markRoad(outWhite, outYellow, road, layout, followTerrain, intervals = [[0, 1]]) {
       const lanes = layout.lanes;
       const leftEdge = lanes[0].position - lanes[0].width / 2;
       const rightEdge = lanes[lanes.length - 1].position + lanes[lanes.length - 1].width / 2;
-      roadStrip(outWhite, road, .09, followTerrain ? .096 : .055, null, followTerrain, leftEdge - .13);
-      roadStrip(outWhite, road, .09, followTerrain ? .096 : .055, null, followTerrain, rightEdge + .13);
-      for (let index = 0; index < lanes.length - 1; index++) {
-        const a = lanes[index], b = lanes[index + 1];
-        const boundary = (a.position + a.width / 2 + b.position - b.width / 2) / 2;
-        if (a.direction !== b.direction && a.direction && b.direction) {
-          roadStrip(outYellow, road, .065, followTerrain ? .101 : .06, null, followTerrain, boundary - .13);
-          roadStrip(outYellow, road, .065, followTerrain ? .101 : .06, null, followTerrain, boundary + .13);
-        } else dashStripe(outWhite, road, boundary, .085, followTerrain ? .096 : .055, followTerrain);
+      for (const [start, end] of intervals) {
+        roadStrip(outWhite, road, .09, followTerrain ? .096 : .055, null, followTerrain, leftEdge - .13, start, end);
+        roadStrip(outWhite, road, .09, followTerrain ? .096 : .055, null, followTerrain, rightEdge + .13, start, end);
+        for (let index = 0; index < lanes.length - 1; index++) {
+          const a = lanes[index], b = lanes[index + 1];
+          const boundary = (a.position + a.width / 2 + b.position - b.width / 2) / 2;
+          if (a.direction !== b.direction && a.direction && b.direction) {
+            roadStrip(outYellow, road, .065, followTerrain ? .101 : .06, null, followTerrain, boundary - .13, start, end);
+            roadStrip(outYellow, road, .065, followTerrain ? .101 : .06, null, followTerrain, boundary + .13, start, end);
+          } else dashStripe(outWhite, road, boundary, .085, followTerrain ? .096 : .055, followTerrain, start, end);
+        }
       }
     }
     function bridgeBox(out, uvs, road) {
@@ -914,12 +979,12 @@
       roofTriangle(out, colors, ringPoint(pair[0][0], eave), ridgeA, ringPoint(pair[0][1], eave), tint);
       roofTriangle(out, colors, ringPoint(pair[1][0], eave), ringPoint(pair[1][1], eave), ridgeB, tint);
     }
-    function addIndustrialRoof(out, colors, ring, eave, peak, tint) {
+    function addIndustrialRoof(out, colors, ring, eave, peak, tint, modelVariant = 0) {
       const a = Math.hypot(ring[1][0] - ring[0][0], ring[1][1] - ring[0][1]);
       const b = Math.hypot(ring[2][0] - ring[1][0], ring[2][1] - ring[1][1]);
       const ends = a >= b ? [[ring[0], ring[3]], [ring[1], ring[2]]] :
         [[ring[0], ring[1]], [ring[3], ring[2]]];
-      const count = clamp(Math.floor(Math.min(a, b) / 8), 1, 4);
+      const count = clamp(Math.floor(Math.min(a, b) / (modelVariant % 2 ? 6 : 9)), 1, 5);
       const at = (p, q, t) => [p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t];
       for (let i = 0; i < count; i++) {
         const t0 = i / count, tm = (i + .65) / count, t1 = (i + 1) / count;
@@ -934,6 +999,43 @@
         roofTriangle(out, colors, ringPoint(r[1], eave), ringPoint(q[1], peak), ringPoint(p[1], eave), tint);
       }
     }
+    function addEverydayRoof(outRoofs, outRoofColors, outTrim, outTrimColors,
+      ring, top, height, tint, style, modelVariant) {
+      const accent = new THREE.Color(style === 'storefront' ? 0xe991b7 :
+        style === 'rowhouse' ? 0xc6b09a : style === 'apartments' ? 0x91b6c2 : 0xc5c2b4);
+      const detailHeight = Math.min(3.8, Math.max(.8, height * .09));
+      if (modelVariant === 0) {
+        roofPlate(outRoofs, outRoofColors, ring, top, tint);
+        roofPrism(outRoofs, outRoofColors, insetRing(ring, .95), top,
+          top + .42, accent);
+      } else if (modelVariant === 1) {
+        roofPlate(outRoofs, outRoofColors, ring, top, tint);
+        roofPrism(outRoofs, outRoofColors, insetRing(ring, .58), top, top + detailHeight, tint.clone().multiplyScalar(1.12));
+      } else if (modelVariant === 2) {
+        roofPlate(outRoofs, outRoofColors, ring, top, tint);
+        const corners = insetRing(ring, .57);
+        const radius = Math.min(1.4, Math.min(
+          Math.hypot(corners[1][0] - corners[0][0], corners[1][1] - corners[0][1]),
+          Math.hypot(corners[2][0] - corners[1][0], corners[2][1] - corners[1][1])) * .16);
+        for (const index of [0, Math.floor(ring.length / 2)])
+          roofPrism(outRoofs, outRoofColors, localPad(corners[index], radius), top, top + detailHeight * .72, accent);
+      } else if (modelVariant === 3) {
+        roofPlate(outRoofs, outRoofColors, ring, top, tint);
+        const inset = insetRing(ring, .64);
+        slopedRing(outRoofs, outRoofColors, ring, inset, top, top + detailHeight, tint.clone().multiplyScalar(1.18));
+        roofPlate(outRoofs, outRoofColors, inset, top + detailHeight, accent);
+      } else {
+        roofPlate(outRoofs, outRoofColors, ring, top, tint);
+        const upper = insetRing(ring, .75), crown = insetRing(ring, .4);
+        roofLedge(outRoofs, outRoofColors, ring, upper, top + .16, accent);
+        roofPrism(outRoofs, outRoofColors, crown, top, top + detailHeight * 1.45, tint.clone().multiplyScalar(.88));
+      }
+      if (style === 'apartments') {
+        const bands = 1 + modelVariant % 3;
+        for (let floor = 1; floor <= bands; floor++)
+          addTrimBand(outTrim, outTrimColors, ring, top - floor * Math.min(3.4, height / (bands + 1)), accent);
+      }
+    }
     function addBuilding(batches, outRoofs, outRoofColors, outTrim, outTrimColors, building) {
       const ring = building.footprint, base = building.baseY, height = building.height;
       const style = buildingStyle(building);
@@ -941,6 +1043,7 @@
       const batch = batches[facadeKinds.includes(style) ? style : 'civic'][facadeVariant];
       const tint = buildingColor(building, style), roofTint = roofColor(style, building);
       const variant = hash(building.id || building.x + ':' + building.z) % 4;
+      const modelVariant = building.modelVariant ?? hash('model:' + building.id) % 5;
       if (style === 'landscape') {
         const category = String(building.category || '').toLowerCase();
         const color = /pool|water/.test(category) ? 0x3a90aa :
@@ -954,18 +1057,29 @@
         return;
       }
       if (style === 'stadium') {
-        const lower = base + Math.min(4, height * .25), rim = base + Math.min(height, Math.max(5, height * .7));
-        const stands = insetRing(ring, .76), field = insetRing(ring, .58);
+        const lower = base + Math.min(4, height * .25);
+        const rim = base + Math.min(height, Math.max(5, height * (.64 + modelVariant * .055)));
+        const stands = insetRing(ring, .78 - modelVariant * .025);
+        const field = insetRing(ring, .58 - modelVariant * .02);
         addWallRing(batches.civic[facadeVariant], ring, base, lower, tint, building, 'civic');
         slopedRing(outRoofs, outRoofColors, ring, stands, rim, base + Math.min(2.5, height * .22), roofTint);
         roofLedge(outRoofs, outRoofColors, stands, field, base + Math.min(2.5, height * .22),
           roofTint.clone().multiplyScalar(1.22));
         roofPlate(outRoofs, outRoofColors, field, base + .16, new THREE.Color(0x398261));
         addTrimBand(outTrim, outTrimColors, ring, rim, new THREE.Color(0x7ed6dc));
+        if (modelVariant === 1 || modelVariant === 4)
+          roofLedge(outRoofs, outRoofColors, ring, stands, rim + 1.3, roofTint.clone().multiplyScalar(1.25));
+        if (modelVariant === 2 || modelVariant === 4)
+          for (const corner of insetRing(ring, .83)) roofPrism(outRoofs, outRoofColors,
+            localPad(corner, Math.min(1.2, Math.min(building.width, building.depth) * .035)),
+            rim - 1, rim + 2.2, roofTint);
+        if (modelVariant === 3 || modelVariant === 4)
+          roofPrism(outRoofs, outRoofColors, insetRing(ring, .31), rim - .3, rim + 1.4,
+            roofTint.clone().multiplyScalar(.83));
         return;
       }
       if (style === 'parking') {
-        const levels = clamp(Math.round(height / 3.2), 2, 10);
+        const levels = clamp(Math.round(height / (3.35 - modelVariant * .12)), 2, 10);
         const slab = new THREE.Color(0x788991), rail = new THREE.Color(0x9aaeb1);
         for (let floor = 1; floor <= levels; floor++) {
           const y = base + height * floor / levels;
@@ -973,42 +1087,81 @@
           if (floor < levels) addTrimBand(outTrim, outTrimColors, ring, y - .15, rail);
         }
         const radius = Math.min(1.1, Math.max(.4, Math.min(building.width, building.depth) * .04));
-        for (const point of ring) roofPrism(outRoofs, outRoofColors, localPad(point, radius), base, base + height, slab);
+        for (const point of insetRing(ring, .88))
+          roofPrism(outRoofs, outRoofColors, localPad(point, radius), base, base + height, slab);
+        if (modelVariant === 1 || modelVariant === 4)
+          roofPrism(outRoofs, outRoofColors, insetRing(ring, .22), base + height,
+            base + height + 2.4, rail);
+        if (modelVariant === 2 || modelVariant === 4)
+          roofLedge(outRoofs, outRoofColors, ring, insetRing(ring, .8),
+            base + height + 1.1, rail);
+        if (modelVariant === 3 || modelVariant === 4)
+          roofPrism(outRoofs, outRoofColors, insetRing(ring, .54), base + height,
+            base + height + 1.2, slab.clone().multiplyScalar(1.18));
         return;
       }
       if (style === 'monument') {
-        const low = base + Math.min(4, height * .14), mid = base + height * .68;
-        const plinth = insetRing(ring, .65), shaft = insetRing(ring, .25), tip = insetRing(ring, .08);
+        const low = base + Math.min(4, height * (.12 + modelVariant * .018));
+        const mid = base + height * (.64 + modelVariant * .04);
+        const plinth = insetRing(ring, .65 - modelVariant * .035);
+        const shaft = insetRing(ring, .27 - modelVariant * .025);
+        const tip = insetRing(ring, .08 + modelVariant * .007);
         roofPrism(outRoofs, outRoofColors, plinth, base, low, roofTint);
         slopedRing(outRoofs, outRoofColors, plinth, shaft, low, mid, tint);
         slopedRing(outRoofs, outRoofColors, shaft, tip, mid, base + height, new THREE.Color(0xb5c5c5));
         roofPlate(outRoofs, outRoofColors, tip, base + height, new THREE.Color(0xe39c72));
+        if (modelVariant === 1 || modelVariant === 4)
+          roofPrism(outRoofs, outRoofColors, tip, base + height, base + height + 3.5, tint);
+        if (modelVariant === 2 || modelVariant === 4)
+          roofLedge(outRoofs, outRoofColors, plinth, shaft, low + .6, tint);
+        if (modelVariant === 3 || modelVariant === 4)
+          roofPrism(outRoofs, outRoofColors, insetRing(ring, .82), base,
+            base + (low - base) * .78, roofTint);
         return;
       }
       if (style === 'castle') {
-        const parapet = base + height * .78, stone = roofTint.clone().multiplyScalar(1.15);
+        const parapet = base + height * (.73 + modelVariant * .03);
+        const stone = roofTint.clone().multiplyScalar(1.15);
         addWallRing(batch, ring, base, parapet, tint, building, style);
         roofPlate(outRoofs, outRoofColors, ring, parapet, stone);
-        const radius = Math.min(3, Math.max(1, Math.min(building.width, building.depth) * .07));
-        for (const point of ring) roofPrism(outRoofs, outRoofColors, localPad(point, radius), base + height * .58,
-          base + height, stone);
-        for (let edge = 0; edge < ring.length; edge++) {
-          const a = ring[edge], b = ring[(edge + 1) % ring.length];
-          for (let i = 1; i <= 3; i++) {
-            const p = [a[0] + (b[0] - a[0]) * i / 4, a[1] + (b[1] - a[1]) * i / 4];
-            roofPrism(outRoofs, outRoofColors, localPad(p, radius * .38), parapet, base + height * .88, stone);
+        const radius = Math.min(3, Math.max(.5, Math.min(building.width, building.depth) * .065));
+        for (const point of insetRing(ring, .82))
+          roofPrism(outRoofs, outRoofColors, localPad(point, radius), base + height * .58,
+            base + height * (modelVariant === 2 ? 1.12 : 1), stone);
+        const battlementRing = insetRing(ring, .8);
+        for (let edge = 0; edge < battlementRing.length; edge++) {
+          const a = battlementRing[edge], b = battlementRing[(edge + 1) % battlementRing.length];
+          const count = 2 + modelVariant % 3;
+          for (let i = 1; i <= count; i++) {
+            const t = i / (count + 1);
+            const p = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+            roofPrism(outRoofs, outRoofColors, localPad(p, radius * .27), parapet,
+              base + height * .92, stone);
           }
         }
+        if (modelVariant === 1 || modelVariant === 4)
+          roofPrism(outRoofs, outRoofColors, insetRing(ring, .32), parapet,
+            base + height * 1.13, stone.clone().multiplyScalar(.87));
+        if (modelVariant === 3 || modelVariant === 4)
+          slopedRing(outRoofs, outRoofColors, insetRing(ring, .52), insetRing(ring, .24),
+            parapet, base + height * 1.07, roofTint);
         return;
       }
       if (style === 'airport') {
-        const terminalTop = base + Math.max(5, height * .63);
+        const terminalTop = base + Math.max(5, height * (.58 + modelVariant * .035));
         addWallRing(batch, ring, base, terminalTop, tint, building, style);
         roofPlate(outRoofs, outRoofColors, ring, terminalTop, roofTint);
-        roofLedge(outRoofs, outRoofColors, ring, insetRing(ring, .83), terminalTop + .25,
+        roofLedge(outRoofs, outRoofColors, ring, insetRing(ring, .82 - modelVariant * .025), terminalTop + .25,
           roofTint.clone().multiplyScalar(1.22));
-        roofPrism(outRoofs, outRoofColors, insetRing(ring, .17), terminalTop,
-          base + height, new THREE.Color(0x7096a8));
+        if (modelVariant === 2 || modelVariant === 4)
+          slopedRing(outRoofs, outRoofColors, ring, insetRing(ring, .61), terminalTop,
+            terminalTop + Math.min(3, height * .14), roofTint);
+        if (modelVariant === 3)
+          for (const point of [ringCenter(ring), insetRing(ring, .52)[0]])
+            roofPrism(outRoofs, outRoofColors, localPad(point, Math.min(2.8, building.width * .09)),
+              terminalTop, base + height, new THREE.Color(0x7096a8));
+        else roofPrism(outRoofs, outRoofColors, insetRing(ring, .12 + modelVariant * .025),
+          terminalTop, base + height, new THREE.Color(0x7096a8));
         addTrimBand(outTrim, outTrimColors, ring, base + 2.8, new THREE.Color(0x78d9e9));
         return;
       }
@@ -1016,41 +1169,95 @@
         addWallRing(batch, ring, base, base + height, tint, building, style);
         roofPlate(outRoofs, outRoofColors, ring, base + height, roofTint);
         facadeCross(outTrim, outTrimColors, ring, base, height, new THREE.Color(0xf07379));
-        if (height > 10) roofPrism(outRoofs, outRoofColors, insetRing(ring, .18), base + height,
-          base + height + Math.min(1.8, height * .06), roofTint);
+        const hospitalTop = base + height;
+        if (height > 10) roofPrism(outRoofs, outRoofColors, insetRing(ring, .17 + modelVariant * .075),
+          hospitalTop, hospitalTop + Math.min(1.8 + modelVariant * .45, height * .13), roofTint);
+        if (modelVariant === 1 || modelVariant === 4)
+          roofLedge(outRoofs, outRoofColors, ring, insetRing(ring, .86),
+            hospitalTop + .45, new THREE.Color(0xf07379));
+        if (modelVariant === 2 || modelVariant === 4)
+          roofPrism(outRoofs, outRoofColors, localPad(insetRing(ring, .55)[0],
+            Math.min(2.2, Math.min(building.width, building.depth) * .1)), hospitalTop,
+            hospitalTop + 2.4, new THREE.Color(0xc7d4d9));
+        if (modelVariant === 3 || modelVariant === 4)
+          roofPrism(outRoofs, outRoofColors, insetRing(ring, .43), hospitalTop + 1.2,
+            hospitalTop + 2.1, new THREE.Color(0xa6c3c9));
         return;
       }
       if (style === 'campus') {
-        const eave = base + height - Math.min(4.5, Math.max(1.3, height * .16));
+        const rise = Math.min(4.5, Math.max(1.3, height * (.13 + modelVariant * .016)));
+        const eave = base + height - rise;
         addWallRing(batch, ring, base, eave, tint, building, style);
-        if (ring.length === 4) addHouseRoof(outRoofs, outRoofColors, ring, eave, base + height, roofTint, variant % 2);
+        if (modelVariant === 2) addEverydayRoof(outRoofs, outRoofColors, outTrim, outTrimColors,
+          ring, eave, height, roofTint, style, modelVariant);
+        else if (ring.length === 4) addHouseRoof(outRoofs, outRoofColors, ring, eave,
+          base + height, roofTint, modelVariant % 2);
         else roofPlate(outRoofs, outRoofColors, ring, base + height, roofTint);
         addTrimBand(outTrim, outTrimColors, ring, base + Math.min(4, height * .22), new THREE.Color(0xe0bf9c));
         if (height > 8) {
-          const midpoint = [(ring[0][0] + ring[1][0]) / 2, (ring[0][1] + ring[1][1]) / 2];
+          const midRing = insetRing(ring, .72);
+          const midpoint = [(midRing[0][0] + midRing[1][0]) / 2,
+            (midRing[0][1] + midRing[1][1]) / 2];
           roofPrism(outRoofs, outRoofColors, localPad(midpoint, Math.min(2, building.width * .08)), base,
             base + Math.min(4.5, height * .3), new THREE.Color(0xd8c6ac));
         }
+        if (modelVariant === 1 || modelVariant === 4)
+          roofPrism(outRoofs, outRoofColors, localPad(ringCenter(ring),
+            Math.min(1.6, Math.min(building.width, building.depth) * .09)), base + height - .25,
+            base + height + 2.5, new THREE.Color(0xc9aa90));
+        if (modelVariant === 3 || modelVariant === 4)
+          roofPrism(outRoofs, outRoofColors, insetRing(ring, .42), eave,
+            base + height * 1.03, new THREE.Color(0xb78c77));
         return;
       }
-      if (style === 'house' && ring.length === 4 && height >= 4 && variant !== 3) {
-        const rise = Math.min(3.6, Math.max(1.1, height * .22));
-        addWallRing(batch, ring, base, base + height - rise, tint, building, style);
-        addHouseRoof(outRoofs, outRoofColors, ring, base + height - rise, base + height, roofTint, variant);
+      if (style === 'house' && ring.length === 4 && height >= 4) {
+        const rise = Math.min(3.7, Math.max(1.1, height * (.17 + modelVariant * .025)));
+        const eave = base + height - rise;
+        addWallRing(batch, ring, base, eave, tint, building, style);
+        if (modelVariant === 2)
+          addEverydayRoof(outRoofs, outRoofColors, outTrim, outTrimColors,
+            ring, eave, height, roofTint, style, modelVariant);
+        else addHouseRoof(outRoofs, outRoofColors, ring, eave, base + height,
+          roofTint, modelVariant === 0 ? 0 : 1);
+        if (modelVariant === 3 || modelVariant === 4)
+          roofPrism(outRoofs, outRoofColors, localPad(insetRing(ring, .5)[0],
+            Math.min(.65, Math.min(building.width, building.depth) * .08)),
+            eave, base + height + (modelVariant === 4 ? .9 : 1.6),
+            new THREE.Color(0x8a6a63));
+        if (modelVariant === 4)
+          roofPrism(outRoofs, outRoofColors, localPad(insetRing(ring, .5)[2],
+            Math.min(.5, Math.min(building.width, building.depth) * .06)),
+            eave, base + height + 1.4, new THREE.Color(0x8a6a63));
       } else if (style === 'industrial' && ring.length === 4 && height >= 6) {
         const rise = Math.min(3.2, Math.max(1.2, height * .16));
-        addWallRing(batch, ring, base, base + height - rise, tint, building, style);
-        addIndustrialRoof(outRoofs, outRoofColors, ring, base + height - rise, base + height, roofTint);
+        const eave = base + height - rise;
+        addWallRing(batch, ring, base, eave, tint, building, style);
+        if (modelVariant === 2) {
+          slopedRing(outRoofs, outRoofColors, ring, insetRing(ring, .58),
+            eave, base + height, roofTint);
+          roofPlate(outRoofs, outRoofColors, insetRing(ring, .58), base + height, roofTint);
+        } else if (modelVariant === 3) {
+          roofPlate(outRoofs, outRoofColors, ring, eave, roofTint);
+          for (const point of insetRing(ring, .49))
+            roofPrism(outRoofs, outRoofColors, localPad(point, Math.min(1.3, building.width * .07)),
+              eave, base + height, roofTint.clone().multiplyScalar(.75));
+        } else addIndustrialRoof(outRoofs, outRoofColors, ring, eave, base + height,
+          roofTint, modelVariant);
+        if (modelVariant === 1 || modelVariant === 4)
+          roofPrism(outRoofs, outRoofColors, localPad(insetRing(ring, .48)[0],
+            Math.min(1.2, building.width * .07)), base + height - .3,
+            base + height + 2.4, new THREE.Color(0x718b90));
       } else if ((style === 'tower' || style === 'glass') && ring.length === 4 && height >= 38) {
-        const firstTop = base + height * (variant === 1 && height > 95 ? .67 : variant === 2 ? .84 : .76);
-        const upper = insetRing(ring, variant === 2 ? .68 : .79);
+        const firstTop = base + height * ([.72, .59, .83, .68, .76][modelVariant]);
+        const upper = insetRing(ring, [.78, .72, .88, .63, .74][modelVariant]);
         const lobbyTop = base + Math.min(6, height * .09);
         addWallRing(batches.storefront[facadeVariant], ring, base, lobbyTop, tint.clone().multiplyScalar(1.16), building, 'storefront');
         addWallRing(batch, ring, lobbyTop, firstTop, tint, building, style);
         addTowerAccents(outTrim, outTrimColors, ring, lobbyTop, firstTop, facadeVariant);
         roofLedge(outRoofs, outRoofColors, ring, upper, firstTop, roofTint);
-        if (height > 110 && variant === 1) {
-          const secondTop = base + height * .91, crown = insetRing(ring, .54);
+        if (height > 65 && (modelVariant === 1 || modelVariant === 4)) {
+          const secondTop = base + height * (modelVariant === 1 ? .86 : .91);
+          const crown = insetRing(ring, modelVariant === 1 ? .48 : .56);
           addWallRing(batch, upper, firstTop, secondTop, tint.clone().multiplyScalar(.88), building, style);
           addTowerAccents(outTrim, outTrimColors, upper, firstTop, secondTop, facadeVariant);
           roofLedge(outRoofs, outRoofColors, upper, crown, secondTop, roofTint);
@@ -1063,11 +1270,22 @@
           addTowerAccents(outTrim, outTrimColors, upper, firstTop, base + height, facadeVariant);
           roofPlate(outRoofs, outRoofColors, upper, base + height, roofTint);
         }
-        if (variant % 2 === 0) addTrimBand(outTrim, outTrimColors, upper, firstTop,
+        if (modelVariant === 3) {
+          const crown = insetRing(upper, .53);
+          roofPrism(outRoofs, outRoofColors, crown, base + height, base + height + 3.5,
+            roofTint.clone().multiplyScalar(1.25));
+        }
+        if (modelVariant === 4) {
+          const crown = insetRing(upper, .39);
+          roofPrism(outRoofs, outRoofColors, crown, base + height,
+            base + height + Math.min(5.5, height * .055), roofTint);
+        }
+        if (modelVariant % 2 === 0) addTrimBand(outTrim, outTrimColors, upper, firstTop,
           new THREE.Color(style === 'glass' ? 0x67d9e6 : 0xd285bc));
       } else {
         addWallRing(batch, ring, base, base + height, tint, building, style);
-        roofPlate(outRoofs, outRoofColors, ring, base + height, roofTint);
+        addEverydayRoof(outRoofs, outRoofColors, outTrim, outTrimColors,
+          ring, base + height, height, roofTint, style, modelVariant);
       }
       if (style === 'tower' || style === 'glass')
         addNamedTowerCrown(outRoofs, outRoofColors, outTrim, outTrimColors, building);
@@ -1128,24 +1346,181 @@
       }
       return false;
     }
-    const junctionRoads = new Map();
-    const junctionKey = (x, z) => Math.round(x / 3) + ',' + Math.round(z / 3);
-    for (const road of map.overviewRoads) {
-      if (isMotorway(road) || isElevated(road.mode)) continue;
-      for (const point of [[road.x1, road.z1], [road.x2, road.z2]]) {
-        const id = junctionKey(point[0], point[1]);
-        if (!junctionRoads.has(id)) junctionRoads.set(id, new Set());
-        junctionRoads.get(id).add(String(road.id));
+    // The overview keeps the original network endpoints; tile features contain
+    // extra clipped endpoints and curve samples. Only the former define nodes.
+    const endpointCells = new Map(), endpointNodes = [];
+    function attachEndpoint(road, atStart) {
+      const x = atStart ? road.x1 : road.x2, y = atStart ? road.y1 : road.y2;
+      const z = atStart ? road.z1 : road.z2;
+      const ix = Math.floor(x / 3), iz = Math.floor(z / 3);
+      let node = null;
+      for (let dx = -1; dx <= 1 && !node; dx++) for (let dz = -1; dz <= 1 && !node; dz++) {
+        for (const candidate of endpointCells.get(key(ix + dx, iz + dz)) || []) {
+          if (Math.hypot(candidate.x - x, candidate.z - z) < 1.8 && Math.abs(candidate.y - y) < 2.5) {
+            node = candidate; break;
+          }
+        }
+      }
+      if (!node) {
+        node = { x, y, z, samples: 0, arms: [] };
+        endpointNodes.push(node);
+        const cell = key(ix, iz);
+        if (!endpointCells.has(cell)) endpointCells.set(cell, []);
+        endpointCells.get(cell).push(node);
+      }
+      node.x = (node.x * node.samples + x) / (node.samples + 1);
+      node.y = (node.y * node.samples + y) / (node.samples + 1);
+      node.z = (node.z * node.samples + z) / (node.samples + 1);
+      node.samples++;
+      const length = Math.hypot(road.x2 - road.x1, road.z2 - road.z1);
+      const sign = atStart ? 1 : -1;
+      node.arms.push({ road, atStart, length,
+        ux: sign * (road.x2 - road.x1) / length, uz: sign * (road.z2 - road.z1) / length });
+    }
+    for (const road of map.networkRoads || map.overviewRoads) {
+      if (isElevated(road.mode) || isTunnel(road.mode)) continue;
+      attachEndpoint(road, true); attachEndpoint(road, false);
+    }
+    const junctionsByRoad = new Map(), junctionsByTile = new Map();
+    function tileOwner(node) {
+      const ix = Math.floor(node.x / map.tileSize), iz = Math.floor(node.z / map.tileSize);
+      if (map.loadedTiles.has(key(ix, iz))) return key(ix, iz);
+      let nearest = null, distance = Infinity;
+      for (const entry of map.loadedTiles.values()) {
+        const tile = entry.descriptor;
+        const dx = Math.max(tile.ix * map.tileSize - node.x, 0, node.x - (tile.ix + 1) * map.tileSize);
+        const dz = Math.max(tile.iz * map.tileSize - node.z, 0, node.z - (tile.iz + 1) * map.tileSize);
+        const d = Math.hypot(dx, dz);
+        if (d < distance) { distance = d; nearest = key(tile.ix, tile.iz); }
+      }
+      return distance < 2 ? nearest : null;
+    }
+    for (const node of endpointNodes) {
+      if (node.arms.length < 2) continue;
+      node.arms.sort((a, b) => Math.atan2(a.uz, a.ux) - Math.atan2(b.uz, b.ux));
+      if (node.arms.length === 2 && node.arms[0].ux * node.arms[1].ux +
+        node.arms[0].uz * node.arms[1].uz < -.966) continue;
+      const owner = tileOwner(node);
+      if (!owner) continue;
+      const width = Math.max(...node.arms.map((arm) => arm.road.width));
+      let cut = Math.max(7, width / 2 + 3);
+      for (let i = 0; i < node.arms.length; i++) {
+        const a = node.arms[i], b = node.arms[(i + 1) % node.arms.length];
+        const angle = Math.acos(clamp(a.ux * b.ux + a.uz * b.uz, -1, 1));
+        if (angle > .18 && angle < 2.8) cut = Math.max(cut, width / (2 * Math.sin(angle / 2)) + 2);
+      }
+      cut = Math.min(cut, 48, width * 2.1 + 3);
+      for (const arm of node.arms) {
+        arm.cut = Math.min(cut, Math.max(.2, arm.length * .48));
+        const id = String(arm.road.id);
+        if (!junctionsByRoad.has(id)) junctionsByRoad.set(id, []);
+        junctionsByRoad.get(id).push({ node, radius: arm.cut });
+      }
+      if (!junctionsByTile.has(owner)) junctionsByTile.set(owner, []);
+      junctionsByTile.get(owner).push(node);
+    }
+    map.junctionStats = {
+      nodes: [...junctionsByTile.values()].reduce((sum, nodes) => sum + nodes.length, 0),
+      intersections: [...junctionsByTile.values()].reduce((sum, nodes) =>
+        sum + nodes.filter((node) => node.arms.length >= 3).length, 0),
+      bends: [...junctionsByTile.values()].reduce((sum, nodes) =>
+        sum + nodes.filter((node) => node.arms.length === 2).length, 0)
+    };
+    function visibleRoadIntervals(road) {
+      const hits = junctionsByRoad.get(String(road.id));
+      if (!hits) return [[0, 1]];
+      const dx = road.x2 - road.x1, dz = road.z2 - road.z1, a = dx * dx + dz * dz;
+      let visible = [[0, 1]];
+      for (const hit of hits) {
+        const px = road.x1 - hit.node.x, pz = road.z1 - hit.node.z;
+        const b = 2 * (px * dx + pz * dz), c = px * px + pz * pz - hit.radius * hit.radius;
+        const disc = b * b - 4 * a * c;
+        if (disc <= 0) continue;
+        const root = Math.sqrt(disc), from = (-b - root) / (2 * a), to = (-b + root) / (2 * a);
+        if (to <= 0 || from >= 1) continue;
+        const next = [];
+        for (const [start, end] of visible) {
+          if (from > start + .00001) next.push([start, Math.min(end, from)]);
+          if (to < end - .00001) next.push([Math.max(start, to), end]);
+        }
+        visible = next.filter(([start, end]) => end - start > .00001);
+        if (!visible.length) break;
+      }
+      return visible;
+    }
+    function junctionPoint(arm, offset, rise) {
+      const road = arm.road, length = arm.length;
+      const distance = Math.min(length * .49, arm.cut + .35);
+      const t = arm.atStart ? distance / length : 1 - distance / length;
+      const nx = (road.z2 - road.z1) / length, nz = -(road.x2 - road.x1) / length;
+      const x = road.x1 + (road.x2 - road.x1) * t + nx * offset;
+      const z = road.z1 + (road.z2 - road.z1) * t + nz * offset;
+      const sourceY = road.y1 + (road.y2 - road.y1) * t;
+      return { x, y: Math.max(sourceY, map.terrainHeight(x, z)) + rise, z };
+    }
+    function junctionHull(node) {
+      const corners = [];
+      for (const arm of node.arms) {
+        const layout = roadLayout(arm.road);
+        corners.push(junctionPoint(arm, layout.carriageMin, .068),
+          junctionPoint(arm, layout.carriageMax, .068));
+      }
+      corners.sort((a, b) => a.x - b.x || a.z - b.z);
+      const cross = (a, b, c) => (b.x - a.x) * (c.z - a.z) - (b.z - a.z) * (c.x - a.x);
+      const lower = [], upper = [];
+      for (const corner of corners) {
+        while (lower.length > 1 && cross(lower[lower.length - 2], lower[lower.length - 1], corner) <= .0001) lower.pop();
+        lower.push(corner);
+      }
+      for (let i = corners.length - 1; i >= 0; i--) {
+        const corner = corners[i];
+        while (upper.length > 1 && cross(upper[upper.length - 2], upper[upper.length - 1], corner) <= .0001) upper.pop();
+        upper.push(corner);
+      }
+      lower.pop(); upper.pop();
+      return lower.concat(upper);
+    }
+    function addJunction(out, uvs, node) {
+      const hull = junctionHull(node);
+      if (hull.length < 3) return;
+      const center = { x: hull.reduce((sum, p) => sum + p.x, 0) / hull.length,
+        z: hull.reduce((sum, p) => sum + p.z, 0) / hull.length };
+      center.y = Math.max(node.y, map.terrainHeight(center.x, center.z)) + .068;
+      for (let i = 0; i < hull.length; i++) {
+        const a = hull[i], b = hull[(i + 1) % hull.length];
+        triangle(out, [center.x, center.y, center.z], [b.x, b.y, b.z], [a.x, a.y, a.z]);
+        uvs.push(center.x / 5, center.z / 5, b.x / 5, b.z / 5, a.x / 5, a.z / 5);
       }
     }
-    function addCrosswalks(out, road, layout, length) {
-      if (layout.highway || length < 14) return;
-      for (const atEnd of [false, true]) {
-        const x = atEnd ? road.x2 : road.x1, z = atEnd ? road.z2 : road.z1;
-        const roads = junctionRoads.get(junctionKey(x, z));
-        if (!roads || roads.size < 3 || !roads.has(String(road.id))) continue;
-        const start = atEnd ? 1 - 5 / length : 2 / length;
-        const end = atEnd ? 1 - 2 / length : 5 / length;
+    function addCornerSidewalks(outWalks, outUVs, outCurbs, node) {
+      for (let i = 0; i < node.arms.length; i++) {
+        const arm = node.arms[i], next = node.arms[(i + 1) % node.arms.length];
+        const angleA = Math.atan2(arm.uz, arm.ux), angleB = Math.atan2(next.uz, next.ux);
+        const sector = (angleB - angleA + Math.PI * 2) % (Math.PI * 2);
+        if (sector > Math.PI + .1 || isMotorway(arm.road) || isMotorway(next.road)) continue;
+        const layoutA = roadLayout(arm.road), layoutB = roadLayout(next.road);
+        const innerA = arm.atStart ? layoutA.carriageMin : layoutA.carriageMax;
+        const outerA = arm.atStart ? -arm.road.width / 2 : arm.road.width / 2;
+        const innerB = next.atStart ? layoutB.carriageMax : layoutB.carriageMin;
+        const outerB = next.atStart ? next.road.width / 2 : -next.road.width / 2;
+        if (Math.abs(innerA - outerA) < .9 || Math.abs(innerB - outerB) < .9) continue;
+        const a = junctionPoint(arm, innerA, .16), b = junctionPoint(arm, outerA, .16);
+        const c = junctionPoint(next, outerB, .16), d = junctionPoint(next, innerB, .16);
+        quad(outWalks, [a.x, a.y, a.z], [b.x, b.y, b.z], [c.x, c.y, c.z], [d.x, d.y, d.z]);
+        outUVs.push(a.x / 4, a.z / 4, b.x / 4, b.z / 4, c.x / 4, c.z / 4,
+          a.x / 4, a.z / 4, c.x / 4, c.z / 4, d.x / 4, d.z / 4);
+        const curb = { id: 'junction-curb', x1: a.x, y1: a.y - .16, z1: a.z,
+          x2: d.x, y2: d.y - .16, z2: d.z };
+        roadStrip(outCurbs, curb, .12, .185, null, true);
+      }
+    }
+    function addCrosswalks(out, node) {
+      if (node.arms.length < 3) return;
+      for (const arm of node.arms) {
+        const road = arm.road, layout = roadLayout(road);
+        if (layout.highway || arm.length < arm.cut + 5.5) continue;
+        const near = (arm.cut + 1.25) / arm.length, far = (arm.cut + 4.25) / arm.length;
+        const start = arm.atStart ? near : 1 - far, end = arm.atStart ? far : 1 - near;
         for (let offset = layout.carriageMin + .34; offset + .58 < layout.carriageMax - .34; offset += .95)
           roadStrip(out, road, .29, .115, null, true, offset + .29, start, end);
       }
@@ -1158,33 +1533,35 @@
       group.userData.tile = { ix: tile.ix, iz: tile.iz };
       chunkRoot.add(group); tileGroups.set(id, group);
       const groundPositions = [], groundUVs = [], groundHighways = [], highwayUVs = [];
-      const bridgePositions = [], bridgeUVs = [], sidewalkPositions = [], sidewalkUVs = [];
+      const bridgePositions = [], bridgeUVs = [], junctionPositions = [], junctionUVs = [];
+      const sidewalkPositions = [], sidewalkUVs = [];
       const curbPositions = [], whiteLines = [], yellowLines = [], crosswalkPositions = [], treeSites = [];
       for (const road of tile.roads) {
         const layout = roadLayout(road), length = Math.hypot(road.x2 - road.x1, road.z2 - road.z1);
+        const intervals = visibleRoadIntervals(road);
+        if (!intervals.length) continue;
         const carriageCenter = (layout.carriageMin + layout.carriageMax) / 2;
         const carriageHalf = (layout.carriageMax - layout.carriageMin) / 2;
-        roadStrip(layout.highway ? groundHighways : groundPositions, road, carriageHalf, .06,
-          layout.highway ? highwayUVs : groundUVs, true, carriageCenter);
-        markRoad(whiteLines, yellowLines, road, layout, true);
-        addCrosswalks(crosswalkPositions, road, layout, length);
+        for (const [start, end] of intervals) roadStrip(layout.highway ? groundHighways : groundPositions,
+          road, carriageHalf, .06, layout.highway ? highwayUVs : groundUVs, true, carriageCenter, start, end);
+        markRoad(whiteLines, yellowLines, road, layout, true, intervals);
         if (layout.highway) continue;
-        const endMargin = length > 16 ? Math.min(.16, 3 / length) : 0;
         for (const side of [-1, 1]) {
           const width = side < 0 ? layout.leftWalk : layout.rightWalk;
           if (width < .9) continue;
           const center = side < 0 ? layout.carriageMin - width / 2 : layout.carriageMax + width / 2;
-          roadStrip(sidewalkPositions, road, width / 2, .16, sidewalkUVs, true,
-            center, endMargin, 1 - endMargin);
-          roadStrip(curbPositions, road, .12, .185, null, true,
-            side < 0 ? layout.carriageMin - .1 : layout.carriageMax + .1,
-            endMargin, 1 - endMargin);
+          for (const [start, end] of intervals) {
+            roadStrip(sidewalkPositions, road, width / 2, .16, sidewalkUVs, true, center, start, end);
+            roadStrip(curbPositions, road, .12, .185, null, true,
+              side < 0 ? layout.carriageMin - .1 : layout.carriageMax + .1, start, end);
+          }
           if (width < 2.2 || length < 24) continue;
           const nx = (road.z2 - road.z1) / length, nz = -(road.x2 - road.x1) / length;
           const lateral = side < 0 ? layout.carriageMin - width * .58 : layout.carriageMax + width * .58;
           const phase = 11 + hash(String(road.id) + ':' + side) % 12;
           for (let distance = phase; distance < length - 9 && treeSites.length < 150; distance += 38) {
             const t = distance / length;
+            if (!intervals.some(([start, end]) => t > start + 4 / length && t < end - 4 / length)) continue;
             const x = road.x1 + (road.x2 - road.x1) * t + nx * lateral;
             const z = road.z1 + (road.z2 - road.z1) * t + nz * lateral;
             if (nearBuildingFootprint(x, z)) continue;
@@ -1194,11 +1571,17 @@
           }
         }
       }
+      for (const node of junctionsByTile.get(id) || []) {
+        addJunction(junctionPositions, junctionUVs, node);
+        addCornerSidewalks(sidewalkPositions, sidewalkUVs, curbPositions, node);
+        addCrosswalks(crosswalkPositions, node);
+      }
       for (const road of tile.highways) {
         bridgeBox(bridgePositions, bridgeUVs, road);
         markRoad(whiteLines, yellowLines, road, roadLayout(road), false);
       }
       mesh('imported-city-road', groundPositions, roadMat, group, null, groundUVs);
+      mesh('imported-city-junction', junctionPositions, roadMat, group, null, junctionUVs);
       mesh('imported-city-highway-grade', groundHighways, highwayRoadMat, group, null, highwayUVs);
       mesh('imported-city-highway', bridgePositions, elevatedMat, group, null, bridgeUVs);
       mesh('imported-city-sidewalk', sidewalkPositions, sidewalkMat, group, null, sidewalkUVs);
@@ -1437,5 +1820,5 @@
     return { update, dispose };
   }
 
-  return { assetUrl, create, load };
+  return { assetUrl, create, load, modelCatalog };
 });

@@ -31,6 +31,10 @@ test('converted city streams visual tiles and matching colliders as the car chan
     [base+'terrain.json',terrain],[base+'tiles/-2_0.json',tiles['-2_0']],[base+'tiles/4_0.json',tiles['4_0']]]);
   const fetchFile=async url=>({ok:files.has(url),json:async()=>files.get(url)});
   const map=await Imported.load(base+'manifest.json',{fetch:fetchFile});
+  const snapped=map.snapToRoad(875,40);
+  assert.ok(snapped && Math.abs(snapped.z)<.01 && snapped.distance>0,
+    'city center travel snaps to a ground road rather than nearby terrain');
+  assert.ok(Number.isFinite(snapped.heading) && snapped.roadWidth>0);
   assert.equal(map.buildings.length,1,'only the starting district loads initially');
   assert.equal(map.highwaySegments.length,1);
   assert.equal(map.stops.length,6);

@@ -470,7 +470,7 @@ class CityConverter {
     let tile = this.tiles.get(key);
     if (!tile) {
       const file = `tiles/${key}.json`;
-      tile = { ix, iz, file, roadCount: 0, buildingCount: 0, heightScore: 0, featureCount: 0 };
+      tile = { ix, iz, file, roadCount: 0, buildingCount: 0, heightScore: 0, centerScore: 0, featureCount: 0 };
       this.tiles.set(key, tile);
       fs.writeFileSync(path.join(this.args.out, file), JSON.stringify({ format: 'drive-city-tile-v1', ix, iz }).slice(0, -1) + ',"features":[');
     }
@@ -499,7 +499,18 @@ class CityConverter {
     fs.writeSync(this.tileFd(tile), (tile.featureCount ? ',' : '') + JSON.stringify(feature));
     tile.featureCount++;
     if (feature.type === 'road') { tile.roadCount++; this.counts.roadParts++; }
-    else { tile.buildingCount++; tile.heightScore += Math.min(feature.height, 300) / 20; }
+    else {
+      tile.buildingCount++;
+      tile.heightScore += Math.min(feature.height, 300) / 20;
+      // Count the detailed structure once: mesh-backed parent lots are broad
+      // placeholders, not another occupied tower at the same position.
+      if (feature.geometrySource !== 'cs2:structure-container') {
+        tile.centerScore += Math.min(feature.height, 250) / 15 +
+          (feature.height > 40 ? 4 : 0) +
+          (/COMMERCIAL|OFFICE/.test(feature.role) ? 3 : 0) +
+          (feature.growthKind === 'placed' ? 4 : 0);
+      }
+    }
   }
 
   pointLocal(p) {
@@ -659,6 +670,29 @@ class CityConverter {
       score: round(neighborhoodScore(densest), 2),
       method: 'building-height-and-road-density-3x3',
     } : null;
+    const centerScore = tile => tile.centerScore + tile.roadCount * 0.4;
+    const centerNeighborhood = tile => {
+      let total = centerScore(tile);
+      for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
+        if (!dx && !dz) continue;
+        const neighbor = this.tiles.get(`${tile.ix + dx}_${tile.iz + dz}`);
+        if (neighbor) total += centerScore(neighbor) * (dx && dz ? 0.12 : 0.2);
+      }
+      return total;
+    };
+    const rankedCenters = tiles.map(tile => ({ tile, score: centerNeighborhood(tile) }))
+      .sort((a, b) => b.score - a.score);
+    const minCenterScore = Math.max(80, (rankedCenters[0]?.score || 0) * 0.45);
+    const centerCandidates = [];
+    for (const entry of rankedCenters) {
+      if (entry.score < minCenterScore || centerCandidates.length >= 10) break;
+      const tile = entry.tile;
+      if (centerCandidates.some(center => Math.hypot(center.ix - tile.ix, center.iz - tile.iz) < 3.5)) continue;
+      centerCandidates.push({ id: `center-${tile.ix}_${tile.iz}`, ix: tile.ix, iz: tile.iz,
+        x: round((tile.ix + 0.5) * this.args.tileSize),
+        z: round((tile.iz + 0.5) * this.args.tileSize),
+        score: round(entry.score, 2) });
+    }
     const authored = this.args.authoredStops;
     if (authored?.cityName && authored.cityName !== this.cityName) {
       throw new Error(`Stops file names ${authored.cityName}, but export is ${this.cityName}`);
@@ -719,6 +753,7 @@ class CityConverter {
       terrain: { file: 'terrain.json', rows: terrain.rows, cols: terrain.cols, origin: terrain.origin, cell: terrain.cell, sourceRows: this.meta.rows, sourceCols: this.meta.cols, sourceCell: this.meta.cell },
       focus,
       featuredDistrict,
+      centerCandidates,
     };
     fs.writeFileSync(path.join(this.args.out, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
     const files = ['manifest.json', 'overview.json', 'terrain.json', ...tiles.map(t => t.file)];

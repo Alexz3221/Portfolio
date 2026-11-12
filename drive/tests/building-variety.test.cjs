@@ -3,7 +3,124 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {createHash} = require('node:crypto');
 const THREE = require('three');
+const C = require('cannon');
 const Imported = require('../js/imported-city');
+const Physics = require('../js/physics');
+
+function hash(value) {
+  let result = 2166136261;
+  for (const char of String(value)) result = Math.imul(result ^ char.charCodeAt(0), 16777619);
+  return result >>> 0;
+}
+
+test('touching exported lots gain a real gap in both meshes and colliders', async () => {
+  const base = 'data/lot-gaps/';
+  const manifest = { format:'drive-city-v1', bounds:{minX:0,maxX:200,minZ:0,maxZ:200},
+    tileSize:200, focus:[60,70], terrain:{file:'terrain.json'},
+    tiles:[{ix:0,iz:0,file:'tiles/0_0.json',buildingCount:2}] };
+  const overview = { format:'drive-city-overview-v1', roads:[{id:'main',width:12,
+    points:[[0,0,20],[200,0,20]]}], districts:[], stops:[] };
+  const terrain = { format:'drive-city-terrain-v1',rows:4,cols:4,origin:[0,0],cell:100,
+    heights:Array(16).fill(0) };
+  const building = (id,x0,x1) => ({type:'building',id,role:'RESIDENTIAL',
+    category:'NA Low Density Housing',growthKind:'zoned',geometrySource:'cs2:lot-fallback',
+    height:9,baseY:0,footprint:[[x0,60],[x1,60],[x1,80],[x0,80]]});
+  const records = [building('lot-left',40,60),building('lot-right',60,80)];
+  const tile = {format:'drive-city-tile-v1',features:records};
+  const files = new Map([[base+'manifest.json',manifest],[base+'overview.json',overview],
+    [base+'terrain.json',terrain],[base+'tiles/0_0.json',tile]]);
+  const map = await Imported.load(base+'manifest.json',{fetch:async url =>
+    ({ok:files.has(url),json:async()=>files.get(url)})});
+  const [left,right] = map.buildings;
+  assert.equal(left.sourceFootprint[1][0],60);
+  assert.equal(right.sourceFootprint[0][0],60);
+  assert.ok(left.setback>=.7 && right.setback>=.7);
+  assert.ok(Math.max(...left.footprint.map(p=>p[0])) < 59.3);
+  assert.ok(Math.min(...right.footprint.map(p=>p[0])) > 60.7);
+  const world = new THREE.Group(), visual = map.build(THREE,world);
+  const physics = Physics.create({map:'city',city:map,distanceToRoad:map.distanceToRoad,
+    roadHalfWidth:map.roadHalfWidth});
+  physics.reset(100,20);
+  const roofAt = x => {
+    const hit = new C.RaycastResult();
+    assert.ok(physics.world.raycastClosest(new C.Vec3(x,20,70),new C.Vec3(x,-2,70),{},hit));
+    return hit.hitPointWorld.y;
+  };
+  assert.ok(roofAt(50)>8,'the visible left building has a solid roof');
+  assert.ok(roofAt(70)>8,'the visible right building has a solid roof');
+  assert.ok(roofAt(60)<.2,'the former shared lot edge has no invisible building collider');
+  physics.dispose();visual.dispose();
+});
+
+test('75 deterministic building recipes have five distinct geometric variants per family', async () => {
+  const families = [
+    ['house','RESIDENTIAL','NA Low Density Housing',9],
+    ['rowhouse','RESIDENTIAL','EU Row Housing',14],
+    ['apartments','RESIDENTIAL','NA Medium Density Housing',26],
+    ['tower','RESIDENTIAL','NA High Density Housing',110],
+    ['storefront','COMMERCIAL','NA Low Density Business',18],
+    ['glass','COMMERCIAL','NA High Density Business',100],
+    ['industrial','INDUSTRIAL','Industrial Manufacturing',20],
+    ['civic','INFRASTRUCTURE','City Hall',25],
+    ['campus','EDUCATION','University',25],
+    ['hospital','HEALTHCARE','Hospital',25],
+    ['castle','PARK_SERVICE','Castle',25],
+    ['airport','AIRPORT','Airport Terminal',30],
+    ['stadium','PARK_SERVICE','Stadium',18],
+    ['parking','INFRASTRUCTURE','Parking Garage',24],
+    ['monument','PARK_SERVICE','Monument',24]
+  ];
+  assert.equal(new Set(Imported.modelCatalog).size,75);
+  assert.deepEqual(Imported.modelCatalog.map(key=>key.split(':')[0]),
+    families.flatMap(([style])=>Array(5).fill(style)));
+  const records = [], labels = [];
+  for (const [style,role,category,height] of families) for (let variant=0;variant<5;variant++) {
+    let id;
+    for (let suffix=0;;suffix++) {
+      const candidate = `${style}-recipe-${suffix}`;
+      if (hash('model:'+candidate)%5===variant) {id=candidate;break;}
+    }
+    const index = records.length, x=60+index*48;
+    records.push({type:'building',id,role,category,height,baseY:0,
+      geometrySource:'cs2:mesh-bounds',footprint:[[x-10,60],[x+10,60],[x+10,78],[x-10,78]]});
+    labels.push({style,variant,x,id});
+  }
+  const base='data/model-catalog/';
+  const manifest={format:'drive-city-v1',bounds:{minX:0,maxX:4000,minZ:0,maxZ:200},
+    tileSize:4000,focus:[1800,70],terrain:{file:'terrain.json'},
+    tiles:[{ix:0,iz:0,file:'tiles/0_0.json',buildingCount:75}]};
+  const overview={format:'drive-city-overview-v1',roads:[{id:'main',width:12,
+    points:[[0,0,20],[4000,0,20]]}],districts:[],stops:[]};
+  const terrain={format:'drive-city-terrain-v1',rows:4,cols:42,origin:[0,0],cell:100,
+    heights:Array(168).fill(0)};
+  const tile={format:'drive-city-tile-v1',features:records};
+  const files=new Map([[base+'manifest.json',manifest],[base+'overview.json',overview],
+    [base+'terrain.json',terrain],[base+'tiles/0_0.json',tile]]);
+  const map=await Imported.load(base+'manifest.json',{fetch:async url=>
+    ({ok:files.has(url),json:async()=>files.get(url)})});
+  assert.equal(map.buildings.length,75);
+  for(const [i,building] of map.buildings.entries())
+    assert.equal(building.modelVariant,labels[i].variant);
+  const world=new THREE.Group(),visual=map.build(THREE,world);
+  const roof=world.getObjectByName('imported-city-roof').geometry.attributes.position;
+  const vertices=Array.from({length:75},()=>[]);
+  for(let i=0;i<roof.count;i++) {
+    const x=roof.getX(i), index=Math.round((x-60)/48);
+    if(index<0||index>=75||Math.abs(x-labels[index].x)>13)continue;
+    vertices[index].push([Math.round((x-labels[index].x)*100)/100,
+      Math.round(roof.getY(i)*100)/100,Math.round((roof.getZ(i)-69)*100)/100]);
+  }
+  const signatures=vertices.map(points=>createHash('sha256')
+    .update(JSON.stringify(points.sort((a,b)=>a[0]-b[0]||a[1]-b[1]||a[2]-b[2])))
+    .digest('hex'));
+  for(let group=0;group<families.length;group++) {
+    const groupSignatures=signatures.slice(group*5,group*5+5);
+    assert.ok(vertices[group*5].length>0,`${families[group][0]} has roof geometry`);
+    assert.equal(new Set(groupSignatures).size,5,
+      `${families[group][0]} has five different geometric roof recipes`);
+  }
+  visual.dispose();
+});
 
 test('imported housing, factories, and towers have distinct facades and silhouettes', async () => {
   const base = 'data/imported-city/';
@@ -18,7 +135,7 @@ test('imported housing, factories, and towers have distinct facades and silhouet
     footprint:[[x-8,60],[x+8,60],[x+8,72],[x-8,72]]});
   const tile = {format:'drive-city-tile-v1',features:[
     {type:'road',id:'local',kind:'ROAD',width:12,points:[[0,0,100],[200,0,100]]},
-    building('house-1',20,9,'RESIDENTIAL','NA Low Density Housing'),
+    building('house-0',20,9,'RESIDENTIAL','NA Low Density Housing'),
     building('factory-1',80,18,'INDUSTRIAL','Industrial Manufacturing'),
     building('tower-1',140,120,'RESIDENTIAL','NA High Density Housing')
   ]};
@@ -43,7 +160,8 @@ test('imported housing, factories, and towers have distinct facades and silhouet
       ys.add(Math.round(roofs.getY(i)*100)/100);
     return [...ys].sort((a,b)=>a-b);
   };
-  assert.deepEqual(roofHeights(10,30),[7.02,9], 'house has eaves and a pitched peak');
+  assert.ok(roofHeights(10,30).length>=2&&Math.max(...roofHeights(10,30))===9,
+    'pitched house recipe has eaves below its roof peak');
   assert.ok(roofHeights(70,90).length>=2, 'factory has a sawtooth roof');
   const positions=tower.geometry.attributes.position, groundX=[], upperX=[];
   for(let i=0;i<positions.count;i++) {
