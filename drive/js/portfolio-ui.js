@@ -78,10 +78,10 @@
     'center-4_-2': 'Downtown Core',
     'center-0_3': 'North Center',
     'center-7_-7': 'Terminus District',
-    'center-9_5': 'Northwest Center',
-    'center--2_10': 'Northeast Center',
+    'center-9_5': 'Northeast Center',
+    'center--2_10': 'Northwest Center',
     'center--5_6': 'Campus District',
-    'center-7_2': 'West Center'
+    'center-7_2': 'East Center'
   };
   const escapeHtml = value => String(value).replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
   function deriveCenters(cityMap) {
@@ -267,9 +267,8 @@
     function point(x,z) {
       const span=Math.max(1,bounds.maxX-bounds.minX,bounds.maxZ-bounds.minZ);
       const midX=(bounds.minX+bounds.maxX)/2,midZ=(bounds.minZ+bounds.maxZ)/2;
-      // Rotate both map axes together. A single-axis flip reverses the side
-      // of the road shown in the guide relative to the driving camera.
-      return {x:Math.max(0,Math.min(100,50-(x-midX)*92/span)),
+      // The city save needs a north/south mirror, not a 180-degree turn.
+      return {x:Math.max(0,Math.min(100,50+(x-midX)*92/span)),
         y:Math.max(0,Math.min(100,50-(z-midZ)*92/span))};
     }
     function roadPaths(roads, glow = false) {
@@ -465,7 +464,7 @@
       placeMapMarker(playerDot, mapView.left, mapView.top, mapView.width, mapView.height);
       minimapPlayer.dataset.mapX = mapped.x;
       minimapPlayer.dataset.mapY = mapped.y;
-      const direction = `${-heading * 180 / Math.PI}deg`;
+      const direction = `${heading * 180 / Math.PI}deg`;
       minimapCone.style.setProperty('--radar-heading', direction);
       minimapPlayer.style.setProperty('--radar-heading', direction);
       if (!radarPosition || Math.hypot(position.x - radarPosition.x, position.z - radarPosition.z) > .4) {

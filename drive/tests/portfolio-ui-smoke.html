@@ -22,9 +22,9 @@ const stopsByX = [...stops].sort((a, b) => a.x - b.x);
 check(Number(largeMap.querySelector(`.city-map-stop[data-stop="${stopsByZ.at(-1).id}"]`).dataset.mapY) <
   Number(largeMap.querySelector(`.city-map-stop[data-stop="${stopsByZ[0].id}"]`).dataset.mapY),
   'city map has its upright Z orientation');
-check(Number(largeMap.querySelector(`.city-map-stop[data-stop="${stopsByX.at(-1).id}"]`).dataset.mapX) <
+check(Number(largeMap.querySelector(`.city-map-stop[data-stop="${stopsByX.at(-1).id}"]`).dataset.mapX) >
   Number(largeMap.querySelector(`.city-map-stop[data-stop="${stopsByX[0].id}"]`).dataset.mapX),
-  'city map rotates both axes together');
+  'city map mirrors north/south while preserving east/west');
 const miniCanvas = document.querySelector('.city-minimap-canvas');
 const miniParts = miniCanvas.querySelector('svg').getAttribute('viewBox').split(' ').map(Number);
 const miniRect = miniCanvas.getBoundingClientRect();
@@ -42,8 +42,8 @@ check(movedRadarView !== firstRadarView &&
   Math.abs(radarLeft + radarWidth / 2 - Number(miniPlayer.dataset.mapX)) < .001 &&
   Math.abs(radarTop + radarHeight / 2 - Number(miniPlayer.dataset.mapY)) < .001,
   'local radar follows the car at center');
-check(miniCanvas.querySelector('.city-minimap-cone').style.getPropertyValue('--radar-heading') === '-90deg' &&
-  miniPlayer.style.getPropertyValue('--radar-heading') === '-90deg',
+check(miniCanvas.querySelector('.city-minimap-cone').style.getPropertyValue('--radar-heading') === '90deg' &&
+  miniPlayer.style.getPropertyValue('--radar-heading') === '90deg',
   'radar vision cone and car heading turn together');
 ui.update({x: stops[0].x, z: stops[0].z}, 0);
 const fitView = mapSvg.getAttribute('viewBox');
