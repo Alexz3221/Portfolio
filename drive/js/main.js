@@ -569,11 +569,13 @@
     const travel=()=>{
       if(selectedMap !== 'city' || city !== destination || !physics)return;
       resetOrbit();
-      physics.reset(stop.x, stop.z, 0);
+      const heading = Number.isFinite(stop.heading) ? stop.heading : 0;
+      physics.reset(stop.x, stop.z, heading);
       motion.speed = 0;
-      motion.heading = 0;
+      motion.heading = heading;
       updateVehicle(0);
-      camera.position.set(vehicle.position.x, vehicle.position.y + 5, vehicle.position.z - 9);
+      camera.position.set(vehicle.position.x - Math.sin(heading) * 9,
+        vehicle.position.y + 5, vehicle.position.z - Math.cos(heading) * 9);
     };
     if(typeof city.ensureNear==='function') {
       // Move first so both the visual streamer and physics request the target district.

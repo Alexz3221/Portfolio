@@ -140,6 +140,38 @@
       const centerY=(topStart+topEnd)/2-.25/Math.cos(pitch);
       return box((x1+x2)/2,centerY,(z1+z2)/2,segment.width/2,.25,slopeLength/2,pitch,yaw);
     }
+    function buildingBody(building) {
+      const footprint=building.footprint;
+      if(!Array.isArray(footprint)||footprint.length<3)
+        return box(building.x,(building.baseY||0)+building.height/2,building.z,
+          building.width/2,building.height/2,building.depth/2);
+      // The imported footprints are rotated polygons. An axis-aligned box can
+      // fill the street beside a diagonal building even though nothing is drawn
+      // there. Use the same outline for the static collision volume.
+      const n=footprint.length, halfHeight=building.height/2;
+      let area=0;
+      for(let i=0;i<n;i++) {
+        const a=footprint[i],b=footprint[(i+1)%n];
+        area+=a[0]*b[1]-b[0]*a[1];
+      }
+      if(Math.abs(area)<.01)
+        return box(building.x,(building.baseY||0)+halfHeight,building.z,
+          building.width/2,halfHeight,building.depth/2);
+      const vertices=[];
+      for(const y of [-halfHeight,halfHeight])for(const [x,z] of footprint)
+        vertices.push(new C.Vec3(x-building.x,y,z-building.z));
+      const faces=[
+        Array.from({length:n},(_,i)=>i),
+        Array.from({length:n},(_,i)=>2*n-1-i)
+      ];
+      for(let i=0;i<n;i++)faces.push([i,n+i,n+(i+1)%n,(i+1)%n]);
+      if(area<0)for(const face of faces)face.reverse();
+      const body=new C.Body({mass:0,material:terrainMaterial});
+      body.addShape(new C.ConvexPolyhedron(vertices,faces));
+      body.position.set(building.x,(building.baseY||0)+halfHeight,building.z);
+      world.addBody(body);
+      return body;
+    }
     function updateLocalColliders(active,nearby,createBody) {
       const wanted=new Set(nearby);
       for(const [item,body] of active) if(!wanted.has(item)) {world.removeBody(body);active.delete(item);}
@@ -163,11 +195,11 @@
         const pending=cityMap.ensureNear?.(x,z,Math.max(280,cityMap.tileSize*1.05||0));
         pending?.catch?.(error=>console.warn('City tile could not load:',error));
       }
-      updateLocalColliders(activeCity.buildings,cityMap.nearbyBuildings(x,z,radius),b=>
-        box(b.x,(b.baseY||0)+b.height/2,b.z,b.width/2,b.height/2,b.depth/2));
+      updateLocalColliders(activeCity.buildings,cityMap.nearbyBuildings(x,z,radius),buildingBody);
       updateLocalColliders(activeCity.highways,nearbyItems(cityMap.nearbyHighways?.bind(cityMap),cityMap.highwaySegments,x,z,radius),roadBox);
       if(cityTerrain && typeof cityMap.nearbyRoads==='function') {
         const raised=cityMap.nearbyRoads(x,z,radius).filter(s=>
+          !/tunnel|underground/i.test(String(s.mode||''))&&
           Math.max((s.y1||0)-height(s.x1,s.z1),(s.y2||0)-height(s.x2,s.z2))>.15);
         updateLocalColliders(activeCity.roads,raised,roadBox);
       }

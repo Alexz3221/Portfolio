@@ -14,7 +14,7 @@ test('converted city streams visual tiles and matching colliders as the car chan
       {ix:4,iz:0,file:'tiles/4_0.json',buildingCount:1}
     ]};
   const overview={format:'drive-city-overview-v1',roads:[{id:'main',kind:'ROAD',mode:'normal',width:12,
-    points:[[-900,0,0],[900,0,0]]}],districts:[],stops:[]};
+    points:[[-900,0,0],[900,0,0]]}],districts:[],stops:[{id:'experience',x:900,z:0}]};
   const terrain={format:'drive-city-terrain-v1',rows:21,cols:21,origin:[-1050,-1050],cell:100,
     heights:Array(21*21).fill(0)};
   const building=(id,x)=>({type:'building',id,footprint:[[x-5,45],[x+5,45],[x+5,55],[x-5,55]],baseY:0,height:10});
@@ -34,10 +34,16 @@ test('converted city streams visual tiles and matching colliders as the car chan
   assert.equal(map.buildings.length,1,'only the starting district loads initially');
   assert.equal(map.highwaySegments.length,1);
   assert.equal(map.stops.length,6);
+  assert.ok(map.stops.every(stop=>Number.isFinite(stop.heading)));
+  assert.ok(Math.sin(map.stops.find(stop=>stop.id==='experience').heading)<-.9,
+    'a stop at the end of a street faces back along it');
   const world=new THREE.Group(),visual=map.build(THREE,world);
   assert.ok(world.getObjectByName('imported-city-terrain-chunk'));
   assert.ok(world.getObjectByName('imported-city-road'));
-  assert.ok(world.getObjectByName('imported-city-highway'));
+  const bridge=world.getObjectByName('imported-city-highway');
+  assert.ok(bridge);
+  assert.equal(bridge.geometry.attributes.uv.count,bridge.geometry.attributes.position.count,
+    'elevated asphalt has complete texture coordinates');
   assert.ok(world.getObjectByName('imported-city-building'));
   const physics=Physics.create({map:'city',city:map,distanceToRoad:map.distanceToRoad,roadHalfWidth:map.roadHalfWidth});
   physics.reset(-300,0);
@@ -57,4 +63,39 @@ test('converted city streams visual tiles and matching colliders as the car chan
   const tile=world.getObjectByName('imported-city-tile');
   assert.equal(tile.userData.tile.ix,4,'renderer follows the loaded district');
   physics.dispose();visual.dispose();
+});
+
+test('buried ground streets stay visible and low ramps do not grow bridge barriers',async()=>{
+  const base='data/buried-city/';
+  const manifest={format:'drive-city-v1',bounds:{minX:-200,maxX:200,minZ:-200,maxZ:200},tileSize:200,
+    focus:[80,10],terrain:{file:'terrain.json'},tiles:[{ix:0,iz:0,file:'tiles/0_0.json',buildingCount:0}]};
+  const street={type:'road',id:'buried',kind:'ROAD',mode:'GROUND',width:12,
+    points:[[10,-5,10],[150,-5,10]]};
+  const lowRamp={type:'road',id:'low-ramp',kind:'ROAD',mode:'ELEVATED',width:12,
+    points:[[10,1,40],[150,1,40]]};
+  const highGround={type:'road',id:'high-ground',kind:'ROAD',mode:'GROUND',width:12,
+    points:[[10,3,70],[150,3,70]]};
+  const tunnel={type:'road',id:'tunnel',kind:'ROAD',mode:'TUNNEL',width:12,
+    points:[[10,-10,100],[150,-10,100]]};
+  const overview={format:'drive-city-overview-v1',roads:[street,lowRamp,highGround,tunnel],districts:[],stops:[]};
+  const terrain={format:'drive-city-terrain-v1',rows:5,cols:5,origin:[-200,-200],cell:100,
+    heights:Array(25).fill(0)};
+  const tile={format:'drive-city-tile-v1',features:[street,lowRamp,highGround,tunnel]};
+  const files=new Map([[base+'manifest.json',manifest],[base+'overview.json',overview],
+    [base+'terrain.json',terrain],[base+'tiles/0_0.json',tile]]);
+  const map=await Imported.load(base+'manifest.json',{fetch:async url=>({ok:files.has(url),json:async()=>files.get(url)})});
+  assert.equal(map.roadSegments.length,3);
+  assert.equal(map.highwaySegments.length,0);
+  assert.equal(map.guardrails.length,0);
+  const world=new THREE.Group(),visual=map.build(THREE,world);
+  const road=world.getObjectByName('imported-city-road');
+  assert.ok(road);
+  assert.equal(road.geometry.attributes.uv.count,road.geometry.attributes.position.count);
+  assert.ok(road.material.map?.isTexture,'asphalt uses repeatable texture coordinates');
+  const positions=road.geometry.attributes.position;
+  let lowest=Infinity;
+  for(let i=0;i<positions.count;i++)lowest=Math.min(lowest,positions.getY(i));
+  assert.ok(lowest>=.059 && lowest<.061,'buried street is drawn just above the terrain');
+  assert.ok(positions.count>60,'long roads are subdivided to follow the sampled terrain');
+  visual.dispose();
 });

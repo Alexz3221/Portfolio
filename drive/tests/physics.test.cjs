@@ -151,6 +151,38 @@ test('streamed city colliders follow tile load and unload without retaining dist
   assert.equal(changed,null,'tile listener is released with physics world');
 });
 
+test('imported building collision follows its rotated footprint instead of blocking the street beside it',()=>{
+  const C=require('cannon');
+  const diamond={x:0,z:0,width:10,depth:10,height:10,baseY:0,
+    footprint:[[0,-5],[5,0],[0,5],[-5,0]]};
+  const city={edge:100,buildings:[diamond],roadSegments:[],highwaySegments:[],guardrails:[],supports:[],
+    nearbyBuildings:()=>[diamond],nearbyRoads:()=>[],nearbyHighways:()=>[],
+    onTileChanged:()=>()=>{},ensureNear:()=>Promise.resolve([])};
+  const p=P.create({map:'city',city});
+  function roof(x,z){const hit=new C.RaycastResult();
+    assert.ok(p.world.raycastClosest(new C.Vec3(x,20,z),new C.Vec3(x,-2,z),{},hit));
+    return hit.hitPointWorld.y;
+  }
+  assert.ok(Math.abs(roof(0,0)-10)<.01,'tower is solid inside its footprint');
+  assert.ok(Math.abs(roof(4.5,4.5))<.01,'empty axis-aligned corner stays open to drive through');
+  p.dispose();
+});
+
+test('buried tunnel geometry cannot create an invisible road slab',()=>{
+  const C=require('cannon');
+  const tunnel={x1:-10,z1:0,y1:3,x2:10,z2:0,y2:3,width:8,mode:'TUNNEL'};
+  const terrain={elementSize:10,originX:-20,maxZ:20,
+    data:Array.from({length:5},()=>Array(5).fill(0))};
+  const city={edge:30,terrain,buildings:[],roadSegments:[tunnel],highwaySegments:[],guardrails:[],supports:[],
+    nearbyBuildings:()=>[],nearbyRoads:()=>[tunnel],nearbyHighways:()=>[],
+    onTileChanged:()=>()=>{},ensureNear:()=>Promise.resolve([])};
+  const p=P.create({map:'city',city});
+  const hit=new C.RaycastResult();
+  assert.ok(p.world.raycastClosest(new C.Vec3(0,10,0),new C.Vec3(0,-2,0),{},hit));
+  assert.ok(Math.abs(hit.hitPointWorld.y)<.01,'only the terrain surface is collidable');
+  p.dispose();
+});
+
 test('a car climbs the city highway ramp and continues on its raised deck',()=>{
   const city=require('../js/city');
   const p=P.create({map:'city',distanceToRoad:city.distanceToRoad,roadHalfWidth:city.roadHalfWidth});
