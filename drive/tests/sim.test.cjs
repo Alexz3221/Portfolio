@@ -82,10 +82,15 @@ test('each physics car uses mph HUD, accelerates, brakes and switches safely', (
 
 test('steering pivots independently of wheel roll and reset clears held controls', () => {
   const {sim, controls, window, document, cars} = harness();
-  sim.keys.add('w'); sim.keys.add('a'); sim.motion.speed = 10; sim.updateVehicle(.05);
+  for(let i=0;i<120;i++)sim.updateVehicle(1/60);
+  sim.keys.add('w'); sim.keys.add('a'); for(let i=0;i<90;i++)sim.updateVehicle(1/60);
   const wheels = sim.carModels.comet.wheels;
+  assert.ok(sim.physics().body.velocity.length()>5);
   assert.ok(wheels.filter(w => w.front).every(w => w.pivot.rotation.y > 0 && w.wheel.rotation.x > 0));
   assert.ok(wheels.filter(w => !w.front).every(w => w.pivot.rotation.y === 0));
+  const rolling = wheels.map(w => w.wheel.rotation.x);
+  sim.keys.clear(); for(let i=0;i<30;i++)sim.updateVehicle(1/60);
+  assert.ok(wheels.every((w,i) => w.wheel.rotation.x > rolling[i]), 'wheels keep rolling while coasting');
   controls[3].listeners.pointerdown({preventDefault(){}, pointerId:1});
   window.blur(); assert.equal(sim.keys.size, 0); assert.ok(controls.every(c => !c.classes.has('pressed')));
   controls[3].listeners.pointerdown({preventDefault(){}, pointerId:1});

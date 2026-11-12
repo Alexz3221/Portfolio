@@ -163,7 +163,7 @@
     faces.forEach(face=>face.reverse());
     body.addShape(new C.ConvexPolyhedron(vertices,faces)); world.addBody(body);
     const car=new C.RaycastVehicle({chassisBody:body,indexRightAxis:0,indexUpAxis:1,indexForwardAxis:2});
-    spec.wheelLayout.forEach(wheel=>car.addWheel({radius:wheel.radius,directionLocal:new C.Vec3(0,-1,0),axleLocal:new C.Vec3(-1,0,0),chassisConnectionPointLocal:new C.Vec3(wheel.x,-.15+wheel.y,wheel.z),suspensionStiffness:32,suspensionRestLength:.42,frictionSlip:spec.grip,dampingRelaxation:3.5,dampingCompression:4.5,maxSuspensionForce:45000,rollInfluence:.15,maxSuspensionTravel:.3,customSlidingRotationalSpeed:-30,useCustomSlidingRotationalSpeed:true}));
+    spec.wheelLayout.forEach(wheel=>car.addWheel({radius:wheel.radius,directionLocal:new C.Vec3(0,-1,0),axleLocal:new C.Vec3(-1,0,0),chassisConnectionPointLocal:new C.Vec3(wheel.x,-.15+wheel.y,wheel.z),suspensionStiffness:32,suspensionRestLength:.42,frictionSlip:spec.grip,dampingRelaxation:3.5,dampingCompression:4.5,maxSuspensionForce:45000,rollInfluence:.15,maxSuspensionTravel:.3,customSlidingRotationalSpeed:30,useCustomSlidingRotationalSpeed:true}));
     car.addToWorld(world);
     let accumulator=0,steer=0,grounded=0,airTime=0;
     const previousPosition=new C.Vec3(), previousQuaternion=new C.Quaternion();
@@ -198,9 +198,14 @@
         const surface=offroad?(selectedCar==='rally'?.78:.6):1;
         const limit=throttle<0?12:spec.maxSpeed*surface;
         const engine=!input.brake&&!opposing ? -throttle*spec.engine*Math.max(0,1-(Math.abs(speed)/limit)**2):0;
-        car.wheelInfos.forEach((w,i)=>{w.frictionSlip=spec.grip*(offroad?.75:1);car.setSteeringValue(w.chassisConnectionPointLocal.z>0?steer:0,i);car.applyEngineForce(engine,i);car.setBrake(input.brake?24:opposing?18:grounded?1.4:0,i);});
-        // Air drag, unlike the old exponential speed clamp, allows long coasting.
-        const v=body.velocity;const drag=.42*v.length()+(offroad?spec.mass*.10:0);body.force.x-=v.x*drag;body.force.y-=v.y*drag;body.force.z-=v.z*drag;
+        const brakeForce=input.brake?spec.mass*.028:opposing?spec.mass*.02:0;
+        car.wheelInfos.forEach((w,i)=>{w.frictionSlip=spec.grip*(offroad?.75:1);car.setSteeringValue(w.chassisConnectionPointLocal.z>0?steer:0,i);car.applyEngineForce(engine,i);car.setBrake(brakeForce,i);});
+        // Keep light rolling resistance separate from wheel braking so coasting wheels keep turning.
+        const v=body.velocity;const drag=.42*v.length()+(offroad?spec.mass*.10:0);
+        const horizontalSpeed=Math.hypot(v.x,v.z);
+        const rolling=grounded&&!throttle&&!input.brake&&horizontalSpeed>.001
+          ? spec.mass*Math.min(.45/horizontalSpeed,120):0;
+        body.force.x-=v.x*(drag+rolling);body.force.y-=v.y*drag;body.force.z-=v.z*(drag+rolling);
         // Air control is torque, never an orientation snap. Existing touch buttons work too.
         if(!grounded){
           // Carrying throttle off a ramp used to immediately pitch the nose down.

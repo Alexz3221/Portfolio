@@ -729,7 +729,8 @@
       carModels[selectedCar].wheels.forEach(({wheel,pivot},i)=>{
         const w=physics.renderWheels[i];
         pivot.position.y=1.05+physics.car.wheelInfos[i].chassisConnectionPointLocal.y-w.suspensionLength;
-        pivot.rotation.y=w.steering;wheel.rotation.x=w.rotation;
+        // CANNON's Y-up wheel angle decreases while the car moves along +Z.
+        pivot.rotation.y=w.steering;wheel.rotation.x=-w.rotation;
       });
       const braking=keys.has(' ')||throttle<0, model=carModels[selectedCar];
       if(model.brakeMaterials?.length) model.brakeMaterials.forEach(material => {material.emissiveIntensity=braking?1.5:.22;});
