@@ -77,7 +77,7 @@
   const escapeHtml = value => String(value).replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
   const mapCoordinate = value => Math.max(0, Math.min(100, (value + 440) / 880 * 100));
 
-  function create({document, window, stops, onJump, onOpen, onClose}) {
+  function create({document, window, stops, onJump, onOpen, onClose, driveTarget}) {
     if (!document?.createElement || !document?.body) throw new Error('Portfolio UI needs a browser document');
     const locations = (stops || []).filter(stop => stories[stop.id]);
     const byId = new Map(locations.map(stop => [stop.id, stop]));
@@ -96,7 +96,7 @@
     host.innerHTML = `
       <button class="city-nearby" type="button" hidden></button>
       <div class="city-overlay" hidden>
-        <section class="city-panel" role="dialog" aria-modal="true" aria-labelledby="cityPanelTitle">
+        <section class="city-panel" role="dialog" aria-modal="true" aria-labelledby="cityPanelTitle" tabindex="-1">
           <div class="city-panel-head"><div><p class="city-panel-kicker">ALEX / AFTER DARK</p><h2 id="cityPanelTitle">City Guide</h2></div><button class="city-close" type="button" aria-label="Close city guide">×</button></div>
           <div class="city-guide-view">
             <p class="city-guide-intro">Take the long way around, or open a stop right here. The city is yours either way.</p>
@@ -132,6 +132,7 @@
     const mapStops = host.querySelector('.city-map-stops');
     const stopList = host.querySelector('.city-stop-list');
     const svg = host.querySelector('.city-map svg');
+    const driveFocus = driveTarget || document.querySelector('#drive-scene');
     const roads = [-400,-320,-240,-160,-80,0,80,160,240,320,400];
     svg.innerHTML = roads.map(c => {
       const p = mapCoordinate(c);
@@ -161,50 +162,51 @@
     });
 
     let map = null, activeView = null, currentStop = null, nearbyStop = null, previousFocus = null, currentSpeed = 0;
-    function begin(view) {
+    function begin(view, returnFocus) {
       if (!activeView) {
-        previousFocus = document.activeElement;
+        previousFocus = returnFocus || document.activeElement;
         onOpen?.();
       }
       activeView = view;
       overlay.hidden = false;
       nearby.hidden = true;
     }
-    function openGuide() {
-      begin('guide');
+    function openGuide(returnFocus) {
+      begin('guide', returnFocus);
       currentStop = null;
       title.textContent = 'City Guide';
       guide.hidden = false;
       storyView.hidden = true;
-      closeButton.focus();
+      panel.focus();
     }
-    function open(id) {
+    function open(id, returnFocus) {
       const stop = byId.get(id), story = stories[id];
       if (!stop || !story || map !== 'city') return false;
-      begin('story');
+      begin('story', returnFocus);
       currentStop = stop;
       title.textContent = stop.title;
       guide.hidden = true;
       storyView.hidden = false;
       storyContent.innerHTML = `<p class="city-story-kind">${escapeHtml(story.kind)}</p><h3>${escapeHtml(story.title)}</h3><p class="city-story-intro">${escapeHtml(story.intro)}</p>${story.body}`;
       driveButton.hidden = typeof onJump !== 'function';
-      closeButton.focus();
+      panel.focus();
       return true;
     }
-    function close() {
+    function close(toDrive = false) {
       if (!activeView) return;
       activeView = null;
       currentStop = null;
       overlay.hidden = true;
       onClose?.();
-      const returnTarget = previousFocus && previousFocus !== document.body && previousFocus.isConnected &&
-        !previousFocus.closest?.('[hidden]') ? previousFocus : guideButton;
+      const desiredFocus = toDrive ? driveFocus : previousFocus;
+      const returnTarget = desiredFocus && desiredFocus !== document.body && desiredFocus.isConnected &&
+        !desiredFocus.closest?.('[hidden]') ? desiredFocus : driveFocus || guideButton;
       returnTarget.focus?.();
       previousFocus = null;
     }
     function setMap(nextMap) {
       map = nextMap;
-      if (map !== 'city') close();
+      if (map !== 'city') close(true);
       host.hidden = map !== 'city';
       guideButton.hidden = map !== 'city';
       if (map !== 'city') nearby.hidden = true;
@@ -228,20 +230,20 @@
     }
     function isOpen() { return activeView !== null; }
 
-    guideButton.addEventListener('click', () => activeView ? close() : openGuide());
-    closeButton.addEventListener('click', close);
-    backButton.addEventListener('click', openGuide);
-    nearby.addEventListener('click', () => { if (nearbyStop && !nearby.disabled) open(nearbyStop.id); });
+    guideButton.addEventListener('click', event => activeView ? close(event.detail > 0) : openGuide(event.detail > 0 ? driveFocus : guideButton));
+    closeButton.addEventListener('click', event => close(event.detail > 0));
+    backButton.addEventListener('click', () => openGuide());
+    nearby.addEventListener('click', event => { if (nearbyStop && !nearby.disabled) open(nearbyStop.id, event.detail > 0 ? driveFocus : nearby); });
     driveButton.addEventListener('click', () => {
       if (currentStop && typeof onJump === 'function') {
         onJump(currentStop);
-        close();
+        close(true);
       }
     });
     host.addEventListener('click', event => {
       const stopButton = event.target.closest('[data-stop]');
       if (stopButton) open(stopButton.dataset.stop);
-      else if (event.target === overlay) close();
+      else if (event.target === overlay) close(true);
     });
     document.addEventListener('keydown', event => {
       if (map !== 'city') return;
@@ -257,15 +259,16 @@
           return;
         }
         if (/^(w|a|s|d|c|r|[1-4]|arrowup|arrowdown|arrowleft|arrowright| )$/i.test(event.key)) {
+          if (event.key === ' ' && !event.target.matches?.('button, a, input, select, textarea')) event.preventDefault();
           event.stopPropagation();
         }
         return;
       }
-      if ((event.key === 'e' || event.key === 'E') && nearbyStop && Math.abs(currentSpeed || 0) < 3 &&
-          !event.target.matches?.('input, select, textarea, button, a')) {
+      if (!event.repeat && (event.key === 'e' || event.key === 'E') && nearbyStop && Math.abs(currentSpeed || 0) < 3 &&
+          !event.target.matches?.('input, select, textarea, [contenteditable]')) {
         event.preventDefault();
         event.stopPropagation();
-        open(nearbyStop.id);
+        open(nearbyStop.id, driveFocus);
       }
     });
     return {setMap, update, isOpen, open, close};

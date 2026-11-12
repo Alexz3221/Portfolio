@@ -1,12 +1,12 @@
 <!doctype html><html><head><meta charset="utf-8"><title>City UI smoke test</title><link rel="stylesheet" href="../css/style.css"><link rel="stylesheet" href="../css/portfolio.css"></head><body>
-<div class="route-picker"></div><pre id="results"></pre>
+<canvas id="drive-scene" tabindex="0"></canvas><div class="route-picker"></div><pre id="results"></pre>
 <script src="../js/city.js"></script><script src="../js/portfolio-ui.js"></script>
 <script>
 const failures = [];
 function check(condition, label) { if (!condition) failures.push(label); }
 const stops = DriveCity.stops;
 let jumped = null, opens = 0, closes = 0;
-const ui = DrivePortfolioUI.create({document, window, stops,
+const ui = DrivePortfolioUI.create({document, window, stops, driveTarget:document.querySelector('#drive-scene'),
   onJump(stop) { jumped = stop.id; }, onOpen() { opens++; }, onClose() { closes++; }});
 ui.setMap('city');
 ui.update({x: stops[0].x, z: stops[0].z}, 0);
@@ -22,8 +22,10 @@ check(jumped === 'projects' && !ui.isOpen(), 'fast travel closes story');
 ui.update({x: stops[0].x, z: stops[0].z}, 0);
 document.dispatchEvent(new KeyboardEvent('keydown', {key: 'e', bubbles: true}));
 check(ui.isOpen(), 'E opens nearby stop');
+check(document.activeElement === document.querySelector('.city-panel'), 'E focuses the story panel, not a button');
 document.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true}));
 check(!ui.isOpen(), 'Escape closes');
+check(document.activeElement === document.querySelector('#drive-scene'), 'Escape returns focus to driving');
 check(opens === closes && opens === 2, 'open and close callbacks');
 ui.setMap('course');
 check(document.querySelector('.city-guide-trigger').hidden, 'guide hidden off city');

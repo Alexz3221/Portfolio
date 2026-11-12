@@ -609,7 +609,7 @@
 
   if (window.DrivePortfolioUI?.create) {
     portfolio = window.DrivePortfolioUI.create({
-      document, window, stops:city.stops, onJump:jumpToStop,
+      document, window, stops:city.stops, driveTarget:canvas, onJump:jumpToStop,
       onOpen() {
         releaseControls();
         if (physics) { physics.body.velocity.setZero(); physics.body.angularVelocity.setZero(); physics.syncRenderState(); }
@@ -624,16 +624,20 @@
     cameraMode = (cameraMode + 1) % cameraModes.length;
     document.querySelector('#cameraButton').textContent = 'CAMERA / ' + cameraModes[cameraMode];
   }
-  document.querySelector('#cameraButton').addEventListener('click', setCameraMode);
-  document.querySelectorAll('[data-car]').forEach(button => button.addEventListener('click', () => chooseCar(button.dataset.car)));
+  function returnToDrivingAfterPointer(event) {
+    if (event?.detail > 0 && !portfolio?.isOpen()) canvas.focus?.({preventScroll:true});
+  }
+  document.querySelector('#cameraButton').addEventListener('click', event => { setCameraMode(); returnToDrivingAfterPointer(event); });
+  document.querySelectorAll('[data-car]').forEach(button => button.addEventListener('click', event => { chooseCar(button.dataset.car); returnToDrivingAfterPointer(event); }));
 
   document.querySelector('#mapSelect').addEventListener('change', event => {
     chooseMap(event.target.value);
     // A committed native selection otherwise keeps swallowing WASD/arrows.
     // Leave native navigation alone while the selector is being used.
     event.target.blur();
+    canvas.focus?.({preventScroll:true});
   });
-  document.querySelector('#resetButton').addEventListener('click', resetVehicle);
+  document.querySelector('#resetButton').addEventListener('click', event => { resetVehicle(); returnToDrivingAfterPointer(event); });
 
   const drivingKeys = new Set(['w', 'a', 's', 'd', 'arrowup', 'arrowleft', 'arrowdown', 'arrowright', ' ']);
   function syncInputKey(key) {
