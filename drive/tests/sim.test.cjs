@@ -41,7 +41,8 @@ test('all three maps have distinct drivable, finite closed routes and safe spawn
     assert.ok(sim.distanceToRoad(sim.vehicle.position.x, sim.vehicle.position.z) < .001);
     for (const {point, tangent} of points) {
       assert.ok(point.toArray().every(Number.isFinite));
-      assert.ok(Math.abs(point.x) < 210 && Math.abs(point.z) < 210);
+      const bound=id==='city'?require('../js/city').edge:210;
+      assert.ok(Math.abs(point.x) < bound && Math.abs(point.z) < bound);
       assert.ok(Math.abs(tangent.length() - 1) < .00001);
     }
     sim.world.traverse(mesh => {

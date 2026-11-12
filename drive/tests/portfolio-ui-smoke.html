@@ -1,0 +1,45 @@
+<!doctype html><html><head><meta charset="utf-8"><title>City UI smoke test</title><link rel="stylesheet" href="../css/style.css"><link rel="stylesheet" href="../css/portfolio.css"></head><body>
+<div class="route-picker"></div><pre id="results"></pre>
+<script src="../js/city.js"></script><script src="../js/portfolio-ui.js"></script>
+<script>
+const failures = [];
+function check(condition, label) { if (!condition) failures.push(label); }
+const stops = DriveCity.stops;
+let jumped = null, opens = 0, closes = 0;
+const ui = DrivePortfolioUI.create({document, window, stops,
+  onJump(stop) { jumped = stop.id; }, onOpen() { opens++; }, onClose() { closes++; }});
+ui.setMap('city');
+ui.update({x: stops[0].x, z: stops[0].z}, 0);
+check(!document.querySelector('.city-guide-trigger').hidden, 'guide trigger visible');
+check(!document.querySelector('.city-nearby').hidden, 'nearby prompt visible');
+document.querySelector('.city-guide-trigger').click();
+check(ui.isOpen(), 'guide opens');
+check(document.querySelectorAll('.city-stop-item').length === 6, 'all six cards');
+document.querySelector('.city-stop-item[data-stop="projects"]').click();
+check(document.querySelector('.city-story-content h3')?.textContent === 'Things you can actually touch.', 'direct card opens story');
+document.querySelector('.city-drive-here').click();
+check(jumped === 'projects' && !ui.isOpen(), 'fast travel closes story');
+ui.update({x: stops[0].x, z: stops[0].z}, 0);
+document.dispatchEvent(new KeyboardEvent('keydown', {key: 'e', bubbles: true}));
+check(ui.isOpen(), 'E opens nearby stop');
+document.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true}));
+check(!ui.isOpen(), 'Escape closes');
+check(opens === closes && opens === 2, 'open and close callbacks');
+ui.setMap('course');
+check(document.querySelector('.city-guide-trigger').hidden, 'guide hidden off city');
+document.getElementById('results').textContent = failures.length ? 'FAIL: ' + failures.join(', ') : 'PASS: guide, six cards, direct open, fast travel, E prompt, Escape, callbacks, map switch';
+document.documentElement.dataset.result = failures.length ? 'fail' : 'pass';
+if (new URLSearchParams(location.search).has('preview')) {
+  if (new URLSearchParams(location.search).has('narrow')) {
+    const overlay = document.querySelector('.city-overlay');
+    overlay.style.width = '390px';
+    overlay.style.right = 'auto';
+  }
+  ui.setMap('city');
+  const story = new URLSearchParams(location.search).get('story');
+  if (story) ui.open(story);
+  else document.querySelector('.city-guide-trigger').click();
+  const panel = document.querySelector('.city-panel').getBoundingClientRect();
+  document.documentElement.dataset.layout = [window.innerWidth, Math.round(panel.left), Math.round(panel.right), document.documentElement.scrollWidth].join(':');
+}
+</script></body></html>

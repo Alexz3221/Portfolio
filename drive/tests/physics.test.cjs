@@ -4,7 +4,7 @@ test('four springs settle under gravity and reset removes all momentum',()=>{con
 test('acceleration takes seconds, coasting preserves momentum, brakes stop and reverse works',()=>{const p=P.create();p.reset(-100,-100);run(p,120);run(p,180,{throttle:1});const speed=p.body.velocity.length();assert.ok(speed>17&&speed<22);run(p,60);const coast=p.body.velocity.length();assert.ok(coast>speed*.85&&coast<speed);run(p,180,{brake:true});assert.ok(p.body.velocity.length()<.2);run(p,120,{throttle:-1});assert.ok(p.body.velocity.z < -3);});
 test('manual braking stops every car promptly from highway speed',()=>{
   for(const car of Object.keys(P.vehicles)){
-    const p=P.create({map:'city',car});p.reset(0,0);run(p,120);
+    const p=P.create({map:'city',car});p.reset(80,-120);run(p,120);
     p.body.velocity.set(0,0,35);
     const start=p.body.position.z;
     let frames=0;
@@ -14,13 +14,13 @@ test('manual braking stops every car promptly from highway speed',()=>{
   }
 });
 test('wheels keep rolling while coasting and turn the same way under airborne throttle',()=>{
-  const p=P.create({map:'city'});p.reset(0,0);run(p,120);
+  const p=P.create({map:'city'});p.reset(80,-120);run(p,120);
   p.body.velocity.set(0,0,15);p.syncRenderState();
   const before=p.car.wheelInfos.map(w=>w.rotation);
   run(p,60);
   p.car.wheelInfos.forEach((w,i)=>assert.ok(w.rotation<before[i]-20,`wheel ${i} rolled while coasting`));
   assert.ok(p.body.velocity.z>12&&p.body.velocity.z<15);
-  p.reset(0,0);p.body.position.set(0,20,0);
+  p.reset(80,-120);p.body.position.set(80,20,-120);
   p.step(1/60,{throttle:1});
   p.car.wheelInfos.forEach((w,i)=>assert.ok(w.rotation<0,`wheel ${i} spins forward in air`));
 });
@@ -37,7 +37,7 @@ test('gentle neutral air assist damps rotation but does not snap upright',()=>{
 });
 test('all cars settle, accelerate, brake and reverse on the fixture and city',()=>{
   for(const map of ['course','city'])for(const car of Object.keys(P.vehicles)){
-    const p=P.create({map,car});p.reset(-100,-100);let s=run(p,120);assert.equal(s.grounded,4,`${map}/${car} settled`);
+    const p=P.create({map,car});p.reset(map==='city'?-80:-100,map==='city'?-120:-100);let s=run(p,120);assert.equal(s.grounded,4,`${map}/${car} settled`);
     assert.equal(p.body.mass,P.vehicles[car].mass);assert.equal(p.car.wheelInfos[0].radius,P.vehicles[car].wheelLayout[0].radius);
     run(p,120,{throttle:1});assert.ok(p.body.velocity.z>8,`${map}/${car} accelerates`);
     run(p,180,{brake:true});assert.ok(p.body.velocity.length()<.2);
@@ -45,12 +45,12 @@ test('all cars settle, accelerate, brake and reverse on the fixture and city',()
   }
 });
 test('city extends past the old fixture boundary and keeps off-road resistance',()=>{
-  const speeds=[false,true].map(dirt=>{const p=P.create({map:'city',distanceToRoad:()=>dirt?20:0});p.reset(180,-100);run(p,120);assert.ok(p.body.position.y>p.terrainHeight(p.body.position.x,p.body.position.z)+.7);p.body.velocity.set(0,0,20);run(p,60);assert.ok(p.body.position.x>179);return p.body.velocity.length();});assert.ok(speeds[1]<speeds[0]);
+  const speeds=[false,true].map(dirt=>{const p=P.create({map:'city',distanceToRoad:()=>dirt?20:0});p.reset(320,-120);run(p,120);assert.ok(p.body.position.y>p.terrainHeight(p.body.position.x,p.body.position.z)+.7);p.body.velocity.set(0,0,20);run(p,60);assert.ok(p.body.position.x>319);return p.body.velocity.length();});assert.ok(speeds[1]<speeds[0]);
 });
 
 test('map sampler matches actual collider rays, including both triangles and boundaries',()=>{
   const C=require('cannon');
-  for(const map of ['mountain','city']){
+  for(const map of ['mountain']){
     const p=P.create({map});p.body.position.set(0,1000,0);
     const result=new C.RaycastResult();
     for(let i=0;i<100;i++){
@@ -61,15 +61,23 @@ test('map sampler matches actual collider rays, including both triangles and bou
     }
     for(const x of [-200,200])for(const z of [-200,200])assert.ok(Number.isFinite(p.terrainHeight(x,z)));
   }
+  const city=P.create({map:'city'});
+  const result=new C.RaycastResult();
+  for(let z=-400;z<=400;z+=40){
+    result.reset();
+    assert.ok(city.world.raycastClosest(new C.Vec3(80,25,z),new C.Vec3(80,-10,z),{},result));
+    assert.ok(Math.abs(result.hitPointWorld.y-city.terrainHeight(80,z))<1e-8,'city road is level and raycastable');
+  }
+  for(const x of [-400,400])for(const z of [-400,400])assert.equal(city.terrainHeight(x,z),0);
   assert.equal(P.scenicHeight('city',8,4),0);
-  assert.equal(P.scenicHeight('city',180,-100),0);
+  assert.equal(P.scenicHeight('city',380,-100),0);
 });
 
 test('city ground stays flat and every car keeps suspension contact',()=>{
   const p=P.create({map:'city'});
-  for(let x=-180;x<=180;x+=20)for(let z=-180;z<=180;z+=20)assert.equal(p.terrainHeight(x,z),0);
+  for(let x=-400;x<=400;x+=40)for(let z=-400;z<=400;z+=40)assert.equal(p.terrainHeight(x,z),0);
   for(const car of Object.keys(P.vehicles)){
-    const v=P.create({map:'city',car});v.reset(100,-40);run(v,120);
+    const v=P.create({map:'city',car});v.reset(80,-120);run(v,120);
     let groundedFrames=0;
     for(let i=0;i<240;i++){
       const state=v.step(1/60,{throttle:1});groundedFrames+=state.grounded>=2;
@@ -77,6 +85,37 @@ test('city ground stays flat and every car keeps suspension contact',()=>{
     }
     assert.ok(groundedFrames>230,`city/${car} sustained contact`);
   }
+});
+
+test('city towers and elevated road have physical collision surfaces',()=>{
+  const C=require('cannon'), city=require('../js/city');
+  const p=P.create({map:'city'});p.body.position.set(0,1000,0);
+  const ray=(x,z,start,end)=>{
+    const result=new C.RaycastResult();
+    assert.ok(p.world.raycastClosest(new C.Vec3(x,start,z),new C.Vec3(x,end,z),{},result));
+    return result.hitPointWorld.y;
+  };
+  const building=city.buildings.find(b=>b.height>20);
+  assert.ok(building,'a substantial tower is present');
+  assert.ok(Math.abs(ray(building.x,building.z,building.height+20,building.height-10)-building.height)<.01,'tower roof is solid');
+  const elevated=city.highwaySegments.find(s=>s.topStart>=8&&s.topEnd>=8);
+  assert.ok(elevated,'city has an elevated highway section');
+  const top=(elevated.topStart+elevated.topEnd)/2;
+  assert.ok(Math.abs(ray(elevated.x,elevated.z,top+10,1)-top)<.1,'highway top is driveable');
+});
+
+test('a car climbs the city highway ramp and continues on its raised deck',()=>{
+  const city=require('../js/city');
+  const p=P.create({map:'city',distanceToRoad:city.distanceToRoad,roadHalfWidth:city.roadHalfWidth});
+  p.reset(0,-414,0);
+  let grounded=0;
+  for(let frame=0;frame<1200;frame++){
+    const state=p.step(1/120,{throttle:1});
+    if(frame>240 && state.grounded>=2) grounded++;
+  }
+  assert.ok(p.body.position.z>-210,'car reaches the raised middle span');
+  assert.ok(p.body.position.y>10,'car stays on the highway above the lower street');
+  assert.ok(grounded>800,'tires retain contact through the climb and deck');
 });
 
 test('render interpolation advances between fixed steps without changing physics',()=>{

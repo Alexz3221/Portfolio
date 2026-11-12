@@ -1,8 +1,8 @@
 /* Shared CANNON vehicle physics. Metres, seconds, kilograms. */
 (function(root, factory) {
-  if (typeof module === 'object' && module.exports) module.exports = factory(require('cannon'));
-  else root.DrivePhysics = factory(root.CANNON);
-})(typeof globalThis !== 'undefined' ? globalThis : this, function(C) {
+  if (typeof module === 'object' && module.exports) module.exports = factory(require('cannon'), require('./city'));
+  else root.DrivePhysics = factory(root.CANNON, root.DriveCity);
+})(typeof globalThis !== 'undefined' ? globalThis : this, function(C, City) {
   'use strict';
   const terrainHeight = (x,z) => 7 * Math.exp(-((x-37)**2/420 + (z-32)**2/700)) + 4 * Math.exp(-((x+35)**2/380 + (z-65)**2/280));
   // One ordered physical ribbon. No ground-level shortcut exists beneath a
@@ -76,12 +76,14 @@
   };
   function create(options={}) {
     const course = !options.map || options.map === 'course';
-    const edge=course?160:200, cells=edge;
+    const isCity = options.map === 'city';
+    const edge=isCity?City.edge:course?160:200, cells=isCity?0:edge;
     const floorOffset=options.map==='racetrack'?stuntFeatures.floor:0;
     const analyticHeight=course?terrainHeight:(x,z)=>scenicHeight(options.map,x,z)-floorOffset;
-    const data=Array.from({length:cells+1},(_,i)=>Array.from({length:cells+1},(_,j)=>analyticHeight(i*2-edge,edge-j*2)));
+    const data=isCity?null:Array.from({length:cells+1},(_,i)=>Array.from({length:cells+1},(_,j)=>analyticHeight(i*2-edge,edge-j*2)));
     // CANNON 0.6.2 getHeightAt is only an average. Match its actual triangles.
     function height(x,z) {
+      if(isCity)return 0;
       const u=Math.max(0,Math.min(cells,(x+edge)/2)), v=Math.max(0,Math.min(cells,(edge-z)/2));
       const i=Math.min(cells-1,Math.floor(u)),j=Math.min(cells-1,Math.floor(v)),a=u-i,b=v-j;
       if(a+b<=1) return floorOffset+data[i][j]*(1-a-b)+data[i+1][j]*a+data[i][j+1]*b;
@@ -96,9 +98,23 @@
     // at a landing or triangle seam. Normal impulses still stop solid impacts.
     const chassisMaterial=new C.Material('chassis'), terrainMaterial=new C.Material('terrain');
     world.addContactMaterial(new C.ContactMaterial(chassisMaterial,terrainMaterial,{friction:.01,restitution:0}));
-    const floor=new C.Body({mass:0,material:terrainMaterial}); floor.addShape(new C.Heightfield(data,{elementSize:2})); floor.position.set(-edge,floorOffset,edge); floor.quaternion.setFromEuler(-Math.PI/2,0,0); world.addBody(floor);
+    const floor=new C.Body({mass:0,material:terrainMaterial});
+    if(isCity) { floor.addShape(new C.Plane()); floor.position.set(0,0,0); }
+    else { floor.addShape(new C.Heightfield(data,{elementSize:2})); floor.position.set(-edge,floorOffset,edge); }
+    floor.quaternion.setFromEuler(-Math.PI/2,0,0); world.addBody(floor);
     function box(x,y,z,hx,hy,hz,angle=0) {const body=new C.Body({mass:0,material:terrainMaterial});body.addShape(new C.Box(new C.Vec3(hx,hy,hz)));body.position.set(x,y,z);body.quaternion.setFromEuler(angle,0,0);world.addBody(body);return body;}
     if (course) box(ramp.x,ramp.y,ramp.z,ramp.halfWidth,.18,ramp.halfLength,ramp.angle);
+    if (isCity) {
+      for (const building of City.buildings) box(building.x,building.height/2,building.z,building.width/2,building.height/2,building.depth/2);
+      for (const segment of City.highwaySegments) {
+        const pitch=-Math.atan2(segment.topEnd-segment.topStart,segment.length);
+        const slopeLength=Math.hypot(segment.length,segment.topEnd-segment.topStart);
+        const centerY=(segment.topStart+segment.topEnd)/2-.25*Math.cos(pitch);
+        box(segment.x,centerY,segment.z,segment.width/2,.25,slopeLength/2,pitch);
+      }
+      for (const rail of City.guardrails) box(rail.x,rail.y,rail.z,rail.width/2,rail.height/2,rail.length/2,rail.pitch);
+      for (const support of City.supports) box(support.x,support.y,support.z,support.width/2,support.height/2,support.depth/2);
+    }
     // Every route slab uses the exact same vertices for rendering and collision.
     const bridges=[],stuntSlabs=[];
     if(options.map==='racetrack') for(let i=0;i<stuntRoute.length;i++) {
@@ -229,5 +245,5 @@
     function addTree(x,z,r=.45,h=8){return box(x,height(x,z)+h/2,z,r,h/2,r);}
     reset();return {world,body,car,step,reset,addTree,edge,obstacles,addObstacle,bridges,stuntSlabs,stuntSupports,roadHeight,terrainHeight:height,ramp,spec,renderPosition,renderQuaternion,renderWheels,syncRenderState};
   }
-  return {create,terrainHeight,scenicHeight,ramp,vehicles,mountainPoints,stuntBumps,overpasses,stuntRoute,stuntFeatures,stuntProfile};
+  return {create,terrainHeight,scenicHeight,ramp,vehicles,mountainPoints,stuntBumps,overpasses,stuntRoute,stuntFeatures,stuntProfile,city:City};
 });

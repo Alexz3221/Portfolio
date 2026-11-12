@@ -1,11 +1,11 @@
 (() => {
   'use strict';
   const message = document.querySelector('#loadMessage');
-  if (!window.THREE || typeof DrivePhysics === 'undefined') { message.textContent = 'Could not load the driving engine. Try reloading.'; return; }
+  if (!window.THREE || typeof DrivePhysics === 'undefined' || !DrivePhysics.city) { message.textContent = 'Could not load the driving engine. Try reloading.'; return; }
 
   const canvas = document.querySelector('#drive-scene');
   const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(66, 1, 0.3, 600);
+  const camera = new THREE.PerspectiveCamera(66, 1, 0.3, 950);
   const renderer = new THREE.WebGLRenderer({canvas, antialias: true, powerPreference: 'high-performance'});
   const clock = new THREE.Clock();
   const keys = new Set();
@@ -19,9 +19,9 @@
     hypercar: {name:'Hypercar',color:0xe14839},
     pickup: {name:'Pickup',color:0x25975b}
   }).map(([type,style]) => [type,{...DrivePhysics.vehicles[type],...style,wheelRadius:DrivePhysics.vehicles[type].radius}]));
+  const city = DrivePhysics.city;
   const maps = {
-    city: {name: 'City', caption: 'A district in progress · open road for now', ground: 0x809094, fog: 0x8299a5, skyLow: 0xc9d0c9, skyHigh: 0x536d86, mountain: 0x70858a, seed: 41732,
-      points: [[-116,-116],[-116,-45],[-116,45],[-104,116],[-45,116],[45,116],[116,104],[116,45],[116,-45],[104,-116],[45,-116],[-45,-116]]},
+    city: {name: 'City', caption: 'Alex after dark · six stops, one city to explore', ground: 0x202a38, fog: 0x0c1728, skyLow: 0x263447, skyHigh: 0x050b18, seed: 41732},
     mountain: {name: 'Cliffside mountain', caption: 'Narrow ledge · sheer drops · winding ascent', ground: 0x817969, fog: 0x9caeae, skyLow: 0xcbd8d2, skyHigh: 0x416b92, mountain: 0x83908b, seed: 93217,
       roadHalfWidth: 3.5, shoulderWidth: .5, points: DrivePhysics.mountainPoints},
     racetrack: {name: 'Racetrack / stunt course', caption: 'Follow arrows · gap: 52–63 mph · balance bridge: slow', ground: 0x47634a, fog: 0x9dbac7, skyLow: 0xd3e4e7, skyHigh: 0x386e9d, mountain: 0x7f9290, seed: 59221,
@@ -32,6 +32,8 @@
   scene.add(world);
   let selectedMap = 'city';
   let samples = [];
+  let cityVisual = null;
+  let portfolio = null;
   const carModels = {};
   let selectedCar = 'comet';
   let cameraMode = 0;
@@ -47,7 +49,7 @@
   renderer.toneMappingExposure = .82;
   scene.fog = new THREE.FogExp2(0x172633, .0048);
 
-  const sky = new THREE.Mesh(new THREE.SphereGeometry(490, 32, 20), new THREE.ShaderMaterial({
+  const sky = new THREE.Mesh(new THREE.SphereGeometry(850, 32, 20), new THREE.ShaderMaterial({
     side: THREE.BackSide, depthWrite: false, fog: false,
     uniforms: {low: {value: new THREE.Color()}, high: {value: new THREE.Color()}},
     vertexShader: 'varying vec3 vPosition; void main(){vPosition=position; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}',
@@ -61,7 +63,8 @@
   sunGlow.position.copy(sun.position);
   scene.add(sunGlow);
 
-  scene.add(new THREE.HemisphereLight(0xb1d9e4, 0x273139, .9));
+  const ambientLight = new THREE.HemisphereLight(0xb1d9e4, 0x273139, .9);
+  scene.add(ambientLight);
   const sunsetLight = new THREE.DirectionalLight(0xffd5b0, 1.25);
   sunsetLight.position.set(-80, 120, -90);
   sunsetLight.castShadow = true;
@@ -77,6 +80,7 @@
   scene.add(blueFill);
 
   function distanceToRoad(x, z) {
+    if (selectedMap === 'city') return city.distanceToRoad(x, z);
     let nearest = Infinity;
     for (let index = 0; index < samples.length; index += 1) {
       const a = samples[index].point, b = samples[(index + 1) % samples.length].point;
@@ -121,22 +125,32 @@
     const geometries = new Set(), materials = new Set(), textures = new Set();
     world.traverse(object => {
       if (object.geometry) geometries.add(object.geometry);
-      if (object.material) { materials.add(object.material); for (const value of Object.values(object.material)) if (value?.isTexture) textures.add(value); }
+      for (const material of object.material ? [].concat(object.material) : []) {
+        materials.add(material);
+        for (const value of Object.values(material)) if (value?.isTexture) textures.add(value);
+      }
     });
     world.clear();
+    cityVisual = null;
     geometries.forEach(geometry => geometry.dispose());
     materials.forEach(material => material.dispose());
     textures.forEach(texture => texture.dispose());
-    physics = DrivePhysics.create({map:selectedMap, car:selectedCar, distanceToRoad, roadHalfWidth:maps[selectedMap].roadHalfWidth || 6.2});
+    physics = DrivePhysics.create({map:selectedMap, car:selectedCar, distanceToRoad, roadHalfWidth:selectedMap === 'city' ? city.roadHalfWidth : maps[selectedMap].roadHalfWidth || 6.2});
     const config = maps[selectedMap];
     scene.fog.color.setHex(config.fog);
     scene.background = new THREE.Color(config.fog);
     sky.material.uniforms.low.value.setHex(config.skyLow);
     sky.material.uniforms.high.value.setHex(config.skyHigh);
-    renderer.toneMappingExposure = .9;
+    scene.fog.density = selectedMap === 'city' ? .0032 : .0048;
+    renderer.toneMappingExposure = selectedMap === 'city' ? 1.05 : .9;
+    sun.visible = sunGlow.visible = selectedMap !== 'city';
+    ambientLight.intensity = selectedMap === 'city' ? .7 : .9;
+    sunsetLight.intensity = selectedMap === 'city' ? .22 : 1.25;
+    sunsetLight.castShadow = selectedMap !== 'city';
+    blueFill.intensity = selectedMap === 'city' ? .65 : .35;
     const groundDetail = surfaceTexture(selectedMap === 'mountain' ? 'rock' : 'ground', physics.edge / 4);
-    const ground = new THREE.Mesh(new THREE.PlaneGeometry(physics.edge * 2, physics.edge * 2, physics.edge, physics.edge), new THREE.MeshStandardMaterial({color: config.ground, roughness: 1, map: groundDetail, bumpMap: groundDetail, bumpScale: .12}));
-    {
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(physics.edge * 2, physics.edge * 2, selectedMap === 'city' ? 1 : physics.edge, selectedMap === 'city' ? 1 : physics.edge), new THREE.MeshStandardMaterial({color: config.ground, roughness: 1, map: groundDetail, bumpMap: groundDetail, bumpScale: .12}));
+    if (selectedMap !== 'city') {
       const pos = ground.geometry.attributes.position;
       for (let i=0;i<pos.count;i++) pos.setZ(i, physics.terrainHeight(pos.getX(i), -pos.getY(i)));
       ground.geometry.computeVertexNormals();
@@ -146,12 +160,14 @@
     ground.name = 'terrain';
     ground.receiveShadow = true;
     world.add(ground);
-    const path = new THREE.CatmullRomCurve3(config.points.map(([x, z]) => new THREE.Vector3(x, 0, z)), true, 'centripetal');
-    samples = Array.from({length: 480}, (_, index) => ({
-      point: path.getPointAt(index / 480), tangent: path.getTangentAt(index / 480).normalize()
-    }));
-
-    samples.forEach(sample => { sample.point.y = physics.terrainHeight(sample.point.x, sample.point.z); });
+    if (selectedMap === 'city') samples = city.routeSamples.map(sample => ({point: new THREE.Vector3(sample.x, 0, sample.z), tangent: new THREE.Vector3(sample.tx, 0, sample.tz)}));
+    else {
+      const path = new THREE.CatmullRomCurve3(config.points.map(([x, z]) => new THREE.Vector3(x, 0, z)), true, 'centripetal');
+      samples = Array.from({length: 480}, (_, index) => ({
+        point: path.getPointAt(index / 480), tangent: path.getTangentAt(index / 480).normalize()
+      }));
+      samples.forEach(sample => { sample.point.y = physics.terrainHeight(sample.point.x, sample.point.z); });
+    }
     if(selectedMap==='racetrack')samples=DrivePhysics.stuntRoute.map(p=>({point:new THREE.Vector3(p.x,p.y,p.z),tangent:new THREE.Vector3(p.tx,0,p.tz),width:p.width,kind:p.kind}));
 
     const ribbonSamples = samples;
@@ -190,16 +206,11 @@
     }
 
     const halfWidth = config.roadHalfWidth || 6.2, shoulderWidth = config.shoulderWidth || 1.5;
-    if(selectedMap!=='racetrack') {
+    if(selectedMap!=='racetrack' && selectedMap!=='city') {
     const shoulder = new THREE.MeshStandardMaterial({color:0x58605b,roughness:1,map:surfaceTexture('ground'),side:THREE.DoubleSide});
     // Only draw exposed shoulders, not another almost-coplanar layer under asphalt.
     ribbon(-halfWidth-shoulderWidth,-halfWidth,.045,shoulder);
     ribbon(halfWidth,halfWidth+shoulderWidth,.045,shoulder);
-    if (selectedMap === 'city') {
-      const sidewalk = new THREE.MeshStandardMaterial({color: 0xb4b6ae, roughness: 1, side: THREE.DoubleSide});
-      ribbon(-11,-7.75,.05,sidewalk);
-      ribbon(7.75,11,.05,sidewalk);
-    }
     ribbon(-halfWidth, halfWidth, .075, new THREE.MeshStandardMaterial({color: 0x30383d, roughness: .95, map: surfaceTexture('asphalt'), side: THREE.DoubleSide}));
     const paint = new THREE.MeshBasicMaterial({color: 0xd0d6cd, side: THREE.DoubleSide});
     ribbon(-halfWidth+.24, -halfWidth+.37, .105, paint);
@@ -385,45 +396,10 @@
       addGate(316, 0x89bdff);
     }
     if (selectedMap === 'city') {
-      const windows = surfaceTexture('windows', 2);
-      const facades = [0x7e949b, 0xa2a8a4, 0x667e8a, 0xb09e90].map(color =>
-        new THREE.MeshStandardMaterial({color, roughness: .82, map: windows}));
-      const roofMaterial = new THREE.MeshStandardMaterial({color: 0x354b55, roughness: .9});
-      const blocks = [-160, -80, -40, 0, 40, 80, 160];
-      let index = 0;
-      for (const blockX of blocks) for (const blockZ of blocks) {
-        const x = blockX + (rand() - .5) * 7;
-        const z = blockZ + (rand() - .5) * 7;
-        if (distanceToRoad(x, z) < 20) continue;
-        const width = 14 + rand() * 8;
-        const depth = 14 + rand() * 8;
-        const height = 12 + rand() * 40;
-        const building = new THREE.Mesh(new THREE.BoxGeometry(width, height, depth), facades[index++ % facades.length]);
-        building.name = 'city-building';
-        building.position.set(x, height / 2, z);
-        building.castShadow = true;
-        building.receiveShadow = true;
-        world.add(building);
-        const roof = new THREE.Mesh(new THREE.BoxGeometry(width + .5, .35, depth + .5), roofMaterial);
-        roof.position.set(x, height + .2, z);
-        world.add(roof);
-      }
-      const postGeometry = new THREE.CylinderGeometry(.1, .14, 5.5, 6);
-      const lampGeometry = new THREE.SphereGeometry(.38, 8, 6);
-      const postMaterial = new THREE.MeshStandardMaterial({color: 0x2c424c, metalness: .55, roughness: .5});
-      const lampMaterial = new THREE.MeshBasicMaterial({color: 0xffdca4});
-      for (let index = 0; index < samples.length; index += 30) {
-        const sample = samples[index];
-        const normal = new THREE.Vector3(-sample.tangent.z, 0, sample.tangent.x);
-        const base = sample.point.clone().addScaledVector(normal, 9);
-        const post = new THREE.Mesh(postGeometry, postMaterial);
-        post.position.set(base.x, 2.75, base.z);
-        world.add(post);
-        const lamp = new THREE.Mesh(lampGeometry, lampMaterial);
-        lamp.position.set(base.x, 5.55, base.z);
-        world.add(lamp);
-      }
+      cityVisual = city.build(THREE, world);
     }
+
+    portfolio?.setMap(selectedMap);
 
   }
 
@@ -581,6 +557,16 @@
     if (physics) vehicle.position.y = physics.body.position.y - 1.05;
     camera.position.set(vehicle.position.x - Math.sin(motion.heading) * 9, vehicle.position.y + 5, vehicle.position.z - Math.cos(motion.heading) * 9);
   }
+  function jumpToStop(stop) {
+    if (selectedMap !== 'city' || !physics) return;
+    resetOrbit();
+    releaseControls();
+    physics.reset(stop.x, stop.z, 0);
+    motion.speed = 0;
+    motion.heading = 0;
+    updateVehicle(0);
+    camera.position.set(vehicle.position.x, vehicle.position.y + 5, vehicle.position.z - 9);
+  }
   function chooseMap(type) {
     if (!maps[type]) return;
     selectedMap = type;
@@ -620,6 +606,18 @@
     document.querySelector('#topSpeedValue').textContent = Math.round(carSpecs[type].maxSpeed * 2.236936) + ' mph target top speed';
   }
   chooseCar('comet');
+
+  if (window.DrivePortfolioUI?.create) {
+    portfolio = window.DrivePortfolioUI.create({
+      document, window, stops:city.stops, onJump:jumpToStop,
+      onOpen() {
+        releaseControls();
+        if (physics) { physics.body.velocity.setZero(); physics.body.angularVelocity.setZero(); physics.syncRenderState(); }
+      }
+    });
+    portfolio.setMap(selectedMap);
+    portfolio.update(physics.body.position, 0);
+  }
 
   function setCameraMode() {
     resetOrbit();
@@ -772,16 +770,17 @@
     else camera.position.lerp(desired, 1 - Math.exp(-5 * delta));
     if (physics) camera.position.y=Math.max(camera.position.y,physics.terrainHeight(camera.position.x,camera.position.z)+1.5);
     camera.lookAt(target);
-    // The old origin-centered sky crossed far=600 away from the map center,
-    // clipping a circular black hole. Keep every sky vertex within radius 490.
+    // Keep the enclosing sky centered on the camera and within its far plane.
     sky.position.copy(camera.position);
   }
 
   let firstFrame = true;
   function animate() {
     const delta = Math.min(clock.getDelta(), .05);
-    updateVehicle(delta);
+    updateVehicle(portfolio?.isOpen() ? 0 : delta);
     updateCamera(delta);
+    cityVisual?.update?.(camera, delta);
+    portfolio?.update(physics.body.position, motion.speed);
     renderer.render(scene, camera);
     if (firstFrame) { message.classList.add('done'); firstFrame = false; }
     requestAnimationFrame(animate);

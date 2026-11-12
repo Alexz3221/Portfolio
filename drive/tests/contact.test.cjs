@@ -42,7 +42,7 @@ test('actual cliff triangles allow low and high speed glancing contacts',()=>{
 
 test('every car and map still stops at a solid obstacle at low and maximum speed',()=>{
  for(const map of maps)for(const car of cars)for(const speed of [8,P.vehicles[car].maxSpeed]){
-  const p=P.create({map,car}),x=map==='mountain'?136:0;p.reset(x,0);p.addTree(x,8,1,30);
+  const p=P.create({map,car}),x=map==='mountain'?136:map==='city'?80:0;p.reset(x,0);p.addTree(x,8,1,30);
   for(let i=0;i<120;i++)p.step(1/120);
   p.body.velocity.set(0,0,speed);let hit=false,maxZ=-Infinity;
   for(let i=0;i<120;i++){p.step(1/120);hit ||=contact(p);maxZ=Math.max(maxZ,p.body.position.z);}
