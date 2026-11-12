@@ -19,7 +19,7 @@
     hypercar: {name:'Hypercar',color:0xe14839},
     pickup: {name:'Pickup',color:0x25975b}
   }).map(([type,style]) => [type,{...DrivePhysics.vehicles[type],...style,wheelRadius:DrivePhysics.vehicles[type].radius}]));
-  const city = DrivePhysics.city;
+  let city = DrivePhysics.city;
   const maps = {
     city: {name: 'City', caption: 'Alex after dark · six stops, one city to explore', ground: 0x202a38, fog: 0x0c1728, skyLow: 0x263447, skyHigh: 0x050b18, seed: 41732},
     mountain: {name: 'Cliffside mountain', caption: 'Narrow ledge · sheer drops · winding ascent', ground: 0x817969, fog: 0x9caeae, skyLow: 0xcbd8d2, skyHigh: 0x416b92, mountain: 0x83908b, seed: 93217,
@@ -122,6 +122,8 @@
 
   function buildWorld() {
     // Dispose shared resources once when changing maps, never accumulate old scenery.
+    cityVisual?.dispose?.();
+    physics?.dispose?.();
     const geometries = new Set(), materials = new Set(), textures = new Set();
     world.traverse(object => {
       if (object.geometry) geometries.add(object.geometry);
@@ -135,7 +137,7 @@
     geometries.forEach(geometry => geometry.dispose());
     materials.forEach(material => material.dispose());
     textures.forEach(texture => texture.dispose());
-    physics = DrivePhysics.create({map:selectedMap, car:selectedCar, distanceToRoad, roadHalfWidth:selectedMap === 'city' ? city.roadHalfWidth : maps[selectedMap].roadHalfWidth || 6.2});
+    physics = DrivePhysics.create({map:selectedMap, city, car:selectedCar, distanceToRoad, roadHalfWidth:selectedMap === 'city' ? city.roadHalfWidth : maps[selectedMap].roadHalfWidth || 6.2});
     const config = maps[selectedMap];
     scene.fog.color.setHex(config.fog);
     scene.background = new THREE.Color(config.fog);
@@ -148,19 +150,21 @@
     sunsetLight.intensity = selectedMap === 'city' ? .22 : 1.25;
     sunsetLight.castShadow = selectedMap !== 'city';
     blueFill.intensity = selectedMap === 'city' ? .65 : .35;
-    const groundDetail = surfaceTexture(selectedMap === 'mountain' ? 'rock' : 'ground', physics.edge / 4);
-    const ground = new THREE.Mesh(new THREE.PlaneGeometry(physics.edge * 2, physics.edge * 2, selectedMap === 'city' ? 1 : physics.edge, selectedMap === 'city' ? 1 : physics.edge), new THREE.MeshStandardMaterial({color: config.ground, roughness: 1, map: groundDetail, bumpMap: groundDetail, bumpScale: .12}));
-    if (selectedMap !== 'city') {
-      const pos = ground.geometry.attributes.position;
-      for (let i=0;i<pos.count;i++) pos.setZ(i, physics.terrainHeight(pos.getX(i), -pos.getY(i)));
-      ground.geometry.computeVertexNormals();
+    if (!(selectedMap === 'city' && city.terrain)) {
+      const groundDetail = surfaceTexture(selectedMap === 'mountain' ? 'rock' : 'ground', physics.edge / 4);
+      const ground = new THREE.Mesh(new THREE.PlaneGeometry(physics.edge * 2, physics.edge * 2, selectedMap === 'city' ? 1 : physics.edge, selectedMap === 'city' ? 1 : physics.edge), new THREE.MeshStandardMaterial({color: config.ground, roughness: 1, map: groundDetail, bumpMap: groundDetail, bumpScale: .12}));
+      if (selectedMap !== 'city') {
+        const pos = ground.geometry.attributes.position;
+        for (let i=0;i<pos.count;i++) pos.setZ(i, physics.terrainHeight(pos.getX(i), -pos.getY(i)));
+        ground.geometry.computeVertexNormals();
+      }
+      ground.rotation.x = -Math.PI / 2;
+      ground.position.y = 0;
+      ground.name = 'terrain';
+      ground.receiveShadow = true;
+      world.add(ground);
     }
-    ground.rotation.x = -Math.PI / 2;
-    ground.position.y = 0;
-    ground.name = 'terrain';
-    ground.receiveShadow = true;
-    world.add(ground);
-    if (selectedMap === 'city') samples = city.routeSamples.map(sample => ({point: new THREE.Vector3(sample.x, 0, sample.z), tangent: new THREE.Vector3(sample.tx, 0, sample.tz)}));
+    if (selectedMap === 'city') samples = city.routeSamples.map(sample => ({point: new THREE.Vector3(sample.x, sample.y ?? physics.terrainHeight(sample.x,sample.z), sample.z), tangent: new THREE.Vector3(sample.tx, 0, sample.tz)}));
     else {
       const path = new THREE.CatmullRomCurve3(config.points.map(([x, z]) => new THREE.Vector3(x, 0, z)), true, 'centripetal');
       samples = Array.from({length: 480}, (_, index) => ({
@@ -399,6 +403,7 @@
       cityVisual = city.build(THREE, world);
     }
 
+    portfolio?.setCity(city);
     portfolio?.setMap(selectedMap);
 
   }
@@ -559,13 +564,26 @@
   }
   function jumpToStop(stop) {
     if (selectedMap !== 'city' || !physics) return;
-    resetOrbit();
     releaseControls();
-    physics.reset(stop.x, stop.z, 0);
-    motion.speed = 0;
-    motion.heading = 0;
-    updateVehicle(0);
-    camera.position.set(vehicle.position.x, vehicle.position.y + 5, vehicle.position.z - 9);
+    const destination=city;
+    const travel=()=>{
+      if(selectedMap !== 'city' || city !== destination || !physics)return;
+      resetOrbit();
+      physics.reset(stop.x, stop.z, 0);
+      motion.speed = 0;
+      motion.heading = 0;
+      updateVehicle(0);
+      camera.position.set(vehicle.position.x, vehicle.position.y + 5, vehicle.position.z - 9);
+    };
+    if(typeof city.ensureNear==='function') {
+      // Move first so both the visual streamer and physics request the target district.
+      // Reset again after its road slabs arrive to use the source street elevation.
+      travel();
+      Promise.resolve(city.ensureNear(stop.x,stop.z,Math.max(240,city.tileSize*1.2))).then(travel).catch(error=>{
+        document.querySelector('#surfaceValue').textContent='Could not load that district';
+        console.warn('City stop could not load:',error);
+      });
+    } else travel();
   }
   function chooseMap(type) {
     if (!maps[type]) return;
@@ -609,7 +627,7 @@
 
   if (window.DrivePortfolioUI?.create) {
     portfolio = window.DrivePortfolioUI.create({
-      document, window, stops:city.stops, driveTarget:canvas, onJump:jumpToStop,
+      document, window, city, driveTarget:canvas, onJump:jumpToStop,
       onOpen() {
         releaseControls();
         if (physics) { physics.body.velocity.setZero(); physics.body.angularVelocity.setZero(); physics.syncRenderState(); }
@@ -617,6 +635,24 @@
     });
     portfolio.setMap(selectedMap);
     portfolio.update(physics.body.position, 0);
+  }
+
+  if (window.DriveImportedCity?.load) {
+    Promise.resolve().then(() => window.DriveImportedCity.load()).then(imported => {
+      if (!imported || !Number.isFinite(imported.edge) || !imported.routeSamples?.length || !imported.stops?.length || typeof imported.build !== 'function')
+        throw new Error('Imported city data is incomplete');
+      const fallback=city;
+      city=imported;
+      try {
+        portfolio?.setCity(city);
+        if (selectedMap === 'city') chooseMap('city');
+      } catch (error) {
+        city=fallback;
+        portfolio?.setCity(city);
+        if (selectedMap === 'city') chooseMap('city');
+        throw error;
+      }
+    }).catch(error => console.warn('Imported city unavailable; using the built-in district:', error));
   }
 
   function setCameraMode() {
@@ -740,7 +776,9 @@
       document.querySelector('#speedValue').textContent=String(Math.round(physics.body.velocity.length()*2.236936));
       const up=new THREE.Vector3(0,1,0).applyQuaternion(vehicle.quaternion);
       document.querySelector('#surfaceValue').textContent=selectedMap==='racetrack'&&physics.body.position.y<-2?'Fell off course · Press R / Reset':up.y<.1?'Overturned? Press R / reset':state.grounded?state.grounded+' wheels grounded':'AIRBORNE · ↑↓ pitch / ←→ roll';
-      if(physics.body.position.y < -30) resetVehicle();
+      const fallLimit=selectedMap==='city' && city.terrain
+        ? physics.terrainHeight(physics.body.position.x,physics.body.position.z)-30 : -30;
+      if(physics.body.position.y < fallLimit) resetVehicle();
       return;
     }
 

@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const THREE = require('three');
 
-function harness(assetLoader) {
+function harness(assetLoader, importer) {
   class Element {
     constructor(dataset = {}) { this.style = {}; this.dataset = dataset; this.listeners = {}; this.classes = new Set(); this.attributes = {}; this.textContent = ''; this.value = ''; this.classList = {add: x => this.classes.add(x), remove: x => this.classes.delete(x), toggle: (x, on) => on ? this.classes.add(x) : this.classes.delete(x)}; }
     addEventListener(name, fn) { this.listeners[name] = fn; }
@@ -20,7 +20,7 @@ function harness(assetLoader) {
     querySelectorAll: selector => selector === '[data-car]' ? cars : controls,
     addEventListener: (name, fn) => { document[name] = fn; }, hidden: false
   };
-  const window = {THREE, devicePixelRatio: 1, innerWidth: 1280, innerHeight: 800, addEventListener: (name, fn) => { window[name] = fn; }};
+  const window = {THREE, DriveImportedCity: importer, devicePixelRatio: 1, innerWidth: 1280, innerHeight: 800, addEventListener: (name, fn) => { window[name] = fn; }};
   const fakeThree = {...THREE, WebGLRenderer: class {constructor(){this.shadowMap={};} setPixelRatio(){} setSize(){} render(){} }};
   const context = vm.createContext({window, document, THREE: fakeThree, DriveVehicleAssets: assetLoader, DrivePhysics: require('../js/physics.js'), requestAnimationFrame() {}, console});
   const source = fs.readFileSync(require.resolve('../js/main.js'), 'utf8');
@@ -28,6 +28,27 @@ function harness(assetLoader) {
   context.sim.chooseMap('city');
   return {sim: context.sim, document, window, cars, controls};
 }
+
+test('browser adopts a loaded imported district while keeping other routes playable',async()=>{
+  const fallback=require('../js/city');
+  const imported={...fallback,edge:520,bounds:{minX:-500,maxX:500,minZ:-500,maxZ:500},
+    terrain:{elementSize:880,originX:-440,maxZ:440,data:[[-50,-50],[-50,-50]]}};
+  const {sim}=harness(undefined,{load:()=>Promise.resolve(imported)});
+  assert.equal(sim.physics().edge,fallback.edge,'built-in district starts immediately');
+  await new Promise(setImmediate);
+  assert.equal(sim.physics().edge,520,'imported city replaces the fallback');
+  assert.equal(sim.samples().length,imported.routeSamples.length);
+  sim.chooseMap('mountain');
+  assert.equal(sim.physics().edge,200);
+  sim.chooseMap('city');
+  assert.equal(sim.physics().edge,520,'imported district survives route switches');
+  const p=sim.physics(),spawnX=sim.samples()[0].point.x;
+  p.body.position.x=spawnX+5;p.body.position.y=-49;p.syncRenderState();
+  sim.updateVehicle(0);
+  assert.equal(p.body.position.x,spawnX+5,'normal driving below world y=-30 does not reset');
+  p.body.position.y=-81;p.syncRenderState();sim.updateVehicle(0);
+  assert.equal(p.body.position.x,spawnX,'falling 30m below local terrain still resets');
+});
 
 test('all three maps have distinct drivable, finite closed routes and safe spawns', () => {
   const {sim} = harness();

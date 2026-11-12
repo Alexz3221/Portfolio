@@ -1,0 +1,7 @@
+# Personal Cities: Skylines II saves and raw CSLModernMap exports.
+*.cok
+*.cok.bak*
+*.cmm
+*.cmm.gz
+private-exports/
+raw-exports/

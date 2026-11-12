@@ -75,12 +75,11 @@
   };
   const labels = {about: 'About', projects: 'Projects', experience: 'Experience', education: 'Education', skills: 'Skills', contact: 'Contact'};
   const escapeHtml = value => String(value).replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
-  const mapCoordinate = value => Math.max(0, Math.min(100, (value + 440) / 880 * 100));
-
-  function create({document, window, stops, onJump, onOpen, onClose, driveTarget}) {
+  function create({document, window, stops, city, onJump, onOpen, onClose, driveTarget}) {
     if (!document?.createElement || !document?.body) throw new Error('Portfolio UI needs a browser document');
-    const locations = (stops || []).filter(stop => stories[stop.id]);
-    const byId = new Map(locations.map(stop => [stop.id, stop]));
+    let cityMap = city || null;
+    let locations = (stops || cityMap?.stops || []).filter(stop => stories[stop.id]);
+    let byId = new Map(locations.map(stop => [stop.id, stop]));
     const routePicker = document.querySelector('.route-picker');
     const guideButton = document.createElement('button');
     guideButton.type = 'button';
@@ -102,7 +101,7 @@
             <p class="city-guide-intro">Take the long way around, or open a stop right here. The city is yours either way.</p>
             <div class="city-guide-layout">
               <div class="city-map" role="group" aria-label="City map and portfolio stops">
-                <svg viewBox="0 0 100 100" aria-hidden="true" focusable="false"></svg>
+                <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true" focusable="false"></svg>
                 <span class="city-player-dot" aria-hidden="true"></span>
                 <div class="city-map-stops"></div>
                 <span class="city-map-key">YOU ARE HERE <i></i></span>
@@ -133,33 +132,67 @@
     const stopList = host.querySelector('.city-stop-list');
     const svg = host.querySelector('.city-map svg');
     const driveFocus = driveTarget || document.querySelector('#drive-scene');
-    const roads = [-400,-320,-240,-160,-80,0,80,160,240,320,400];
-    svg.innerHTML = roads.map(c => {
-      const p = mapCoordinate(c);
-      return `<line x1="${p}" y1="4" x2="${p}" y2="96"/><line x1="4" y1="${100-p}" x2="96" y2="${100-p}"/>`;
-    }).join('') + '<line class="city-map-highway" x1="50" y1="4" x2="50" y2="96"/>';
-    locations.forEach((stop, index) => {
-      const number = String(index + 1).padStart(2, '0');
-      const dot = document.createElement('button');
-      dot.type = 'button';
-      dot.className = 'city-map-stop';
-      dot.style.left = mapCoordinate(stop.x) + '%';
-      dot.style.top = (100 - mapCoordinate(stop.z)) + '%';
-      const stopColor = typeof stop.color === 'string' && /^#[\da-f]{6}$/i.test(stop.color)
-        ? stop.color : '#' + Number(stop.color || 0x66e7f1).toString(16).padStart(6, '0');
-      dot.style.setProperty('--stop-color', stopColor);
-      dot.setAttribute('aria-label', `${labels[stop.id]} at ${stop.title}`);
-      dot.title = stop.title;
-      dot.dataset.stop = stop.id;
-      dot.textContent = number;
-      mapStops.appendChild(dot);
-      const item = document.createElement('button');
-      item.type = 'button';
-      item.className = 'city-stop-item';
-      item.dataset.stop = stop.id;
-      item.innerHTML = `<span>${number} / ${escapeHtml(labels[stop.id])}</span><strong>${escapeHtml(stop.title)}</strong><small>OPEN STOP ↗</small>`;
-      stopList.appendChild(item);
-    });
+    let bounds={minX:-440,maxX:440,minZ:-440,maxZ:440};
+    function point(x,z) {
+      const span=Math.max(1,bounds.maxX-bounds.minX,bounds.maxZ-bounds.minZ);
+      const midX=(bounds.minX+bounds.maxX)/2,midZ=(bounds.minZ+bounds.maxZ)/2;
+      return {x:Math.max(0,Math.min(100,50+(x-midX)*92/span)),
+        y:Math.max(0,Math.min(100,50-(z-midZ)*92/span))};
+    }
+    function renderMap() {
+      const lines=cityMap?.overviewRoads || cityMap?.roadSegments;
+      if(lines?.length) {
+        const stride=Math.max(1,Math.ceil(lines.length/700));
+        svg.innerHTML=lines.filter((_,i)=>i%stride===0).map(line=>{
+          const a=point(line.x1,line.z1),b=point(line.x2,line.z2);
+          const highway=/highway|motorway|freeway|express/i.test(String(line.roadClass||line.kind||'')) ||
+            /elevated|bridge|viaduct|overpass/i.test(String(line.mode||'')) || Number(line.width)>=24;
+          const roadClass=highway?' class="city-map-highway"':'';
+          return `<line${roadClass} x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}"/>`;
+        }).join('');
+      } else {
+        const roads = [-400,-320,-240,-160,-80,0,80,160,240,320,400];
+        svg.innerHTML = roads.map(c => {
+          const a=point(c,-400),b=point(c,400),d=point(-400,c),e=point(400,c);
+          return `<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}"/><line x1="${d.x}" y1="${d.y}" x2="${e.x}" y2="${e.y}"/>`;
+        }).join('') + '<line class="city-map-highway" x1="50" y1="4" x2="50" y2="96"/>';
+      }
+      mapStops.replaceChildren();
+      stopList.replaceChildren();
+      locations.forEach((stop, index) => {
+        const number = String(index + 1).padStart(2, '0');
+        const mapped=point(stop.x,stop.z);
+        const dot = document.createElement('button');
+        dot.type = 'button';
+        dot.className = 'city-map-stop';
+        dot.style.left = mapped.x + '%';
+        dot.style.top = mapped.y + '%';
+        const stopColor = typeof stop.color === 'string' && /^#[\da-f]{6}$/i.test(stop.color)
+          ? stop.color : '#' + Number(stop.color || 0x66e7f1).toString(16).padStart(6, '0');
+        dot.style.setProperty('--stop-color', stopColor);
+        dot.setAttribute('aria-label', `${labels[stop.id]} at ${stop.title}`);
+        dot.title = stop.title;
+        dot.dataset.stop = stop.id;
+        dot.textContent = number;
+        mapStops.appendChild(dot);
+        const item = document.createElement('button');
+        item.type = 'button';
+        item.className = 'city-stop-item';
+        item.dataset.stop = stop.id;
+        item.innerHTML = `<span>${number} / ${escapeHtml(labels[stop.id])}</span><strong>${escapeHtml(stop.title)}</strong><small>OPEN STOP ↗</small>`;
+        stopList.appendChild(item);
+      });
+    }
+    function setCity(nextCity) {
+      cityMap=nextCity || null;
+      const edge=Number(cityMap?.edge) || 440;
+      bounds=cityMap?.bounds || {minX:-edge,maxX:edge,minZ:-edge,maxZ:edge};
+      locations=(cityMap?.stops || stops || []).filter(stop=>stories[stop.id]);
+      byId=new Map(locations.map(stop=>[stop.id,stop]));
+      if(currentStop)currentStop=byId.get(currentStop.id) || null;
+      nearbyStop=null;
+      renderMap();
+    }
 
     let map = null, activeView = null, currentStop = null, nearbyStop = null, previousFocus = null, currentSpeed = 0;
     function begin(view, returnFocus) {
@@ -214,8 +247,9 @@
     function update(position, speed = 0) {
       if (map !== 'city' || !position) return;
       currentSpeed = speed;
-      playerDot.style.left = mapCoordinate(position.x) + '%';
-      playerDot.style.top = (100 - mapCoordinate(position.z)) + '%';
+      const mapped=point(position.x,position.z);
+      playerDot.style.left = mapped.x + '%';
+      playerDot.style.top = mapped.y + '%';
       let nearest = null, distance = Infinity;
       for (const stop of locations) {
         const d = Math.hypot(position.x - stop.x, position.z - stop.z);
@@ -271,7 +305,8 @@
         open(nearbyStop.id, driveFocus);
       }
     });
-    return {setMap, update, isOpen, open, close};
+    setCity(cityMap);
+    return {setCity, setMap, update, isOpen, open, close};
   }
 
   return {create, stories};

@@ -8,11 +8,19 @@ Four cars share a 120 Hz rigid-body, four-wheel raycast suspension engine: Comet
 
 The selector offers three routes:
 
-- **City / Alex after dark** is an 880 m rainy neon street grid with 100 blocks, 163 varied buildings, businesses, six portfolio landmarks, and a driveable elevated highway with ramps. Buildings, highway deck, rails, and supports have solid colliders. The City Guide opens every stop directly; slow down near a landmark and press E to explore it there. Each story can jump back to that location.
+- **City / Alex after dark** starts as an 880 m rainy neon street grid with 100 blocks, 163 varied buildings, businesses, six portfolio landmarks, and a driveable elevated highway with ramps. Buildings, highway deck, rails, and supports have solid colliders. The City Guide opens every stop directly; slow down near a landmark and press E to explore it there. Each story can jump back to that location.
 - **Cliffside mountain** is an 894 m winding ledge with 7 m asphalt, real collision cliffs, and a steep ascent and descent. Falling off requires a reset.
 - **Racetrack / stunt course** is a 1.19 km ordered route with a 9 m overpass, slalom gates, an 8 m jump gap, a lower crossing, and a narrow balance bridge. Its road slabs are the colliders; there is no paved shortcut around a stunt. Approach the orange jump around 52–63 mph and slow down for the blue bridge.
 
-City has a 440 m half-width boundary and a flat collision plane beneath its raised highway. Mountain and racetrack retain 200 m half-width boundaries; the mountain road follows its heightfield triangle sampler. The old proving-ground ramp remains only as a physics test fixture. Changing maps resets onto the selected route; changing cars preserves position and orientation while stopping momentum. World geometry, materials, and procedural textures are disposed on rebuild.
+The built-in City has a 440 m half-width boundary and a flat collision plane beneath its raised highway. Mountain and racetrack retain 200 m half-width boundaries; the mountain road follows its heightfield triangle sampler. The old proving-ground ramp remains only as a physics test fixture. Changing maps resets onto the selected route; changing cars preserves position and orientation while stopping momentum. World geometry, materials, and procedural textures are disposed on rebuild.
+
+## Optional imported city
+
+If `data/imported-city/manifest.json` exists, the page loads that converted CSLModernMap city and switches from the built-in district after the first nearby tiles arrive. If the data is absent or cannot load, the built-in City remains playable. The import keeps source terrain and road elevations, loads and evicts detail tiles around the car, and places the six portfolio stops beside suitable streets. The City Guide scales to the driveable built-road bounds and draws a simplified road overview of that area.
+
+The imported driving physics uses the decoded terrain grid as a collision heightfield. Buildings, raised streets, bridges, rails, and supports get nearby colliders as tiles load; tile unload removes them. Roads that sit below the source terrain still need terrain carving to be fully driveable. The imported renderer draws source building footprints and road geometry with the same coordinate system. See [the conversion guide](docs/imported-city.md) for the `.cmm.gz` workflow and output schema.
+
+A real CSLModernMap export is now converted in `data/imported-city/`: 293 detail tiles, 21,493 building records, 4,258 driveable road records, and a 318 × 366 terrain grid. The imported scene has been exercised in Node with both synthetic and real data, including nearby physics and rendering. Its browser appearance has not been visually verified yet.
 
 ## Portfolio stops
 
@@ -39,7 +47,8 @@ npm test
 node --check js/main.js
 node --check js/physics.js
 node --check js/city.js
+node --check js/imported-city.js
 node --check js/portfolio-ui.js
 ```
 
-Automated tests cover car motion and collisions, City streets, buildings and highway, map and car switching, terrain agreement, the cliff route, stunt slabs and obstacles, cameras, touch controls, model loading, and resource disposal. `tests/portfolio-ui-smoke.html` exercises the guide, cards, fast travel, E prompt, Escape, and map visibility in a browser. Check the City, cliff, stunt route, and mobile controls in a WebGL browser before deployment.
+Automated tests cover car motion and collisions, the built-in City, imported terrain and nearby collision bodies, map and car switching, converter output, the cliff route, stunt slabs and obstacles, cameras, touch controls, model loading, and resource disposal. `tests/portfolio-ui-smoke.html` exercises the guide, cards, fast travel, E prompt, Escape, and map visibility in a browser. Check the imported City, cliff, stunt route, and mobile controls in a WebGL browser before deployment.

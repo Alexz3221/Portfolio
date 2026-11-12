@@ -104,6 +104,53 @@ test('city towers and elevated road have physical collision surfaces',()=>{
   assert.ok(Math.abs(ray(elevated.x,elevated.z,top+10,1)-top)<.1,'highway top is driveable');
 });
 
+test('imported terrain, graded streets, towers, and diagonal bridge agree with collider rays',()=>{
+  const C=require('cannon');
+  const street={x1:-3,y1:1.5,z1:3,x2:3,y2:3,z2:3,width:4};
+  const bridge={x1:-2,z1:-2,x2:2,z2:2,width:3,topStart:4,topEnd:6};
+  const tower={x:-2,z:-2,width:2,depth:2,height:8,baseY:3};
+  const terrain={elementSize:2,originX:-4,maxZ:4,data:Array.from({length:5},(_,i)=>Array.from({length:5},(_,j)=>i*.5+j*.25-4))};
+  const city={edge:30,terrain,roadHalfWidth:2,buildings:[tower],roadSegments:[street],highwaySegments:[bridge],guardrails:[],supports:[],
+    nearbyBuildings:()=>[tower],nearbyRoads:()=>[street],nearbyHighways:()=>[bridge],onTileChanged:()=>()=>{},ensureNear:()=>Promise.resolve([])};
+  const p=P.create({map:'city',city});p.body.position.set(100,100,100);
+  const ray=(x,z,start,end)=>{const hit=new C.RaycastResult();assert.ok(p.world.raycastClosest(new C.Vec3(x,start,z),new C.Vec3(x,end,z),{},hit));return hit.hitPointWorld.y;};
+  assert.ok(Math.abs(p.terrainHeight(0,0)+2.5)<1e-8);
+  assert.ok(Math.abs(ray(.3,.4,3,-10)-p.terrainHeight(.3,.4))<1e-6,'terrain heightfield is solid');
+  assert.ok(Math.abs(ray(0,3,8,1)-2.25)<.02,'graded street surface is solid');
+  assert.ok(Math.abs(ray(-2,-2,20,9)-11)<.02,'tower respects source base elevation');
+  assert.ok(Math.abs(ray(0,0,12,3)-5)<.02,'diagonal bridge follows source heading and elevation');
+  let warnings=0;const originalError=console.error;
+  try {
+    console.error=()=>{warnings++;};
+    p.reset(.3,-3.3);
+    let grounded=0;for(let i=0;i<120;i++)grounded=Math.max(grounded,p.step(1/60).grounded);
+    assert.ok(grounded>=2,'wheels settle on negative imported terrain');
+  } finally {console.error=originalError;}
+  assert.equal(warnings,0,'negative heights never invert CANNON terrain pillars');
+});
+
+test('streamed city colliders follow tile load and unload without retaining distant towers',()=>{
+  const C=require('cannon');
+  const first={x:0,z:0,width:8,depth:8,height:12},second={x:300,z:0,width:8,depth:8,height:15};
+  const buildings=[first,second];let changed=null,loads=0;
+  const city={edge:500,roadHalfWidth:8,buildings,roadSegments:[],highwaySegments:[],guardrails:[],supports:[],
+    nearbyBuildings:(x,z,r)=>buildings.filter(b=>Math.hypot(b.x-x,b.z-z)<r),
+    onTileChanged(fn){changed=fn;return()=>{changed=null;};},ensureNear(){loads++;return Promise.resolve([]);}};
+  const p=P.create({map:'city',city});
+  assert.ok(loads>0,'first district is requested');
+  const startingBodies=p.world.bodies.length;
+  p.reset(300,0);
+  assert.equal(p.world.bodies.length,startingBodies,'distant tower collider is replaced');
+  const roof=new C.RaycastResult();
+  p.world.raycastClosest(new C.Vec3(300,30,0),new C.Vec3(300,5,0),{},roof);
+  assert.ok(Math.abs(roof.hitPointWorld.y-15)<.01,'new district tower is solid');
+  buildings.splice(buildings.indexOf(second),1);
+  changed({type:'unload'});
+  assert.equal(p.world.bodies.length,startingBodies-1,'unloaded tower collider is removed while parked');
+  p.dispose();
+  assert.equal(changed,null,'tile listener is released with physics world');
+});
+
 test('a car climbs the city highway ramp and continues on its raised deck',()=>{
   const city=require('../js/city');
   const p=P.create({map:'city',distanceToRoad:city.distanceToRoad,roadHalfWidth:city.roadHalfWidth});

@@ -77,15 +77,26 @@
   function create(options={}) {
     const course = !options.map || options.map === 'course';
     const isCity = options.map === 'city';
-    const edge=isCity?City.edge:course?160:200, cells=isCity?0:edge;
+    const cityMap=options.city || City;
+    const cityTerrain=isCity && cityMap.terrain?.data?.length>1 ? cityMap.terrain : null;
+    const edge=isCity?cityMap.edge:course?160:200, cells=isCity?0:edge;
     const floorOffset=options.map==='racetrack'?stuntFeatures.floor:0;
     const analyticHeight=course?terrainHeight:(x,z)=>scenicHeight(options.map,x,z)-floorOffset;
-    const data=isCity?null:Array.from({length:cells+1},(_,i)=>Array.from({length:cells+1},(_,j)=>analyticHeight(i*2-edge,edge-j*2)));
+    const data=cityTerrain?.data || (isCity?null:Array.from({length:cells+1},(_,i)=>Array.from({length:cells+1},(_,j)=>analyticHeight(i*2-edge,edge-j*2))));
+    // CANNON's Heightfield pillar bottom is fixed at local -1. When source
+    // elevations dip below that, its generated convex triangles invert. Shift
+    // collider samples up and the whole body back down; world heights stay exact.
+    let terrainMin=Infinity;
+    if(cityTerrain)for(const column of data)for(const value of column)terrainMin=Math.min(terrainMin,value);
+    const terrainShift=cityTerrain?Math.max(0,1-terrainMin):0;
+    const collisionData=terrainShift?data.map(column=>column.map(value=>value+terrainShift)):data;
     // CANNON 0.6.2 getHeightAt is only an average. Match its actual triangles.
     function height(x,z) {
-      if(isCity)return 0;
-      const u=Math.max(0,Math.min(cells,(x+edge)/2)), v=Math.max(0,Math.min(cells,(edge-z)/2));
-      const i=Math.min(cells-1,Math.floor(u)),j=Math.min(cells-1,Math.floor(v)),a=u-i,b=v-j;
+      if(isCity&&!cityTerrain)return 0;
+      const nx=data.length-1,nz=data[0].length-1;
+      const u=Math.max(0,Math.min(nx,cityTerrain?(x-cityTerrain.originX)/cityTerrain.elementSize:(x+edge)/2));
+      const v=Math.max(0,Math.min(nz,cityTerrain?(cityTerrain.maxZ-z)/cityTerrain.elementSize:(edge-z)/2));
+      const i=Math.min(nx-1,Math.floor(u)),j=Math.min(nz-1,Math.floor(v)),a=u-i,b=v-j;
       if(a+b<=1) return floorOffset+data[i][j]*(1-a-b)+data[i+1][j]*a+data[i][j+1]*b;
       return floorOffset+data[i+1][j+1]*(a+b-1)+data[i][j+1]*(1-a)+data[i+1][j]*(1-b);
     }
@@ -99,21 +110,77 @@
     const chassisMaterial=new C.Material('chassis'), terrainMaterial=new C.Material('terrain');
     world.addContactMaterial(new C.ContactMaterial(chassisMaterial,terrainMaterial,{friction:.01,restitution:0}));
     const floor=new C.Body({mass:0,material:terrainMaterial});
-    if(isCity) { floor.addShape(new C.Plane()); floor.position.set(0,0,0); }
+    if(cityTerrain) { floor.addShape(new C.Heightfield(collisionData,{elementSize:cityTerrain.elementSize})); floor.position.set(cityTerrain.originX,-terrainShift,cityTerrain.maxZ); }
+    else if(isCity) { floor.addShape(new C.Plane()); floor.position.set(0,0,0); }
     else { floor.addShape(new C.Heightfield(data,{elementSize:2})); floor.position.set(-edge,floorOffset,edge); }
     floor.quaternion.setFromEuler(-Math.PI/2,0,0); world.addBody(floor);
-    function box(x,y,z,hx,hy,hz,angle=0) {const body=new C.Body({mass:0,material:terrainMaterial});body.addShape(new C.Box(new C.Vec3(hx,hy,hz)));body.position.set(x,y,z);body.quaternion.setFromEuler(angle,0,0);world.addBody(body);return body;}
+    function box(x,y,z,hx,hy,hz,angle=0,yaw=0) {
+      const body=new C.Body({mass:0,material:terrainMaterial});
+      body.addShape(new C.Box(new C.Vec3(hx,hy,hz)));
+      body.position.set(x,y,z);
+      const tilt=new C.Quaternion(), turn=new C.Quaternion();
+      tilt.setFromAxisAngle(new C.Vec3(1,0,0),angle);
+      turn.setFromAxisAngle(new C.Vec3(0,1,0),yaw);
+      turn.mult(tilt,body.quaternion);
+      world.addBody(body);
+      return body;
+    }
     if (course) box(ramp.x,ramp.y,ramp.z,ramp.halfWidth,.18,ramp.halfLength,ramp.angle);
-    if (isCity) {
-      for (const building of City.buildings) box(building.x,building.height/2,building.z,building.width/2,building.height/2,building.depth/2);
-      for (const segment of City.highwaySegments) {
-        const pitch=-Math.atan2(segment.topEnd-segment.topStart,segment.length);
-        const slopeLength=Math.hypot(segment.length,segment.topEnd-segment.topStart);
-        const centerY=(segment.topStart+segment.topEnd)/2-.25*Math.cos(pitch);
-        box(segment.x,centerY,segment.z,segment.width/2,.25,slopeLength/2,pitch);
+    const streamingCity=isCity && cityMap!==City && typeof cityMap.nearbyBuildings==='function';
+    const activeCity={buildings:new Map(),roads:new Map(),highways:new Map(),guardrails:new Map(),supports:new Map()};
+    let lastCityX=Infinity,lastCityZ=Infinity;
+    function roadBox(segment) {
+      const x1=segment.x1??segment.x, x2=segment.x2??segment.x;
+      const z1=segment.z1??segment.z-segment.length/2, z2=segment.z2??segment.z+segment.length/2;
+      const topStart=segment.topStart??segment.y1??0,topEnd=segment.topEnd??segment.y2??0;
+      const dx=x2-x1,dz=z2-z1,length=Math.hypot(dx,dz);
+      if(length<.01)return null;
+      const pitch=-Math.atan2(topEnd-topStart,length),yaw=Math.atan2(dx,dz);
+      const slopeLength=Math.hypot(length,topEnd-topStart);
+      const centerY=(topStart+topEnd)/2-.25/Math.cos(pitch);
+      return box((x1+x2)/2,centerY,(z1+z2)/2,segment.width/2,.25,slopeLength/2,pitch,yaw);
+    }
+    function updateLocalColliders(active,nearby,createBody) {
+      const wanted=new Set(nearby);
+      for(const [item,body] of active) if(!wanted.has(item)) {world.removeBody(body);active.delete(item);}
+      for(const item of wanted) if(!active.has(item)) {
+        const body=createBody(item);
+        if(body)active.set(item,body);
       }
-      for (const rail of City.guardrails) box(rail.x,rail.y,rail.z,rail.width/2,rail.height/2,rail.length/2,rail.pitch);
-      for (const support of City.supports) box(support.x,support.y,support.z,support.width/2,support.height/2,support.depth/2);
+    }
+    function nearbyItems(query,items,x,z,radius) {
+      if(typeof query==='function')return query(x,z,radius);
+      return items.filter(item=>{
+        const span=item.length||Math.hypot((item.x2??item.x)-(item.x1??item.x),(item.z2??item.z)-(item.z1??item.z));
+        return Math.hypot((item.x??(item.x1+item.x2)/2)-x,(item.z??(item.z1+item.z2)/2)-z)<radius+span/2;
+      });
+    }
+    function refreshCityColliders(x,z,force=false,requestTiles=true) {
+      if(!streamingCity || !force && Math.hypot(x-lastCityX,z-lastCityZ)<20)return;
+      lastCityX=x;lastCityZ=z;
+      const radius=140;
+      if(requestTiles) {
+        const pending=cityMap.ensureNear?.(x,z,Math.max(280,cityMap.tileSize*1.05||0));
+        pending?.catch?.(error=>console.warn('City tile could not load:',error));
+      }
+      updateLocalColliders(activeCity.buildings,cityMap.nearbyBuildings(x,z,radius),b=>
+        box(b.x,(b.baseY||0)+b.height/2,b.z,b.width/2,b.height/2,b.depth/2));
+      updateLocalColliders(activeCity.highways,nearbyItems(cityMap.nearbyHighways?.bind(cityMap),cityMap.highwaySegments,x,z,radius),roadBox);
+      if(cityTerrain && typeof cityMap.nearbyRoads==='function') {
+        const raised=cityMap.nearbyRoads(x,z,radius).filter(s=>
+          Math.max((s.y1||0)-height(s.x1,s.z1),(s.y2||0)-height(s.x2,s.z2))>.15);
+        updateLocalColliders(activeCity.roads,raised,roadBox);
+      }
+      updateLocalColliders(activeCity.guardrails,nearbyItems(cityMap.nearbyGuardrails?.bind(cityMap),cityMap.guardrails||[],x,z,radius),r=>
+        box(r.x,r.y,r.z,r.width/2,r.height/2,r.length/2,r.pitch||0,r.yaw||0));
+      updateLocalColliders(activeCity.supports,nearbyItems(cityMap.nearbySupports?.bind(cityMap),cityMap.supports||[],x,z,radius),s=>
+        box(s.x,s.y,s.z,s.width/2,s.height/2,s.depth/2));
+    }
+    if (isCity && !streamingCity) {
+      for (const building of cityMap.buildings) box(building.x,(building.baseY||0)+building.height/2,building.z,building.width/2,building.height/2,building.depth/2);
+      for (const segment of cityMap.highwaySegments) roadBox(segment);
+      for (const rail of cityMap.guardrails || []) box(rail.x,rail.y,rail.z,rail.width/2,rail.height/2,rail.length/2,rail.pitch||0,rail.yaw||0);
+      for (const support of cityMap.supports || []) box(support.x,support.y,support.z,support.width/2,support.height/2,support.depth/2);
     }
     // Every route slab uses the exact same vertices for rendering and collision.
     const bridges=[],stuntSlabs=[];
@@ -145,6 +212,18 @@
       support.body=box(x,support.y,z,support.hx,support.hy,support.hz);stuntSupports.push(support);
     }
     function roadHeight(x,z) {
+      if(isCity) {
+        const ground=height(x,z);
+        if(typeof cityMap.nearbyRoads!=='function')return ground;
+        let best=Infinity,top=ground;
+        for(const road of cityMap.nearbyRoads(x,z,40)) {
+          const dx=road.x2-road.x1,dz=road.z2-road.z1,length2=dx*dx+dz*dz;
+          const t=Math.max(0,Math.min(1,((x-road.x1)*dx+(z-road.z1)*dz)/(length2||1)));
+          const distance=Math.hypot(x-road.x1-dx*t,z-road.z1-dz*t);
+          if(distance<best && distance<=road.width/2+1) {best=distance;top=Math.max(ground,road.y1+(road.y2-road.y1)*t);}
+        }
+        return top;
+      }
       if(options.map!=='racetrack')return height(x,z);
       // Reset only onto a physical road, never into the recovery floor.
       let best=Infinity,y=height(x,z),width=0;
@@ -160,8 +239,14 @@
       obstacles.push(obstacle);box(x,obstacle.y,z,hx,hy,hz);return obstacle;
     }
     // Invisible perimeter only at the edge of the matching visible terrain.
-    const wallHeight=options.map === 'mountain'?60:course?5:35;
-    box(-edge,wallHeight-1,0,1,wallHeight,edge);box(edge,wallHeight-1,0,1,wallHeight,edge);box(0,wallHeight-1,-edge,edge,wallHeight,1);box(0,wallHeight-1,edge,edge,wallHeight,1);
+    let wallBottom=-1,wallTop=options.map === 'mountain'?119:course?9:69;
+    if(cityTerrain) {
+      let minY=Infinity,maxY=-Infinity;
+      for(const column of data)for(const y of column){minY=Math.min(minY,y);maxY=Math.max(maxY,y);}
+      wallBottom=minY-20;wallTop=maxY+40;
+    }
+    const wallCenter=(wallBottom+wallTop)/2,wallHalf=(wallTop-wallBottom)/2;
+    box(-edge,wallCenter,0,1,wallHalf,edge);box(edge,wallCenter,0,1,wallHalf,edge);box(0,wallCenter,-edge,edge,wallHalf,1);box(0,wallCenter,edge,edge,wallHalf,1);
     const body=new C.Body({mass:spec.mass,material:chassisMaterial,linearDamping:.015,angularDamping:.25});
     // Bevel the low bumper/side edges instead of a full-length square belly.
     // The old bottom corners caught shallow grades before the wheels could
@@ -199,11 +284,13 @@
       car.wheelInfos.forEach((w,i)=>{for(const key of ['suspensionLength','steering','rotation'])renderWheels[i][key]=previousWheels[i][key]+(w[key]-previousWheels[i][key])*alpha;});
     }
     function syncRenderState(){snapshot();interpolate(1);}
-    function reset(x=0,z=-28,heading=0){body.position.set(x,roadHeight(x,z)+spec.radius+.6,z);body.quaternion.setFromEuler(0,heading,0);body.velocity.setZero();body.angularVelocity.setZero();body.force.setZero();body.torque.setZero();body.wakeUp();accumulator=0;steer=0;grounded=0;airTime=0;car.wheelInfos.forEach(w=>{w.rotation=0;w.deltaRotation=0;w.suspensionLength=w.suspensionRestLength;w.steering=0;});syncRenderState();}
+    const citySpawn=streamingCity && cityMap.routeSamples?.[0];
+    function reset(x=citySpawn?.x??0,z=citySpawn?.z??-28,heading=citySpawn?Math.atan2(citySpawn.tx,citySpawn.tz):0){refreshCityColliders(x,z,true);body.position.set(x,roadHeight(x,z)+spec.radius+.6,z);body.quaternion.setFromEuler(0,heading,0);body.velocity.setZero();body.angularVelocity.setZero();body.force.setZero();body.torque.setZero();body.wakeUp();accumulator=0;steer=0;grounded=0;airTime=0;car.wheelInfos.forEach(w=>{w.rotation=0;w.deltaRotation=0;w.suspensionLength=w.suspensionRestLength;w.steering=0;});syncRenderState();}
     function step(dt,input={}) {
       accumulator+=Math.min(Math.max(dt,0),.1);
       while(accumulator>=1/120){
         snapshot();
+        refreshCityColliders(body.position.x,body.position.z);
         const forward=body.quaternion.vmult(new C.Vec3(0,0,1));const speed=body.velocity.dot(forward);
         grounded=car.wheelInfos.filter(w=>w.isInContact).length;
         steer+=( (input.steer||0)*.48/(1+Math.abs(speed)/18)-steer)*Math.min(1,7/120);
@@ -243,7 +330,10 @@
       return {speed:body.velocity.dot(body.quaternion.vmult(new C.Vec3(0,0,1))),grounded};
     }
     function addTree(x,z,r=.45,h=8){return box(x,height(x,z)+h/2,z,r,h/2,r);}
-    reset();return {world,body,car,step,reset,addTree,edge,obstacles,addObstacle,bridges,stuntSlabs,stuntSupports,roadHeight,terrainHeight:height,ramp,spec,renderPosition,renderQuaternion,renderWheels,syncRenderState};
+    const watchTiles=cityMap.onTileChanged || cityMap.onTileLoaded;
+    const stopTileListener=streamingCity && watchTiles?.call(cityMap,()=>refreshCityColliders(body.position.x,body.position.z,true,false));
+    function dispose(){if(typeof stopTileListener==='function')stopTileListener();}
+    reset();return {world,body,car,step,reset,dispose,addTree,edge,obstacles,addObstacle,bridges,stuntSlabs,stuntSupports,roadHeight,terrainHeight:height,ramp,spec,renderPosition,renderQuaternion,renderWheels,syncRenderState};
   }
   return {create,terrainHeight,scenicHeight,ramp,vehicles,mountainPoints,stuntBumps,overpasses,stuntRoute,stuntFeatures,stuntProfile,city:City};
 });
