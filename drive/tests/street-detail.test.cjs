@@ -54,6 +54,100 @@ test('source lane offsets make marked carriageways, curbs, sidewalks, and street
   visual.dispose();
 });
 
+test('exported lane flow paints arrows and source speeds make shared signs', async () => {
+  const base = 'data/traffic-detail/';
+  const lanes = (directions, speed) => directions.map((direction, index) => ({
+    position: (index + .5 - directions.length / 2) * 3, width: 3,
+    direction, speed, index
+  }));
+  const makeRoad = (id, z, directions, speed, roadClass = 'street', mode = 'GROUND', y = 0) => ({
+    type: 'road', id, kind: 'ROAD', mode, roadClass, width: roadClass === 'highway' ? 18 : 12,
+    laneDetails: lanes(directions, speed), points: [[20, y, z], [220, y, z]]
+  });
+  const roads = [
+    makeRoad('eastbound', 0, ['Forward', 'Forward'], 16.6667),
+    makeRoad('westbound', 40, ['Backward', 'Backward'], 22.2222),
+    makeRoad('two-way', 80, ['Forward', 'Backward'], 13.8889),
+    makeRoad('highway', 120, ['Forward', 'Backward'], 27.7778, 'highway'),
+    makeRoad('flyover', 160, ['Forward', 'Forward'], 33.3333, 'highway', 'ELEVATED', 12)
+  ];
+  const manifest = { format: 'drive-city-v1', bounds: { minX: 0, maxX: 240, minZ: -40, maxZ: 240 },
+    tileSize: 256, focus: [110, 80], terrain: { file: 'terrain.json' },
+    tiles: [{ ix: 0, iz: 0, file: 'tiles/0_0.json', buildingCount: 0 }] };
+  const terrain = { format: 'drive-city-terrain-v1', rows: 5, cols: 5,
+    origin: [-100, -100], cell: 100, heights: Array(25).fill(0) };
+  const files = new Map([[base + 'manifest.json', manifest],
+    [base + 'overview.json', { format: 'drive-city-overview-v1', roads, districts: [], stops: [] }],
+    [base + 'terrain.json', terrain],
+    [base + 'tiles/0_0.json', { format: 'drive-city-tile-v1', features: roads }]]);
+  const map = await Imported.load(base + 'manifest.json', {
+    fetch: async (url) => ({ ok: files.has(url), json: async () => files.get(url) })
+  });
+  const world = new THREE.Group(), visual = map.build(THREE, world);
+  let atlasDisposed = false;
+  try {
+    const arrows = world.getObjectByName('imported-city-direction-arrow');
+    const signs = world.getObjectByName('imported-city-speed-sign');
+    assert.ok(arrows?.geometry.attributes.position.count > 0, 'arrows are batched into one tile mesh');
+    assert.ok(signs?.geometry.attributes.position.count > 0, 'speed faces are batched into one tile mesh');
+    const arrowRecords = arrows.userData.arrows || [];
+    const signRecords = signs.userData.signs || [];
+    for (const [roadId, direction] of [
+      ['eastbound', 'Forward'], ['westbound', 'Backward'],
+      ['highway', 'Forward'], ['highway', 'Backward'], ['flyover', 'Forward']
+    ]) {
+      assert.ok(arrowRecords.some((arrow) => arrow.roadId === roadId && arrow.direction === direction),
+        `${roadId} paints its exported ${direction} lane direction`);
+    }
+    assert.ok(!arrowRecords.some((arrow) => arrow.roadId === 'two-way'),
+      'ordinary two-way streets do not get one-way direction arrows');
+    const points = arrows.geometry.attributes.position;
+    assert.equal(points.count, arrowRecords.length * 9,
+      'each arrow has a shaft and a real three-vertex arrowhead');
+    arrowRecords.forEach((arrow, index) => {
+      const head = index * 9 + 6;
+      const tipX = points.getX(head + 1);
+      const wingX = (points.getX(head) + points.getX(head + 2)) / 2;
+      assert.ok(arrow.direction === 'Forward' ? tipX > wingX : tipX < wingX,
+        `${arrow.roadId} arrowhead points in its exported travel direction`);
+    });
+    assert.ok(signRecords.some((sign) => sign.roadId === 'eastbound' && sign.speedKmh === 60),
+      '16.6667 m/s from the export renders as 60 km/h');
+    assert.ok(signRecords.some((sign) => sign.roadId === 'westbound' && sign.speedKmh === 80),
+      '22.2222 m/s from the export renders as 80 km/h');
+    assert.ok(signRecords.some((sign) => sign.roadId === 'highway' && sign.speedKmh === 100),
+      'highway source speed renders as 100 km/h');
+    const signPoints = signs.geometry.attributes.position;
+    assert.equal(signPoints.count, signRecords.length * 6,
+      'all speed faces share one batched mesh');
+    assert.equal(signs.geometry.attributes.uv.count, signPoints.count,
+      'every speed face addresses the shared numeric atlas');
+    assert.equal(signs.material.map?.image?.width, 512,
+      'one reusable atlas provides the readable speed labels');
+    signs.material.map.addEventListener('dispose', () => { atlasDisposed = true; });
+    signRecords.forEach((sign, index) => {
+      if (sign.roadId === 'flyover') return;
+      const i = index * 6;
+      const a = new THREE.Vector3(signPoints.getX(i), signPoints.getY(i), signPoints.getZ(i));
+      const b = new THREE.Vector3(signPoints.getX(i + 1), signPoints.getY(i + 1), signPoints.getZ(i + 1));
+      const c = new THREE.Vector3(signPoints.getX(i + 2), signPoints.getY(i + 2), signPoints.getZ(i + 2));
+      const normal = b.sub(a).cross(c.sub(a));
+      assert.ok(sign.direction === 'Forward' ? normal.x < 0 : normal.x > 0,
+        `${sign.roadId} speed face points toward approaching traffic`);
+    });
+    for (let i = 0; i < points.count; i++) {
+      const x = points.getX(i), y = points.getY(i), z = points.getZ(i);
+      assert.ok(Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z),
+        'arrow triangles have finite positions');
+      assert.ok(y > (z > 140 ? 12 : 0) + .06 && y < (z > 140 ? 12 : 0) + .5,
+        'arrow paint follows the ground or raised highway surface');
+    }
+  } finally {
+    visual.dispose();
+  }
+  assert.ok(atlasDisposed, 'shared sign texture is released when leaving the imported city');
+});
+
 test('a wide four-way junction trims every arm and owns one seam-spanning asphalt patch', async () => {
   const base = 'data/junction-seam/';
   const lanes = [-4.5, -1.5, 1.5, 4.5].map((position, index) => ({
@@ -61,7 +155,8 @@ test('a wide four-way junction trims every arm and owns one seam-spanning asphal
   }));
   const makeRoad = (id, width, points) => ({ type: 'road', id, kind: 'ROAD', mode: 'GROUND',
     roadClass: 'arterial', width, laneDetails: lanes, points });
-  const west = makeRoad('west', 24, [[20, 0, 100], [200, 0, 100]]);
+  const west = { ...makeRoad('west', 24, [[20, 0, 100], [200, 0, 100]]),
+    laneDetails: lanes.map((lane) => ({ ...lane, direction: 'Forward' })) };
   const east = makeRoad('east', 24, [[200, 0, 100], [380, 0, 100]]);
   const north = makeRoad('north', 18, [[200, 0, 100], [200, 0, 185]]);
   const south = makeRoad('south', 18, [[200, 0, 15], [200, 0, 100]]);
@@ -124,7 +219,8 @@ test('a wide four-way junction trims every arm and owns one seam-spanning asphal
   assert.ok(!covers(patch, 214, 114), 'the corner return stays outside the asphalt');
   for (const tile of [westTile, eastTile]) for (const name of [
     'imported-city-road', 'imported-city-sidewalk', 'imported-city-curb',
-    'imported-city-white-marking', 'imported-city-yellow-marking'
+    'imported-city-white-marking', 'imported-city-yellow-marking',
+    'imported-city-direction-arrow'
   ]) {
     const street = tile.getObjectByName(name);
     if (!street) continue;
@@ -135,6 +231,8 @@ test('a wide four-way junction trims every arm and owns one seam-spanning asphal
       assert.ok(distance(attribute, i) > 10, name + ' stops before the middle of the junction');
     }
   }
+  assert.ok(westTile.getObjectByName('imported-city-direction-arrow'),
+    'the one-way approach paints arrows before the junction cutoff');
   const westRoad = points(westTile.getObjectByName('imported-city-road'));
   const westEnd = Math.max(...Array.from({ length: westRoad.count }, (_, i) => westRoad.getX(i)));
   const patchWest = Math.min(...Array.from({ length: patchPoints.count }, (_, i) => patchPoints.getX(i)));

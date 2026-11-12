@@ -6,7 +6,14 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const zlib = require('node:zlib');
-const { convert, TerrainDecoder } = require('../scripts/convert-cmm.cjs');
+const { convert, trafficFlow, TerrainDecoder } = require('../scripts/convert-cmm.cjs');
+
+test('traffic flow is independent of road class and follows native car access', () => {
+  assert.equal(trafficFlow({forward:'allowed',backward:'forbidden'}), 'forward-only');
+  assert.equal(trafficFlow({forward:'forbidden',backward:'allowed'}), 'backward-only');
+  assert.equal(trafficFlow({forward:'allowed',backward:'allowed'}), 'two-way');
+  assert.equal(trafficFlow(null), 'unknown');
+});
 
 function grid(values, rows = 4, cols = 4) {
   const raw = Buffer.alloc(values.length * 4);
@@ -93,6 +100,7 @@ test('whole-city conversion preserves road height, tile seams, footprints, terra
   assert.equal(terrain.heights[4], 4 - shift, 'second row increases toward +Z');
   assert.equal(overview.roads.length, 1, 'rail and car-forbidden runway are omitted from roads');
   assert.equal(overview.roads[0].roadClass, 'highway');
+  assert.equal(overview.roads[0].trafficFlow, 'forward-only');
   assert.equal(overview.roads[0].name, 'Aurora Parkway');
   assert.equal(overview.roads[0].lanes.car_lane_count, 2);
   assert.equal(overview.districts[0].name, 'Midnight Ward');
@@ -105,6 +113,7 @@ test('whole-city conversion preserves road height, tile seams, footprints, terra
   assert.equal(right.width, 12);
   assert.equal(right.level, 'HIGHWAY');
   assert.equal(right.roadClass, 'highway');
+  assert.equal(right.trafficFlow, 'forward-only');
   const shop = read('tiles/0_-1.json').features.find(f => f.type === 'building');
   assert.deepEqual(shop.footprint, [[7, -13], [13, -13], [13, -7], [7, -7]]);
   assert.equal(shop.baseY, 2 - shift);

@@ -77,6 +77,16 @@ function round(v, places = 3) {
   return Math.round(v * 10 ** places) / 10 ** places;
 }
 
+function trafficFlow(access) {
+  if (!access) return 'unknown';
+  const forward = access.forward === 'allowed';
+  const backward = access.backward === 'allowed';
+  if (forward && backward) return 'two-way';
+  if (forward) return 'forward-only';
+  if (backward) return 'backward-only';
+  return 'unknown';
+}
+
 function pointXZ(point) {
   if (Array.isArray(point)) return [Number(point[0]), Number(point[1])];
   return [Number(point?.x), Number(point?.z)];
@@ -533,7 +543,7 @@ class CityConverter {
       : network.level === 'SPECIAL' ? 'special' : 'street';
     const common = {
       id, kind: network.kind, mode: network.mode || 'normal', level: network.level ?? null,
-      roadClass,
+      roadClass, trafficFlow: trafficFlow(access),
       width: Number.isFinite(width) && width > 0 ? round(width, 2) : 8,
     };
     if (network.lane_summary) common.lanes = network.lane_summary;
@@ -796,4 +806,4 @@ if (require.main === module) {
   })().catch(error => { console.error(error.stack || error.message); process.exitCode = 1; });
 }
 
-module.exports = { parseArgs, convert, clipSegment, simplifyLine, CmmReader, TerrainDecoder };
+module.exports = { parseArgs, convert, clipSegment, simplifyLine, trafficFlow, CmmReader, TerrainDecoder };

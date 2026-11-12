@@ -91,7 +91,8 @@
         startMiter: corner(i, normal), endMiter: corner(i + 1, normal), pathDistance,
         kind: record.kind || 'street', roadClass: record.roadClass || null,
         name: record.name || '', mode: record.mode || 'normal', level: record.level ?? null,
-        lanes: record.lanes || null,
+        lanes: record.lanes || null, carAccess: record.carAccess || null,
+        carSpeed: record.carSpeed || null, trafficFlow: record.trafficFlow || null,
         laneDetails: Array.isArray(record.laneDetails) ? record.laneDetails : null
       });
       pathDistance += length;
@@ -643,6 +644,76 @@
       opacity: .88, depthWrite: false, side: THREE.DoubleSide });
     const yellowMarkingMat = new THREE.MeshBasicMaterial({ color: 0xe6b45f, transparent: true,
       opacity: .9, depthWrite: false, side: THREE.DoubleSide });
+    function speedAtlasTexture() {
+      // One atlas serves every streamed tile. Numeric labels come from the
+      // exported car-lane limits, not guessed road-class defaults.
+      const cell = 64, columns = 8, rows = 8, width = cell * columns;
+      const pixels = new Uint8Array(width * cell * rows * 4);
+      const digits = {
+        '0': ['11111','10001','10011','10101','11001','10001','11111'],
+        '1': ['00100','01100','00100','00100','00100','00100','01110'],
+        '2': ['11111','00001','00001','11111','10000','10000','11111'],
+        '3': ['11111','00001','00001','01111','00001','00001','11111'],
+        '4': ['10001','10001','10001','11111','00001','00001','00001'],
+        '5': ['11111','10000','10000','11111','00001','00001','11111'],
+        '6': ['11111','10000','10000','11111','10001','10001','11111'],
+        '7': ['11111','00001','00010','00100','01000','01000','01000'],
+        '8': ['11111','10001','10001','11111','10001','10001','11111'],
+        '9': ['11111','10001','10001','11111','00001','00001','11111']
+      };
+      const unit = {
+        K: ['101','110','100','110','101'], M: ['101','111','111','101','101'],
+        '/': ['001','001','010','100','100'], H: ['101','101','111','101','101']
+      };
+      function pixel(x, y, color) {
+        const index = (y * width + x) * 4;
+        pixels[index] = color[0]; pixels[index + 1] = color[1];
+        pixels[index + 2] = color[2]; pixels[index + 3] = 255;
+      }
+      for (let slot = 0; slot < 64; slot++) {
+        const x0 = slot % columns * cell, y0 = Math.floor(slot / columns) * cell;
+        for (let y = 0; y < cell; y++) for (let x = 0; x < cell; x++) {
+          const border = x < 3 || x > 60 || y < 3 || y > 60;
+          const rim = x < 9 || x > 54 || y < 9 || y > 54;
+          pixel(x0 + x, y0 + y, border ? [29, 38, 50] :
+            rim ? [194, 54, 67] : [242, 240, 226]);
+        }
+        const label = String((slot + 1) * 5);
+        const scale = 3, glyph = 5 * scale, gap = 3;
+        const textWidth = label.length * glyph + (label.length - 1) * gap;
+        const left = Math.floor((cell - textWidth) / 2), top = 20;
+        for (let index = 0; index < label.length; index++) {
+          const rows = digits[label[index]];
+          for (let row = 0; row < rows.length; row++) for (let column = 0; column < 5; column++) {
+            if (rows[row][column] !== '1') continue;
+            for (let yy = 0; yy < scale; yy++) for (let xx = 0; xx < scale; xx++)
+              pixel(x0 + left + index * (glyph + gap) + column * scale + xx,
+                y0 + cell - 1 - (top + row * scale + yy), [20, 35, 45]);
+          }
+        }
+        for (let index = 0; index < 4; index++) {
+          const rows = unit['KM/H'[index]], start = 17 + index * 8;
+          for (let row = 0; row < 5; row++) for (let column = 0; column < 3; column++) {
+            if (rows[row][column] !== '1') continue;
+            for (let yy = 0; yy < 2; yy++) for (let xx = 0; xx < 2; xx++)
+              pixel(x0 + start + column * 2 + xx,
+                y0 + cell - 1 - (44 + row * 2 + yy), [42, 73, 91]);
+          }
+        }
+      }
+      const texture = new THREE.DataTexture(pixels, width, cell * rows, THREE.RGBAFormat);
+      texture.magFilter = THREE.NearestFilter;
+      texture.minFilter = THREE.LinearMipmapLinearFilter;
+      texture.generateMipmaps = true;
+      texture.encoding = THREE.sRGBEncoding;
+      texture.needsUpdate = true;
+      return texture;
+    }
+    const speedAtlas = speedAtlasTexture();
+    const speedSignMat = new THREE.MeshBasicMaterial({ map: speedAtlas, side: THREE.FrontSide });
+    const speedSignBackMat = new THREE.MeshBasicMaterial({ color: 0x394a56, side: THREE.BackSide });
+    const speedPostMat = new THREE.MeshStandardMaterial({ color: 0x536a78, metalness: .7,
+      roughness: .4, side: THREE.DoubleSide });
     const trunkMat = new THREE.MeshStandardMaterial({ color: 0x3d4845, roughness: .95 });
     const canopyMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: .93,
       emissive: 0x0d352d, emissiveIntensity: .12 });
@@ -875,24 +946,33 @@
       const half = road.width / 2;
       let lanes = (road.laneDetails || []).map((lane) => ({
         position: Number(lane.position), width: Number(lane.width),
-        direction: String(lane.direction || '')
+        direction: String(lane.direction || ''), speed: Number(lane.speed)
       })).filter((lane) => Number.isFinite(lane.position) && Number.isFinite(lane.width) &&
         lane.width > .5 && lane.width < 8 && Math.abs(lane.position) < half + 8);
       if (!lanes.length) {
         const count = clamp(Math.round(finite(road.lanes?.car_lane_count, Math.max(1, Math.round(road.width / 4)))), 1, 8);
         const width = Math.min(3.5, road.width / count);
+        const flow = road.trafficFlow ||
+          (Number(road.lanes?.direction) === 2 ? 'backward-only' :
+            Number(road.lanes?.direction) === 0 ? 'two-way' : 'forward-only');
         lanes = Array.from({ length: count }, (_, index) => ({
           position: (index + .5 - count / 2) * width, width,
-          direction: finite(road.lanes?.direction) === 0 && index >= Math.floor(count / 2) ? 'Backward' : 'Forward'
+          direction: flow === 'backward-only' ||
+            flow === 'two-way' && index >= Math.floor(count / 2) ? 'Backward' : 'Forward',
+          speed: NaN
         }));
       }
       lanes.sort((a, b) => a.position - b.position);
       const laneMin = Math.min(...lanes.map((lane) => lane.position - lane.width / 2));
       const laneMax = Math.max(...lanes.map((lane) => lane.position + lane.width / 2));
       const highway = isMotorway(road);
+      const directions = new Set(lanes.map((lane) => lane.direction.toLowerCase()).filter((direction) =>
+        direction === 'forward' || direction === 'backward'));
+      const oneWay = road.trafficFlow === 'forward-only' || road.trafficFlow === 'backward-only' ||
+        road.trafficFlow !== 'two-way' && directions.size === 1;
       const carriageMin = highway ? -half : clamp(laneMin - .3, -half, half - 1);
       const carriageMax = highway ? half : clamp(laneMax + .3, carriageMin + 1, half);
-      return { lanes, highway, carriageMin, carriageMax,
+      return { lanes, highway, oneWay, carriageMin, carriageMax,
         leftWalk: Math.max(0, carriageMin + half), rightWalk: Math.max(0, half - carriageMax) };
     }
     function dashStripe(out, road, offset, halfWidth, yOffset, followTerrain,
@@ -923,6 +1003,119 @@
             roadStrip(outYellow, road, .065, followTerrain ? .101 : .06, null, followTerrain, boundary + .13, start, end, markStep);
           } else dashStripe(outWhite, road, boundary, .085, followTerrain ? .096 : .055, followTerrain, start, end, markStep);
         }
+      }
+    }
+    function roadPaintPoint(road, t, offset) {
+      // Match the asphalt's sampled height instead of putting a flat decal
+      // across a ramp or a curved road's terrain-lifted triangles.
+      const dx = road.x2 - road.x1, dz = road.z2 - road.z1;
+      const length = Math.hypot(dx, dz) || 1;
+      const first = road.startMiter || [dz / length, -dx / length];
+      const last = road.endMiter || [dz / length, -dx / length];
+      const sideX = first[0] * (1 - t) + last[0] * t;
+      const sideZ = first[1] * (1 - t) + last[1] * t;
+      const x = road.x1 + dx * t + sideX * offset;
+      const z = road.z1 + dz * t + sideZ * offset;
+      const sourceY = road.y1 + (road.y2 - road.y1) * t;
+      let surfaceY = -Infinity;
+      for (const grid of road.surfaceGrids || []) {
+        if (t < grid.start - .00001 || t > grid.end + .00001) continue;
+        const row = clamp((t - grid.start) / (grid.end - grid.start) * grid.steps, 0, grid.steps);
+        const column = clamp((1 - (offset - grid.centerOffset) / grid.halfWidth) * .5 * grid.columns,
+          0, grid.columns);
+        const r = Math.min(grid.steps - 1, Math.floor(row));
+        const c = Math.min(grid.columns - 1, Math.floor(column));
+        const fr = row - r, fc = column - c, stride = grid.columns + 1;
+        const a = grid.heights[r * stride + c], b = grid.heights[(r + 1) * stride + c];
+        const d = grid.heights[r * stride + c + 1], corner = grid.heights[(r + 1) * stride + c + 1];
+        surfaceY = Math.max(surfaceY, fr >= fc ? a * (1 - fr) + b * (fr - fc) + corner * fc :
+          a * (1 - fc) + d * (fc - fr) + corner * fr);
+      }
+      return [x, Math.max(Math.max(sourceY, map.terrainHeight(x, z)) + .115, surfaceY + .055), z];
+    }
+    function addDirectionArrows(out, records, road, layout, intervals) {
+      if (!layout.highway && !layout.oneWay) return;
+      const dx = road.x2 - road.x1, dz = road.z2 - road.z1;
+      const length = Math.hypot(dx, dz);
+      if (length < 8) return;
+      const lanesByDirection = new Map();
+      for (const lane of layout.lanes) {
+        const direction = /^backward$/i.test(lane.direction) ? 'Backward' :
+          /^forward$/i.test(lane.direction) ? 'Forward' : null;
+        if (!direction) continue;
+        if (!lanesByDirection.has(direction)) lanesByDirection.set(direction, []);
+        lanesByDirection.get(direction).push(lane);
+      }
+      const spacing = layout.highway ? 78 : 55;
+      const pathStart = finite(road.pathDistance);
+      for (const [direction, lanes] of lanesByDirection) {
+        const lane = lanes[Math.floor(lanes.length / 2)];
+        const travel = direction === 'Forward' ? 1 : -1;
+        const phase = hash(String(road.id) + ':arrow:' + direction) % spacing;
+        const first = Math.ceil((pathStart - phase) / spacing) * spacing + phase;
+        for (let global = first; global < pathStart + length; global += spacing) {
+          const distance = global - pathStart;
+          if (!intervals.some(([start, end]) =>
+            distance > start * length + 3 && distance < end * length - 3)) continue;
+          const point = (along, lateral) => roadPaintPoint(road,
+            (distance + travel * along) / length, lane.position + lateral);
+          quad(out, point(-1.55, -.17), point(.45, -.17),
+            point(.45, .17), point(-1.55, .17));
+          triangle(out, point(.2, -.8), point(1.9, 0), point(.2, .8));
+          records.push({ roadId: String(road.id), direction,
+            x: road.x1 + dx * distance / length, z: road.z1 + dz * distance / length });
+        }
+      }
+    }
+    function addSpeedSigns(out, uvs, posts, records, sites, road, layout, intervals) {
+      const dx = road.x2 - road.x1, dz = road.z2 - road.z1;
+      const length = Math.hypot(dx, dz);
+      if (length < 20 || records.length >= 48) return;
+      const usable = intervals.find(([start, end]) => (end - start) * length > 20);
+      if (!usable) return;
+      const t = (usable[0] + usable[1]) / 2;
+      const normalX = dz / length, normalZ = -dx / length;
+      for (const direction of ['Forward', 'Backward']) {
+        const lanes = layout.lanes.filter((lane) => lane.direction.toLowerCase() === direction.toLowerCase());
+        if (!lanes.length) continue;
+        const key = direction.toLowerCase();
+        const exported = Number(road.carSpeed?.[key]);
+        const laneSpeeds = lanes.map((lane) => lane.speed).filter((speed) => Number.isFinite(speed) && speed > 0);
+        const speed = Number.isFinite(exported) && exported > 0 ? exported :
+          laneSpeeds.length ? Math.max(...laneSpeeds) : NaN;
+        if (!Number.isFinite(speed)) continue;
+        const speedKmh = Math.round(speed * 3.6 / 5) * 5;
+        if (speedKmh < 5 || speedKmh > 320) continue;
+        const travel = direction === 'Forward' ? 1 : -1;
+        const offset = travel > 0 ?
+          layout.carriageMin + (isElevated(road.mode) ? .65 : -1.1) :
+          layout.carriageMax + (isElevated(road.mode) ? -.65 : 1.1);
+        const x = road.x1 + dx * t + normalX * offset;
+        const z = road.z1 + dz * t + normalZ * offset;
+        const ux = travel * dx / length, uz = travel * dz / length;
+        if (nearBuildingFootprint(x, z, 1.5) || sites.some((site) =>
+          site.speedKmh === speedKmh && site.direction === direction &&
+          site.ux * ux + site.uz * uz > .8 && Math.hypot(site.x - x, site.z - z) < 110)) continue;
+        const sourceY = road.y1 + (road.y2 - road.y1) * t;
+        const baseY = Math.max(sourceY, map.terrainHeight(x, z)) + (isElevated(road.mode) ? .06 : 0);
+        const hx = -travel * normalX, hz = -travel * normalZ;
+        const half = .72, low = baseY + 2.05, high = baseY + 3.49;
+        const a = [x - hx * half, low, z - hz * half];
+        const b = [x + hx * half, low, z + hz * half];
+        const c = [x + hx * half, high, z + hz * half];
+        const d = [x - hx * half, high, z - hz * half];
+        quad(out, a, b, c, d);
+        const slot = speedKmh / 5 - 1, column = slot % 8, row = Math.floor(slot / 8);
+        uvQuad(uvs, (column * 64 + 1) / 512, (row * 64 + 1) / 512,
+          (column * 64 + 63) / 512, (row * 64 + 63) / 512);
+        quad(posts, [x - hx * .055, baseY, z - hz * .055],
+          [x + hx * .055, baseY, z + hz * .055],
+          [x + hx * .055, low, z + hz * .055],
+          [x - hx * .055, low, z - hz * .055]);
+        const record = { roadId: String(road.id), direction, speedKmh, x, z };
+        records.push(record);
+        sites.push({ ...record, ux, uz });
+        if (records.length >= 48) break;
       }
     }
     function elevatedPoint(road, t, offset) {
@@ -1964,6 +2157,9 @@
       const sidewalkPositions = [], sidewalkUVs = [];
       const junctionSidewalks = [], junctionSidewalkUVs = [], junctionCurbs = [];
       const curbPositions = [], whiteLines = [], yellowLines = [], crosswalkPositions = [], treeSites = [];
+      const arrowPositions = [], arrowRecords = [];
+      const speedSignPositions = [], speedSignUVs = [], speedPostPositions = [];
+      const speedSignRecords = [], speedSignSites = [];
       const markQueue = [];
       for (const road of tile.roads) {
         applySmoothJoins(road);
@@ -2032,8 +2228,13 @@
           a.road.surfaceNeighbors.push(b.road);
           b.road.surfaceNeighbors.push(a.road);
         }
-      for (const entry of markQueue) markRoad(whiteLines, yellowLines,
-        entry.road, entry.layout, true, entry.intervals);
+      for (const entry of markQueue) {
+        markRoad(whiteLines, yellowLines, entry.road, entry.layout, true, entry.intervals);
+        addDirectionArrows(arrowPositions, arrowRecords,
+          entry.road, entry.layout, entry.intervals);
+        addSpeedSigns(speedSignPositions, speedSignUVs, speedPostPositions,
+          speedSignRecords, speedSignSites, entry.road, entry.layout, entry.intervals);
+      }
       for (const node of junctionsByTile.get(id) || []) {
         prepareJunction(node);
         addJunction(junctionPositions, junctionUVs, node);
@@ -2044,7 +2245,11 @@
         applySmoothJoins(road);
         bridgeBox(bridgePositions, bridgeUVs, road);
         bridgeRail(bridgeRailPositions, road);
-        markRoad(whiteLines, yellowLines, road, roadLayout(road), true);
+        const layout = roadLayout(road), intervals = [[0, 1]];
+        markRoad(whiteLines, yellowLines, road, layout, true);
+        addDirectionArrows(arrowPositions, arrowRecords, road, layout, intervals);
+        addSpeedSigns(speedSignPositions, speedSignUVs, speedPostPositions,
+          speedSignRecords, speedSignSites, road, layout, intervals);
       }
       mesh('imported-city-road', groundPositions, roadMat, group, null, groundUVs);
       mesh('imported-city-junction-approach', approachPositions, roadMat, group, null, approachUVs);
@@ -2059,6 +2264,13 @@
       mesh('imported-city-white-marking', whiteLines, whiteMarkingMat, group);
       mesh('imported-city-yellow-marking', yellowLines, yellowMarkingMat, group);
       mesh('imported-city-crosswalk', crosswalkPositions, whiteMarkingMat, group);
+      const arrows = mesh('imported-city-direction-arrow', arrowPositions, whiteMarkingMat, group);
+      if (arrows) arrows.userData.arrows = arrowRecords;
+      const speedSigns = mesh('imported-city-speed-sign', speedSignPositions,
+        speedSignMat, group, null, speedSignUVs);
+      if (speedSigns) speedSigns.userData.signs = speedSignRecords;
+      mesh('imported-city-speed-sign-back', speedSignPositions, speedSignBackMat, group);
+      mesh('imported-city-speed-post', speedPostPositions, speedPostMat, group);
       addStreetTrees(group, treeSites);
       const facades = Object.fromEntries(facadeKinds.map((kind) => [kind,
         Array.from({ length: facadeVariants }, () => ({ positions: [], colors: [], uvs: [] }))]));
@@ -2308,6 +2520,7 @@
     update({ position: { x: spawn.x, y: spawn.y + 8, z: spawn.z } }, 0);
     function dispose() {
       disposed = true; unsubscribe();
+      speedAtlas.dispose(); speedSignMat.dispose(); speedSignBackMat.dispose(); speedPostMat.dispose();
       for (const material of Object.values(wallMaterials)) {
         material.map?.dispose(); material.emissiveMap?.dispose(); material.dispose();
       }
