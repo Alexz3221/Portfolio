@@ -237,12 +237,11 @@
     }
     function orientRadar() {
       if (!radarPosition) return;
-      // The full guide stays aligned to the save. In the chase camera, screen
-      // right points opposite its +X axis, so mirror X before turning the
-      // nearby streets around the car. The cone and player arrow stay up.
+      // Rotate the guide's city coordinates around the car. The imported 3D
+      // city is reflected into the same frame, so turns keep their handedness.
       const center = point(radarPosition.x, radarPosition.z);
       const cosine = Math.cos(radarHeading), sine = Math.sin(radarHeading);
-      const a = -cosine, b = -sine, c = -sine, d = cosine;
+      const a = cosine, b = -sine, c = sine, d = cosine;
       const e = center.x - a * center.x - c * center.y;
       const f = center.y - b * center.x - d * center.y;
       radarRoadGroup?.setAttribute('transform', `matrix(${a} ${b} ${c} ${d} ${e} ${f})`);

@@ -189,6 +189,10 @@
       sourceFootprint[(i + 1) % sourceFootprint.length][0] - point[0],
       sourceFootprint[(i + 1) % sourceFootprint.length][1] - point[1]));
     const proxy = record.geometrySource === 'cs2:mesh-bounds';
+    // Airport mesh 0 is a bounds-only envelope for the entire airfield. Its
+    // box contains the terminal roads and is not a driveable building shell.
+    const airportEnvelope = proxy && /airport.*mesh\s+0/i.test(String(record.prefab || '')) &&
+      Math.max(...edges) > 300;
     const rowhouse = /row housing|old town/i.test(String(record.category || ''));
     const desiredSetback = proxy ? .12 : skipParent || landscape ? 0 : rowhouse ? .34 :
       record.growthKind === 'placed' ? .42 : .72 + (hash('setback:' + record.id) % 5) * .16;
@@ -204,8 +208,44 @@
       height, baseY, footprint, sourceFootprint, setback, role: record.role || '', category: record.category || '', name: record.name || '',
       prefab: record.prefab || '', parentBuildingId: record.parentBuildingId || null,
       growthKind: record.growthKind || '', geometrySource: record.geometrySource || '',
-      skipVisual: skipParent, skipCollider: skipParent || landscape, landscape,
+      skipVisual: skipParent || airportEnvelope,
+      skipCollider: skipParent || landscape || airportEnvelope, landscape,
+      airportEnvelope: airportEnvelope && /internationalairport01/i.test(String(record.prefab || '')),
       modelVariant: hash('model:' + record.id) % 5 };
+  }
+  function airportTerminalBuildings(site, terrainHeight, meshBackedParentIds) {
+    const ring = site.sourceFootprint;
+    if (!site.airportEnvelope || ring.length !== 4) return [];
+    // The Save 12 international airport's giant mesh bounds include both the
+    // runway and its one-way ground/elevated dropoff loop. Place a compact
+    // terminal on the airfield side, with open curbside canopy above the loop.
+    const region = (u0, u1, v0, v1) => {
+      const at = (u, v) => [0, 1].map(axis =>
+        ring[0][axis] * (1 - u) * (1 - v) + ring[3][axis] * u * (1 - v) +
+        ring[2][axis] * u * v + ring[1][axis] * (1 - u) * v);
+      return [at(u0, v0), at(u0, v1), at(u1, v1), at(u1, v0)];
+    };
+    const specs = [
+      ['terminal-north', 'International Airport Terminal', .695, .782, .385, .445, 21],
+      ['terminal-center', 'International Airport Terminal', .695, .782, .460, .520, 23],
+      ['terminal-south', 'International Airport Terminal', .695, .782, .535, .595, 20],
+      ['concourse-north', 'International Airport Concourse', .425, .699, .402, .428, 10],
+      ['concourse-center', 'International Airport Concourse', .425, .699, .477, .503, 11],
+      ['concourse-south', 'International Airport Concourse', .425, .699, .552, .578, 10],
+      ['control-tower', 'International Airport Control Tower', .630, .675, .475, .508, 43],
+      ['dropoff-canopy-north', 'International Airport Dropoff Canopy', .782, .825, .385, .445, 8.3],
+      ['dropoff-canopy-center', 'International Airport Dropoff Canopy', .782, .825, .460, .520, 8.3],
+      ['dropoff-canopy-south', 'International Airport Dropoff Canopy', .782, .825, .535, .595, 8.3]
+    ];
+    return specs.map(([suffix, prefab, u0, u1, v0, v1, height]) => {
+      const part = normalizeBuilding({ id: `${site.id}:${suffix}`,
+        footprint: region(u0, u1, v0, v1), baseY: site.baseY, height,
+        role: 'AIRPORT', category: 'International Airport', prefab,
+        name: prefab, growthKind: 'placed', geometrySource: 'procedural-airport',
+        parentBuildingId: site.id }, terrainHeight, meshBackedParentIds);
+      if (part && suffix.startsWith('dropoff-canopy')) part.skipCollider = true;
+      return part;
+    }).filter(Boolean);
   }
   function terrainFromRaw(raw) {
     if (!raw || raw.format !== 'drive-city-terrain-v1') throw new Error('Imported city terrain has an unsupported format');
@@ -232,6 +272,18 @@
     const dx = road.x2 - road.x1, dz = road.z2 - road.z1;
     const t = clamp(((x - road.x1) * dx + (z - road.z1) * dz) / (dx * dx + dz * dz), 0, 1);
     return { distance: Math.hypot(x - road.x1 - dx * t, z - road.z1 - dz * t), t };
+  }
+  function roadDeckAt(segments, x, z) {
+    let best = null, bestDistance = Infinity;
+    for (const road of segments || []) {
+      const hit = segmentDistance(x, z, road);
+      if (hit.distance >= bestDistance) continue;
+      best = road.y1 + (road.y2 - road.y1) * hit.t;
+      bestDistance = hit.distance;
+      if (bestDistance < .01) break;
+    }
+    const width = segments?.[0]?.width || 0;
+    return bestDistance <= width / 2 + 6 ? best : null;
   }
   function spatialIndex(cellSize) {
     const cells = new Map();
@@ -473,6 +525,43 @@
         };
         return true;
       }
+      function gradeMergeConnectors(connectors, owned, roads) {
+        if (!owned.length || !roads.length) return;
+        const roadsById = new Map(), byNode = new Map();
+        for (const road of roads) {
+          const id = String(road.id);
+          if (!roadsById.has(id)) roadsById.set(id, []);
+          roadsById.get(id).push(road);
+        }
+        for (const connector of connectors) {
+          if (connector.forbidden || connector.path_methods_bits != null &&
+              !(Number(connector.path_methods_bits) & 2)) continue;
+          const id = String(connector.node_id);
+          if (!byNode.has(id)) byNode.set(id, { from: new Set(), to: new Set() });
+          byNode.get(id).from.add(String(connector.from_edge_id));
+          byNode.get(id).to.add(String(connector.to_edge_id));
+        }
+        for (const connector of owned) {
+          const node = byNode.get(String(connector.node_id));
+          if (!node || !(node.from.size >= 2 && node.to.size === 1 ||
+              node.from.size === 1 && node.to.size >= 2)) continue;
+          const first = connector.curve[0], last = connector.curve[3];
+          const source = roadDeckAt(roadsById.get(String(connector.from_edge_id)), first[0], first[2]);
+          const target = roadDeckAt(roadsById.get(String(connector.to_edge_id)), last[0], last[2]);
+          // Native lane elevations can differ several metres from the road
+          // mesh at a graded merge. Match both mouths to the rendered deck,
+          // preserving the source curves for lane identity and paint layout.
+          const delta0 = source !== null && Math.abs(source - first[1]) <= 6 ? source - first[1] : 0;
+          const delta1 = target !== null && Math.abs(target - last[1]) <= 6 ? target - last[1] : 0;
+          if (Math.abs(delta0) < .01 && Math.abs(delta1) < .01) continue;
+          const length = connector.samples.length - 1;
+          for (let i = 0; i <= length; i++) {
+            const sample = connector.samples[i], t = i / length;
+            sample.sourceY += delta0 * (1 - t) + delta1 * t;
+            sample.y = Math.max(sample.sourceY + .08, terrainHeight(sample.x, sample.z) + .095);
+          }
+        }
+      }
       const endpointCells = new Map();
       for (const feature of overview.roads || []) {
         if (!Array.isArray(feature.points) || feature.points.length < 2 || isTunnel(feature.mode)) continue;
@@ -620,9 +709,13 @@
                 }
                 if (feature.type === 'building') {
                   const building = normalizeBuilding(feature, terrainHeight, meshBackedParentIds);
-                  if (building) tileBuildings.push(building);
+                  if (building) {
+                    tileBuildings.push(building);
+                    tileBuildings.push(...airportTerminalBuildings(building, terrainHeight, meshBackedParentIds));
+                  }
                 }
               }
+              gradeMergeConnectors(tileConnectors, ownedConnectors, [...tileRoads, ...tileHighways]);
               job.entry.data = { ix: job.entry.descriptor.ix, iz: job.entry.descriptor.iz,
                 roads: tileRoads, highways: tileHighways, buildings: tileBuildings,
                 guardrails: tileRails, supports: tileSupports,
@@ -706,6 +799,7 @@
   }
 
   function build(THREE, world, map) {
+    const mirrorGlyphs = world.scale.z < 0;
     const chunkRoot = new THREE.Group(), terrainRoot = new THREE.Group();
     chunkRoot.name = 'imported-city-tiles'; terrainRoot.name = 'imported-city-terrain';
     world.add(terrainRoot, chunkRoot);
@@ -831,6 +925,9 @@
     const speedSignBackMat = new THREE.MeshBasicMaterial({ color: 0x394a56, side: THREE.BackSide });
     const speedPostMat = new THREE.MeshStandardMaterial({ color: 0x536a78, metalness: .7,
       roughness: .4, side: THREE.DoubleSide });
+    const airportSignTexture = signTexture('DEPARTURES', '#86e7f1');
+    const airportSignMat = airportSignTexture ?
+      new THREE.MeshBasicMaterial({ map: airportSignTexture, side: THREE.DoubleSide }) : null;
     const trunkMat = new THREE.MeshStandardMaterial({ color: 0x3d4845, roughness: .95 });
     const canopyMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: .93,
       emissive: 0x0d352d, emissiveIntensity: .12 });
@@ -1075,7 +1172,9 @@
     function roadLayout(road) {
       const half = road.width / 2;
       let lanes = (road.laneDetails || []).map((lane) => ({
-        position: Number(lane.position), width: Number(lane.width),
+        // TrafficExport measures from the road's left normal (-dz, +dx);
+        // roadStrip uses the opposite (+dz, -dx) normal.
+        position: -Number(lane.position), width: Number(lane.width),
         direction: String(lane.direction || ''), speed: Number(lane.speed)
       })).filter((lane) => Number.isFinite(lane.position) && Number.isFinite(lane.width) &&
         lane.width > .5 && lane.width < 8 && Math.abs(lane.position) < half + 8);
@@ -1255,8 +1354,8 @@
       const angle = Math.acos(dot);
       if (angle < Math.PI / 7) return 'straight';
       if (angle > Math.PI * .78) return 'uturn';
-      // Positive Y of the 3D cross product is the driver's left.
-      return incoming[2] * outgoing[0] - incoming[0] * outgoing[2] > 0 ? 'left' : 'right';
+      // In the city map's X/Z plane, turning from +X toward +Z is left.
+      return incoming[0] * outgoing[2] - incoming[2] * outgoing[0] > 0 ? 'left' : 'right';
     }
     function beforeLaneEnd(curve, distance) {
       const samples = 24, lengths = [0];
@@ -1277,17 +1376,39 @@
     }
     function addLaneGraphPaint(tile, arrows, mergeGuides, stopLines, records) {
       if (!tile.edgeLanes?.length || !tile.connectors?.length) return;
-      const endLanes = new Map(), startLanes = new Map(), exits = new Map(), arrivals = new Map();
-      const fromRoadTargets = new Map(), toRoadSources = new Map(), matched = [];
+      const endLanes = new Map(), startLanes = new Map(), exits = new Map(), matched = [];
       const signalNodes = new Set((map.trafficLights || []).filter(light => light.active)
         .map(light => String(light.nodeId)));
       function addTo(index, key, item) {
         if (!index.has(key)) index.set(key, []);
         index.get(key).push(item);
       }
-      function addSet(index, key, value) {
-        if (!index.has(key)) index.set(key, new Set());
-        index.get(key).add(String(value));
+      const roadsById = new Map();
+      for (const road of tile.roads || []) addTo(roadsById, String(road.id), road);
+      function roadDeckPaintY(edgeId, x, z, rawY) {
+        let nearest = null, nearestDistance = Infinity;
+        for (const road of roadsById.get(String(edgeId)) || []) {
+          const dx = road.x2 - road.x1, dz = road.z2 - road.z1;
+          const lengthSquared = dx * dx + dz * dz;
+          if (lengthSquared < .01) continue;
+          const t = clamp(((x - road.x1) * dx + (z - road.z1) * dz) / lengthSquared, 0, 1);
+          const alongX = road.x1 + dx * t, alongZ = road.z1 + dz * t;
+          const distance = Math.hypot(x - alongX, z - alongZ);
+          if (distance >= nearestDistance) continue;
+          const length = Math.sqrt(lengthSquared);
+          const offset = ((x - alongX) * dz - (z - alongZ) * dx) / length;
+          nearest = roadPaintPoint(road, t, offset)[1] + .02;
+          nearestDistance = distance;
+        }
+        return nearestDistance < 14 ? nearest :
+          Math.max(rawY + .135, map.terrainHeight(x, z) + .155);
+      }
+      function connectorPaintY(connector, t) {
+        const samples = connector.samples;
+        if (!samples?.length) return bezierPoint(connector.curve, t)[1] + .135;
+        const at = t * (samples.length - 1), low = Math.floor(at);
+        const high = Math.min(low + 1, samples.length - 1), fraction = at - low;
+        return samples[low].y * (1 - fraction) + samples[high].y * fraction + .055;
       }
       const laneKey = (edge, lane) => `${edge}:${lane}`;
       for (const lane of tile.edgeLanes) {
@@ -1300,7 +1421,11 @@
         return !best || distance < best.distance ? { lane, distance } : best;
       }, null);
       for (const connector of tile.connectors) {
-        if (connector.forbidden || connector.public_only || !Array.isArray(connector.curve)) continue;
+        // Unsafe node paths include opposing-carriageway shortcuts and U-turns.
+        // Keep their source graph geometry, but do not advertise them as
+        // ordinary lane instructions painted on the road.
+        if (connector.forbidden || connector.unsafe || connector.public_only ||
+            !Array.isArray(connector.curve)) continue;
         const from = laneKey(connector.from_edge_id, connector.from_lane_index);
         const to = laneKey(connector.to_edge_id, connector.to_lane_index);
         const source = nearest(endLanes.get(from), connector.curve[0], true);
@@ -1308,14 +1433,7 @@
         if (!source || source.distance > 3 || !target || target.distance > 3) continue;
         const kind = laneTurn(source.lane, target.lane, connector);
         addTo(exits, `${connector.node_id}:${from}`, { connector, source: source.lane, kind });
-        addTo(arrivals, `${connector.node_id}:${to}`, { connector, from, kind });
         matched.push({ connector, kind });
-        if (kind === 'straight') {
-          addSet(fromRoadTargets, `${connector.node_id}:${connector.from_edge_id}`,
-            connector.to_edge_id);
-          addSet(toRoadSources, `${connector.node_id}:${connector.to_edge_id}`,
-            connector.from_edge_id);
-        }
       }
       const insideTile = p => p[0] >= tile.ix * map.tileSize &&
         p[0] < (tile.ix + 1) * map.tileSize && p[2] >= tile.iz * map.tileSize &&
@@ -1327,14 +1445,12 @@
         const [x, sourceY, z] = placement.point;
         const [tx, ty, tz] = placement.tangent, length = Math.hypot(tx, tz);
         if (length < .01) continue;
-        const ux = tx / length, uz = tz / length, lx = uz, lz = -ux;
+        const ux = tx / length, uz = tz / length, lx = -uz, lz = ux;
         const grade = ty / length;
         const point = (forward, left) => {
           const px = x + ux * forward + lx * left, pz = z + uz * forward + lz * left;
-          // Connector ribbons rise at least .105 m above source lanes and
-          // .13 m above terrain. Keep the decal just above either surface.
-          return [px, Math.max(sourceY + grade * forward + .135,
-            map.terrainHeight(px, pz) + .155), pz];
+          return [px, roadDeckPaintY(source.edge_id, px, pz,
+            sourceY + grade * forward), pz];
         };
         if (options.some(option => signalNodes.has(String(option.connector.node_id)))) {
           const stop = beforeLaneEnd(source.curve, 2.2);
@@ -1345,8 +1461,8 @@
             const stopPoint = (forward, side) => {
               const px = sx + vx / vl * forward + acrossX * side;
               const pz = sz + vz / vl * forward + acrossZ * side;
-              return [px, Math.max(sy + vy / vl * forward + .135,
-                map.terrainHeight(px, pz) + .155), pz];
+              return [px, roadDeckPaintY(source.edge_id, px, pz,
+                sy + vy / vl * forward), pz];
             };
             quad(stopLines, stopPoint(-.18, -half), stopPoint(.18, -half),
               stopPoint(.18, half), stopPoint(-.18, half));
@@ -1373,34 +1489,75 @@
         records.push({ roadId: String(source.edge_id), laneIndex: source.end_lane_index,
           turns: kinds, connectorIds: options.map(option => String(option.connector.entity_id)), x, z });
       }
-      // Use shallow, exported paths to reveal lane merges and splits. Ordinary
-      // crossing turns do not count toward this road-level guidance.
-      const laneMerges = new Set();
-      for (const arrivalsAtLane of arrivals.values()) {
-        const through = arrivalsAtLane.filter(entry => entry.kind === 'straight');
-        if (new Set(through.map(entry => entry.from)).size >= 2)
-          through.forEach(entry => laneMerges.add(String(entry.connector.entity_id)));
+      // Road merges need boundaries between lanes, not dashes through lane
+      // centers. Pair the actual parallel node paths. The gap check starts a
+      // new ramp separator only where its lane has joined the carriageway.
+      const byNode = new Map();
+      for (const entry of matched) if (entry.kind === 'straight')
+        addTo(byNode, String(entry.connector.node_id), entry.connector);
+      const paintedPairs = new Set();
+      function paintParallel(paths) {
+        if (paths.length < 2) return;
+        let dx = 0, dz = 0;
+        for (const path of paths) {
+          dx += path.curve[3][0] - path.curve[0][0];
+          dz += path.curve[3][2] - path.curve[0][2];
+        }
+        const length = Math.hypot(dx, dz);
+        if (length < .1) return;
+        const lx = dz / length, lz = -dx / length;
+        paths.sort((a, b) => {
+          const pa = bezierPoint(a.curve, .5), pb = bezierPoint(b.curve, .5);
+          return (pa[0] - pb[0]) * lx + (pa[2] - pb[2]) * lz;
+        });
+        for (let p = 0; p < paths.length - 1; p++) {
+          const left = paths[p], right = paths[p + 1];
+          const pairKey = [left.entity_id, right.entity_id].sort().join(':');
+          if (paintedPairs.has(pairKey)) continue;
+          paintedPairs.add(pairKey);
+          const separateRoads = left.from_edge_id !== right.from_edge_id ||
+            left.to_edge_id !== right.to_edge_id;
+          const halfWidths = (clamp(finite(left.width_m, 4), 1.5, 9) +
+            clamp(finite(right.width_m, 4), 1.5, 9)) / 2;
+          const samples = 30;
+          for (let i = 0; i < samples; i++) {
+            if (i % 6 >= 4) continue;
+            const t0 = i / samples, t1 = (i + 1) / samples;
+            const a0 = bezierPoint(left.curve, t0), b0 = bezierPoint(right.curve, t0);
+            const a1 = bezierPoint(left.curve, t1), b1 = bezierPoint(right.curve, t1);
+            const gap = Math.hypot((a0[0] + a1[0] - b0[0] - b1[0]) / 2,
+              (a0[2] + a1[2] - b0[2] - b1[2]) / 2);
+            if (gap > halfWidths + (separateRoads ? 1 : 2.5)) continue;
+            const m0 = [(a0[0] + b0[0]) / 2,
+              Math.max(connectorPaintY(left, t0), connectorPaintY(right, t0)),
+              (a0[2] + b0[2]) / 2];
+            const m1 = [(a1[0] + b1[0]) / 2,
+              Math.max(connectorPaintY(left, t1), connectorPaintY(right, t1)),
+              (a1[2] + b1[2]) / 2];
+            if (!insideTile([(m0[0] + m1[0]) / 2, 0, (m0[2] + m1[2]) / 2])) continue;
+            const vx = m1[0] - m0[0], vz = m1[2] - m0[2];
+            const vl = Math.hypot(vx, vz);
+            if (vl < .03) continue;
+            const nx = vz / vl * .07, nz = -vx / vl * .07;
+            const vertex = (point, side) => {
+              const x = point[0] + nx * side, z = point[2] + nz * side;
+              return [x, Math.max(point[1], map.terrainHeight(x, z) + .155), z];
+            };
+            quad(mergeGuides, vertex(m0, -1), vertex(m1, -1),
+              vertex(m1, 1), vertex(m0, 1));
+          }
+        }
       }
-      const paintedMerges = new Set();
-      for (const { connector, kind } of matched) {
-        if (kind !== 'straight') continue;
-        const node = connector.node_id;
-        const roadMerge = (toRoadSources.get(`${node}:${connector.to_edge_id}`)?.size || 0) >= 2;
-        const roadSplit = (fromRoadTargets.get(`${node}:${connector.from_edge_id}`)?.size || 0) >= 2;
-        if (!roadMerge && !roadSplit && !laneMerges.has(String(connector.entity_id))) continue;
-        const id = `${connector.entity_id}:${connector.entity_version}`;
-        if (paintedMerges.has(id) || !insideTile(bezierPoint(connector.curve, .5))) continue;
-        paintedMerges.add(id);
-        for (let t = .12; t < .82; t += .2) {
-          const a = bezierPoint(connector.curve, t), b = bezierPoint(connector.curve, t + .1);
-          const tangent = bezierTangent(connector.curve, t + .05), magnitude = Math.hypot(tangent[0], tangent[2]) || 1;
-          const nx = tangent[2] / magnitude * .065, nz = -tangent[0] / magnitude * .065;
-          const height = p => [p[0], Math.max(p[1] + .135,
-            map.terrainHeight(p[0], p[2]) + .155), p[2]];
-          quad(mergeGuides, height([a[0] - nx, a[1], a[2] - nz]),
-            height([b[0] - nx, b[1], b[2] - nz]),
-            height([b[0] + nx, b[1], b[2] + nz]),
-            height([a[0] + nx, a[1], a[2] + nz]));
+      for (const connectors of byNode.values()) {
+        const fromRoads = new Set(connectors.map(connector => String(connector.from_edge_id)));
+        const toRoads = new Set(connectors.map(connector => String(connector.to_edge_id)));
+        if ((fromRoads.size === 2 && toRoads.size === 1) ||
+            (fromRoads.size === 1 && toRoads.size === 2)) paintParallel(connectors);
+        else {
+          const routes = new Map();
+          for (const connector of connectors)
+            addTo(routes, `${connector.from_edge_id}:${connector.to_edge_id}`, connector);
+          for (const paths of routes.values()) paintParallel(paths);
         }
       }
     }
@@ -1425,8 +1582,8 @@
         if (speedKmh < 5 || speedKmh > 320) continue;
         const travel = direction === 'Forward' ? 1 : -1;
         const offset = travel > 0 ?
-          layout.carriageMin + (isElevated(road.mode) ? .65 : -1.1) :
-          layout.carriageMax + (isElevated(road.mode) ? -.65 : 1.1);
+          layout.carriageMax + (isElevated(road.mode) ? -.65 : 1.1) :
+          layout.carriageMin + (isElevated(road.mode) ? .65 : -1.1);
         const x = road.x1 + dx * t + normalX * offset;
         const z = road.z1 + dz * t + normalZ * offset;
         const ux = travel * dx / length, uz = travel * dz / length;
@@ -1443,8 +1600,9 @@
         const d = [x - hx * half, high, z - hz * half];
         quad(out, a, b, c, d);
         const slot = speedKmh / 5 - 1, column = slot % 8, row = Math.floor(slot / 8);
-        uvQuad(uvs, (column * 64 + 1) / 512, (row * 64 + 1) / 512,
-          (column * 64 + 63) / 512, (row * 64 + 63) / 512);
+        const u0 = (column * 64 + 1) / 512, u1 = (column * 64 + 63) / 512;
+        uvQuad(uvs, mirrorGlyphs ? u1 : u0, (row * 64 + 1) / 512,
+          mirrorGlyphs ? u0 : u1, (row * 64 + 63) / 512);
         quad(posts, [x - hx * .055, baseY, z - hz * .055],
           [x + hx * .055, baseY, z + hz * .055],
           [x + hx * .055, low, z + hz * .055],
@@ -1537,6 +1695,10 @@
       if (/stadium|sport park stand|basketball center|football field|soccer field|tennis court/.test(label)) return 'stadium';
       if (/hospital|medical|clinic|health research|crematorium/.test(label)) return 'hospital';
       if (/university|school|college|library/.test(label)) return 'campus';
+      if (/international airport dropoff canopy/.test(label)) return 'airportCanopy';
+      if (/international airport control tower/.test(label)) return 'airportTower';
+      if (/international airport concourse/.test(label)) return 'airportConcourse';
+      if (/international airport terminal/.test(label)) return 'airportTerminal';
       if (/airport|hangar|terminal/.test(label) || role === 'airport') return 'airport';
       if (/industrial/.test(role) || /factory|warehouse|shipping container|refinery/.test(category))
         return /warehouse|shipping container|industrialmanufacturing02|cattle shed|chicken coop/.test(label) ?
@@ -1568,6 +1730,9 @@
       civic: [0xc7c0ac, 0xb2b7bd, 0xc2b3a9, 0xb6b8a4],
       campus: [0xb88776, 0xa7776e, 0xc19b83], hospital: [0xd9e6e7, 0xbfcdd6, 0xe2e5de],
       castle: [0x969b97, 0xa8a49a, 0x838e91], airport: [0x90b6c3, 0xabbcc4, 0x829fb2],
+      airportTerminal: [0x8faeb9, 0xa6c1c6, 0x91b4bf],
+      airportConcourse: [0x839ca6, 0x98aab1, 0x8baeb7],
+      airportTower: [0x7c9ead, 0x90adb8], airportCanopy: [0x87aab9, 0x9bbec9],
       stadium: [0x848f9a, 0xa1a9a8], parking: [0x858f94, 0x9b9e9e],
       monument: [0x7d9b9d, 0x9a8e7a], landscape: [0x538469, 0x607f69]
     };
@@ -1988,6 +2153,103 @@
       }
       if (addZonedModel(batches, outRoofs, outRoofColors, outTrim, outTrimColors,
         building, style, modelVariant, facadeVariant, tint, roofTint)) return;
+      if (style === 'airportCanopy') {
+        const eave = base + height - .72;
+        roofPrism(outRoofs, outRoofColors, ring, eave, base + height,
+          new THREE.Color(0x7492a3));
+        roofLedge(outTrim, outTrimColors, ring, insetRing(ring, .92), base + height + .08,
+          new THREE.Color(0x67c8d9));
+        // Supports stay on the terminal side; the one-way curb lane remains
+        // clear beneath the roof and can use the exported ground road.
+        for (let i = 0; i <= 6; i++) {
+          const t = i / 6;
+          const anchor = [ring[0][0] * (1 - t) + ring[1][0] * t,
+            ring[0][1] * (1 - t) + ring[1][1] * t];
+          roofPrism(outRoofs, outRoofColors, localPad(anchor, .38), base, eave,
+            new THREE.Color(0x91aab3));
+        }
+        return;
+      }
+      if (style === 'airportTerminal') {
+        const eave = base + height * .72;
+        addWallRing(batches.airport[facadeVariant], ring, base, eave, tint, building, 'airport');
+        slopedRing(outRoofs, outRoofColors, ring, insetRing(ring, .85), eave,
+          eave + 2.2, roofTint);
+        roofPlate(outRoofs, outRoofColors, insetRing(ring, .85), eave + 2.2,
+          roofTint.clone().multiplyScalar(1.12));
+        addTrimBand(outTrim, outTrimColors, ring, base + 4.2, new THREE.Color(0x68c9dc));
+        addTrimBand(outTrim, outTrimColors, ring, eave - .5, new THREE.Color(0xd4e8e9));
+        // Each terminal pod has two broad recessed entrances facing the loop.
+        // They break the repeating window wall at the scale a driver sees.
+        const frontA = ring[3], frontB = ring[2], center = ringCenter(ring);
+        const length = Math.hypot(frontB[0] - frontA[0], frontB[1] - frontA[1]) || 1;
+        const midpoint = [(frontA[0] + frontB[0]) / 2, (frontA[1] + frontB[1]) / 2];
+        const outwardLength = Math.hypot(midpoint[0] - center[0], midpoint[1] - center[1]) || 1;
+        const outward = [(midpoint[0] - center[0]) / outwardLength,
+          (midpoint[1] - center[1]) / outwardLength];
+        const at = (fraction, y, depth = .12) => ringPoint([
+          frontA[0] + (frontB[0] - frontA[0]) * fraction + outward[0] * depth,
+          frontA[1] + (frontB[1] - frontA[1]) * fraction + outward[1] * depth], y);
+        for (const fraction of [.28, .72]) {
+          const half = 3.4 / length, jamb = .32 / length;
+          roofQuad(outTrim, outTrimColors, at(fraction - half, base + .08),
+            at(fraction + half, base + .08), at(fraction + half, base + 4.55),
+            at(fraction - half, base + 4.55), new THREE.Color(0x10293b));
+          for (const side of [-1, 1]) {
+            const edge = fraction + side * half;
+            roofQuad(outTrim, outTrimColors, at(edge - jamb, base + .08, .16),
+              at(edge + jamb, base + .08, .16),
+              at(edge + jamb, base + 4.9, .16),
+              at(edge - jamb, base + 4.9, .16), new THREE.Color(0xa8dce1));
+          }
+          roofQuad(outTrim, outTrimColors, at(fraction - half, base + 4.55, .16),
+            at(fraction + half, base + 4.55, .16),
+            at(fraction + half, base + 4.95, .16),
+            at(fraction - half, base + 4.95, .16), new THREE.Color(0x72d7df));
+        }
+        return;
+      }
+      if (style === 'airportConcourse') {
+        const eave = base + height * .82;
+        addWallRing(batches.airport[facadeVariant], ring, base, eave, tint, building, 'airport');
+        slopedRing(outRoofs, outRoofColors, ring, insetRing(ring, .71), eave,
+          base + height, new THREE.Color(0x718897));
+        roofPlate(outRoofs, outRoofColors, insetRing(ring, .71), base + height,
+          new THREE.Color(0x9bbbc4));
+        addTrimBand(outTrim, outTrimColors, ring, base + 3.8, new THREE.Color(0x82d8df));
+        // Short raised jet bridges make the airside wings legible from above.
+        const along = (a, b, t) => [a[0] + (b[0] - a[0]) * t,
+          a[1] + (b[1] - a[1]) * t];
+        for (let i = 0; i < 3; i++) {
+          const t = .2 + i * .28, north = i % 2 === 0;
+          const edgeA = north ? ring[0] : ring[1];
+          const edgeB = north ? ring[3] : ring[2];
+          const oppositeA = north ? ring[1] : ring[0];
+          const anchor = along(edgeA, edgeB, t);
+          const opposite = along(oppositeA, north ? ring[2] : ring[3], t);
+          const delta = [anchor[0] - opposite[0], anchor[1] - opposite[1]];
+          const magnitude = Math.hypot(...delta) || 1;
+          const outward = [delta[0] / magnitude * 13, delta[1] / magnitude * 13];
+          const p = along(edgeA, edgeB, t - .012), q = along(edgeA, edgeB, t + .012);
+          roofPrism(outRoofs, outRoofColors,
+            [p, q, [q[0] + outward[0], q[1] + outward[1]],
+              [p[0] + outward[0], p[1] + outward[1]]],
+            base + 4.6, base + 7.4, new THREE.Color(0x78a2b0));
+        }
+        return;
+      }
+      if (style === 'airportTower') {
+        const shaft = insetRing(ring, .48);
+        roofPrism(outRoofs, outRoofColors, shaft, base, base + height * .76,
+          new THREE.Color(0x78939e));
+        addWallRing(batches.airport[facadeVariant], ring, base + height * .75,
+          base + height * .96, tint, building, 'airport');
+        roofLedge(outRoofs, outRoofColors, ring, insetRing(ring, .78),
+          base + height * .98, new THREE.Color(0xa7c0c9));
+        roofPlate(outRoofs, outRoofColors, ring, base + height,
+          new THREE.Color(0x718c9e));
+        return;
+      }
       if (style === 'stadium') {
         const lower = base + Math.min(4, height * .25);
         const rim = base + Math.min(height, Math.max(5, height * (.64 + modelVariant * .055)));
@@ -2271,6 +2533,7 @@
     }
     function nearBuildingFootprint(x, z, margin = 2) {
       for (const building of map.nearbyBuildings(x, z, margin)) {
+        if (building.skipVisual) continue;
         const ring = building.footprint;
         if (!ring || ring.length < 3) continue;
         let inside = false;
@@ -2417,8 +2680,10 @@
       const dx = road.x2 - road.x1, dz = road.z2 - road.z1, a = dx * dx + dz * dz;
       let visible = [[0, 1]];
       for (const hit of hits) {
+        const arm = hit.node.arms.find(candidate => String(candidate.road.id) === String(road.id));
+        const radius = arm?.graphLanes?.length ? arm.renderCut : hit.radius;
         const px = road.x1 - hit.node.x, pz = road.z1 - hit.node.z;
-        const b = 2 * (px * dx + pz * dz), c = px * px + pz * pz - hit.radius * hit.radius;
+        const b = 2 * (px * dx + pz * dz), c = px * px + pz * pz - radius * radius;
         const disc = b * b - 4 * a * c;
         if (disc <= 0) continue;
         const root = Math.sqrt(disc), from = (-b - root) / (2 * a), to = (-b + root) / (2 * a);
@@ -2436,7 +2701,7 @@
     function prepareJunction(node) {
       for (const arm of node.arms) {
         arm.mouth = null;
-        const radius = Math.min(arm.length * .49, arm.cut + .35);
+        const radius = Math.min(arm.length * .49, (arm.renderCut ?? arm.cut) + .35);
         let best = null, bestScore = Infinity;
         for (const road of map.nearbyRoads(node.x, node.z, radius + 8)) {
           if (String(road.id) !== String(arm.road.id)) continue;
@@ -2481,7 +2746,7 @@
         sourceY = mouth.y;
       } else {
         const road = arm.road, length = arm.length;
-        const distance = Math.min(length * .49, arm.cut + .35);
+        const distance = Math.min(length * .49, (arm.renderCut ?? arm.cut) + .35);
         const t = arm.atStart ? distance / length : 1 - distance / length;
         const nx = (road.z2 - road.z1) / length, nz = -(road.x2 - road.x1) / length;
         x = road.x1 + (road.x2 - road.x1) * t + nx * offset;
@@ -2584,8 +2849,8 @@
         uvs.push(a[0] / 5, a[2] / 5, b[0] / 5, b[2] / 5, c[0] / 5, c[2] / 5);
       }
     }
-    function graphCoversJunction(node, tile) {
-      if (!tile.connectors?.length) return false;
+    function graphJunctionId(node, tile) {
+      if (!tile.connectors?.length) return null;
       const arms = new Set(node.arms.map((arm) => String(arm.road.id)));
       const reach = Math.max(24, ...node.arms.map((arm) => (arm.cut || 0) + 10));
       const groups = new Map();
@@ -2601,23 +2866,112 @@
         if (arms.has(from)) group.add(from);
         if (arms.has(to)) group.add(to);
       }
-      return [...groups.values()].some((covered) => [...arms].every((id) => covered.has(id)));
+      for (const [nodeId, covered] of groups)
+        if ([...arms].every((id) => covered.has(id))) return String(nodeId);
+      return null;
     }
-    function addLaneConnector(out, uvs, connector) {
-      const samples = connector.samples;
+    function graphMergeOrSplit(node, nodeId, tile) {
+      const arms = new Set(node.arms.map(arm => String(arm.road.id)));
+      const from = new Set(), to = new Set();
+      for (const connector of tile.connectors || []) {
+        if (String(connector.node_id) !== nodeId || connector.forbidden ||
+            !arms.has(String(connector.from_edge_id)) ||
+            !arms.has(String(connector.to_edge_id))) continue;
+        from.add(String(connector.from_edge_id));
+        to.add(String(connector.to_edge_id));
+      }
+      return from.size >= 2 && to.size === 1 || from.size === 1 && to.size >= 2;
+    }
+    function addLaneRibbon(out, uvs, samples, width, entityId, include, extraWidth) {
       if (!samples || samples.length < 2) return;
-      const half = clamp(finite(connector.width_m, 3), 1.5, 9) / 2 + .16;
-      const lift = hash(connector.entity_id) % 7 * .001;
+      const half = clamp(finite(width, 3), 1.5, 9) / 2 + .16;
+      const lift = hash(entityId) % 7 * .001;
       const edge = (sample, side) => {
-        const x = sample.x + sample.nx * half * side;
-        const z = sample.z + sample.nz * half * side;
+        const radius = half + (extraWidth ? extraWidth(sample) : 0);
+        const x = sample.x + sample.nx * radius * side;
+        const z = sample.z + sample.nz * radius * side;
         return [x, Math.max(sample.y, map.terrainHeight(x, z) + .095) + lift, z];
       };
       for (let i = 0; i < samples.length - 1; i++) {
+        if (include && !include(samples[i], samples[i + 1])) continue;
         const a = edge(samples[i], 1), b = edge(samples[i + 1], 1);
         const c = edge(samples[i + 1], -1), d = edge(samples[i], -1);
         triangle(out, a, c, b); triangle(out, a, d, c);
         for (const p of [a, c, b, a, d, c]) uvs.push(p[0] / 5, p[2] / 5);
+      }
+    }
+    function addLaneConnector(out, uvs, connector) {
+      addLaneRibbon(out, uvs, connector.samples, connector.width_m, connector.entity_id);
+    }
+    function prepareGraphArms(tile, graphNodes) {
+      const roadsById = new Map();
+      for (const road of [...tile.roads, ...tile.highways]) {
+        const id = String(road.id);
+        if (!roadsById.has(id)) roadsById.set(id, []);
+        roadsById.get(id).push(road);
+      }
+      for (const [node, nodeId] of graphNodes) {
+        let complete = true;
+        for (const arm of node.arms) {
+          const lanes = [];
+          for (const lane of tile.edgeLanes || []) {
+            if (String(lane.edge_id) !== String(arm.road.id) || !validLaneCurve(lane.curve)) continue;
+            const atStart = String(lane.edge_start_node_id) === nodeId;
+            const atEnd = String(lane.edge_end_node_id) === nodeId;
+            if (!atStart && !atEnd) continue;
+            const terminal = lane.curve[atStart ? 0 : 3];
+            const distance = Math.hypot(terminal[0] - node.x, terminal[2] - node.z);
+            if (distance > arm.cut + 12) continue;
+            lanes.push({ lane, terminal, distance });
+          }
+          if (!lanes.length) { complete = false; break; }
+          arm.graphLanes = lanes;
+          arm.graphSegments = roadsById.get(String(arm.road.id)) || [];
+          arm.renderCut = Math.min(arm.cut,
+            Math.max(7, ...lanes.map(entry => entry.distance + 4)));
+        }
+        if (!complete) {
+          graphNodes.delete(node);
+          for (const arm of node.arms) {
+            delete arm.graphLanes; delete arm.graphSegments; delete arm.renderCut;
+          }
+        }
+      }
+    }
+    function addGraphApproaches(out, uvs, tile, graphNodes) {
+      if (!graphNodes.size || !tile.edgeLanes?.length) return;
+      for (const node of graphNodes.keys()) for (const arm of node.arms) {
+        const lanes = arm.graphLanes || [];
+        if (!lanes.length) continue;
+        const layout = roadLayout(arm.road);
+        const carriageWidth = layout.carriageMax - layout.carriageMin;
+        const laneWidth = lanes.reduce((total, entry) => total + finite(entry.lane.width_m, 3), 0);
+        const shoulder = clamp((carriageWidth - laneWidth) / 2, 0, 3.5);
+        const dx = arm.road.x2 - arm.road.x1, dz = arm.road.z2 - arm.road.z1;
+        const length = Math.hypot(dx, dz) || 1;
+        const nx = dz / length, nz = -dx / length;
+        lanes.sort((a, b) => (a.terminal[0] - node.x) * nx + (a.terminal[2] - node.z) * nz -
+          (b.terminal[0] - node.x) * nx - (b.terminal[2] - node.z) * nz);
+        for (let i = 0; i < lanes.length; i++) {
+          const { lane, distance } = lanes[i];
+          const samples = sampleLaneConnector(lane, map.terrainHeight);
+          const reach = arm.renderCut + 4;
+          for (const sample of samples) {
+            if (Math.hypot(sample.x - node.x, sample.z - node.z) > reach + 7) continue;
+            const deck = roadDeckAt(arm.graphSegments, sample.x, sample.z);
+            if (deck === null) continue;
+            sample.sourceY = deck;
+            sample.y = Math.max(deck + .08, map.terrainHeight(sample.x, sample.z) + .095);
+          }
+          const outer = i === 0 || i === lanes.length - 1 ? shoulder : 0;
+          const extraWidth = outer ? sample => outer * clamp(
+            (Math.hypot(sample.x - node.x, sample.z - node.z) - distance) /
+              Math.max(2, arm.renderCut - distance), 0, 1) : null;
+          addLaneRibbon(out, uvs, samples, lane.width_m, lane.entity_id, (a, b) => {
+            const x = (a.x + b.x) / 2, z = (a.z + b.z) / 2;
+            return Math.hypot(x - node.x, z - node.z) <= reach;
+          }, extraWidth);
+        }
       }
     }
     function addCornerSidewalks(outWalks, outUVs, outCurbs, node) {
@@ -2646,8 +3000,9 @@
       if (node.arms.length < 3) return;
       for (const arm of node.arms) {
         const road = arm.road, layout = roadLayout(road);
-        if (layout.highway || arm.length < arm.cut + 5.5) continue;
-        const near = (arm.cut + 1.25) / arm.length, far = (arm.cut + 4.25) / arm.length;
+        const cut = arm.renderCut ?? arm.cut;
+        if (layout.highway || arm.length < cut + 5.5) continue;
+        const near = (cut + 1.25) / arm.length, far = (cut + 4.25) / arm.length;
         const start = arm.atStart ? near : 1 - far, end = arm.atStart ? far : 1 - near;
         for (let offset = layout.carriageMin + .34; offset + .58 < layout.carriageMax - .34; offset += .95)
           roadStrip(out, road, .29, .115, null, true, offset + .29, start, end);
@@ -2716,6 +3071,15 @@
       const speedSignPositions = [], speedSignUVs = [], speedPostPositions = [];
       const speedSignRecords = [], speedSignSites = [];
       const markQueue = [];
+      const ownerJunctions = junctionsByTile.get(id) || [];
+      const graphNodes = new Map();
+      for (const node of ownerJunctions) {
+        const graphId = graphJunctionId(node, tile);
+        if (graphId !== null) graphNodes.set(node, graphId);
+      }
+      const taperNodes = new Map([...graphNodes].filter(([node, nodeId]) =>
+        graphMergeOrSplit(node, nodeId, tile)));
+      prepareGraphArms(tile, taperNodes);
       for (const road of tile.roads) {
         applySmoothJoins(road);
         road.surfaceGrids = [];
@@ -2727,14 +3091,28 @@
         // A junction's outline cannot assume that a curved source road follows
         // the overview's straight tangent. Keep its real swept carriageway
         // beneath the node surface, while stopping all lines and walks.
+        const approachStrip = (start, end) => {
+          if (end <= start + .00001) return;
+          const t = (start + end) / 2;
+          const x = road.x1 + (road.x2 - road.x1) * t;
+          const z = road.z1 + (road.z2 - road.z1) * t;
+          // Full-width slabs at a graph-covered split produce a blocky,
+          // overlapping "star". Its actual edge lanes will fill this space.
+          for (const node of taperNodes.keys()) {
+            const arm = node.arms.find(candidate => String(candidate.road.id) === String(road.id));
+            if (!arm?.graphLanes?.length) continue;
+            if (Math.hypot(x - node.x, z - node.z) <=
+                arm.renderCut + 1) return;
+          }
+          roadStrip(approachPositions, road, carriageHalf, .065,
+            approachUVs, true, carriageCenter, start, end, 2, true);
+        };
         let cursor = 0;
         for (const [start, end] of intervals) {
-          if (start > cursor + .00001) roadStrip(approachPositions, road, carriageHalf,
-            .065, approachUVs, true, carriageCenter, cursor, start, 2, true);
+          if (start > cursor + .00001) approachStrip(cursor, start);
           cursor = end;
         }
-        if (cursor < 1 - .00001) roadStrip(approachPositions, road, carriageHalf,
-          .065, approachUVs, true, carriageCenter, cursor, 1, 2, true);
+        if (cursor < 1 - .00001) approachStrip(cursor, 1);
         if (!intervals.length) continue;
         for (const [start, end] of intervals) roadStrip(layout.highway ? groundHighways : groundPositions,
           road, carriageHalf, .06, layout.highway ? highwayUVs : groundUVs,
@@ -2789,12 +3167,13 @@
         addSpeedSigns(speedSignPositions, speedSignUVs, speedPostPositions,
           speedSignRecords, speedSignSites, entry.road, entry.layout, entry.intervals);
       }
-      for (const node of junctionsByTile.get(id) || []) {
+      for (const node of ownerJunctions) {
         prepareJunction(node);
-        if (!graphCoversJunction(node, tile)) addJunction(junctionPositions, junctionUVs, node);
+        if (!graphNodes.has(node)) addJunction(junctionPositions, junctionUVs, node);
         addCornerSidewalks(junctionSidewalks, junctionSidewalkUVs, junctionCurbs, node);
         addCrosswalks(crosswalkPositions, node);
       }
+      addGraphApproaches(laneConnectorPositions, laneConnectorUVs, tile, taperNodes);
       for (const connector of tile.ownedConnectors || [])
         addLaneConnector(laneConnectorPositions, laneConnectorUVs, connector);
       for (const road of tile.highways) {
@@ -2851,6 +3230,22 @@
       }
       mesh('imported-city-roof', roofs, roofMat, buildingRoot, roofColors);
       mesh('imported-city-building-trim', trim, buildingTrimMat, buildingRoot, trimColors);
+      if (airportSignMat) for (const building of tile.buildings) {
+        if (!/International Airport Terminal/.test(building.prefab) ||
+            building.footprint?.length !== 4) continue;
+        const ring = building.footprint;
+        const front = [(ring[2][0] + ring[3][0]) / 2,
+          (ring[2][1] + ring[3][1]) / 2];
+        const center = ringCenter(ring);
+        const dx = front[0] - center[0], dz = front[1] - center[1];
+        const length = Math.hypot(dx, dz) || 1, nx = dx / length, nz = dz / length;
+        const sign = new THREE.Mesh(new THREE.PlaneGeometry(13, 2.6), airportSignMat);
+        sign.name = 'imported-city-airport-departures';
+        sign.position.set(front[0] + nx * .2, building.baseY + 6.1,
+          front[1] + nz * .2);
+        sign.rotation.y = Math.atan2(nx, nz);
+        buildingRoot.add(sign);
+      }
       if (tile.supports.length) {
         const supports = new THREE.InstancedMesh(box, bridgePartMat, tile.supports.length);
         supports.name = 'imported-city-support'; supports.castShadow = true;
@@ -2871,7 +3266,7 @@
       for (const node of nodes) {
         prepareJunction(node);
         const tile = map.loadedTiles.get(id)?.data;
-        if (!graphCoversJunction(node, tile || {})) addJunction(pavement, pavementUVs, node);
+        if (graphJunctionId(node, tile || {}) === null) addJunction(pavement, pavementUVs, node);
         addCornerSidewalks(walks, walkUVs, curbs, node);
       }
       for (const [name, positions, material, uvs] of [
@@ -3018,6 +3413,7 @@
       ctx.strokeStyle = color; ctx.lineWidth = 8; ctx.strokeRect(5, 5, 502, 118);
       let size = 43; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       do { ctx.font = '700 ' + size + 'px monospace'; size -= 2; } while (size > 22 && ctx.measureText(label).width > 465);
+      if (mirrorGlyphs) { ctx.translate(canvas.width, 0); ctx.scale(-1, 1); }
       ctx.fillStyle = color; ctx.fillText(label, 256, 65);
       const texture = new THREE.CanvasTexture(canvas);
       if (THREE.sRGBEncoding) texture.encoding = THREE.sRGBEncoding;
@@ -3086,6 +3482,7 @@
     function dispose() {
       disposed = true; unsubscribe();
       speedAtlas.dispose(); speedSignMat.dispose(); speedSignBackMat.dispose(); speedPostMat.dispose();
+      airportSignTexture?.dispose(); airportSignMat?.dispose();
       for (const material of Object.values(wallMaterials)) {
         material.map?.dispose(); material.emissiveMap?.dispose(); material.dispose();
       }

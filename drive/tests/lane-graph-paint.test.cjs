@@ -46,7 +46,8 @@ test('native lane connections paint only permitted turns, merges, and signaled s
     connector(21, 1, 2, [106, 0, 100]),
     connector(22, 1, 3, [105, 0, 96]),
     connector(23, 1, 5, [105, 0, 104], true),
-    connector(24, 4, 2, [106, 0, 100])
+    connector(24, 4, 2, [106, 0, 100]),
+    connector(25, 4, 5, [105, 0, 104])
   ];
   const roads = [
     { type: 'road', id: '1', kind: 'ROAD', width: 8, points: [[10, 0, 100], [100, 0, 100]] },
@@ -84,10 +85,28 @@ test('native lane connections paint only permitted turns, merges, and signaled s
     const arrow = world.getObjectByName('imported-city-turn-arrow');
     const records = arrow?.userData.turnArrows || [];
     const main = records.find(record => record.roadId === '1' && record.laneIndex === 1);
-    assert.deepEqual(main?.turns, ['left', 'straight']);
+    assert.deepEqual(main?.turns, ['straight', 'right'],
+      'an eastbound lane bending toward negative Z turns right on the city map');
     assert.deepEqual(main?.connectorIds.sort(), ['21', '22']);
+    const other = records.find(record => record.roadId === '4' && record.laneIndex === 1);
+    assert.deepEqual(other?.turns, ['left', 'straight'],
+      'an eastbound lane bending toward positive Z turns left on the city map');
+    const positions = arrow.geometry.attributes.position;
+    const nearbyZ = record => {
+      const values = [];
+      for (let i = 0; i < positions.count; i++) {
+        const px = positions.getX(i), pz = positions.getZ(i);
+        if (Math.abs(px - record.x) < 2 && Math.abs(pz - record.z) < 3)
+          values.push(pz);
+      }
+      return values;
+    };
+    assert.ok(Math.min(...nearbyZ(main)) < main.z - 1.1,
+      'the right arrowhead is painted toward negative Z');
+    assert.ok(Math.max(...nearbyZ(other)) > other.z + 1.1,
+      'the left arrowhead is painted toward positive Z');
     assert.ok(world.getObjectByName('imported-city-merge-guide')?.geometry.attributes.position.count > 0);
     assert.ok(world.getObjectByName('imported-city-stop-line')?.geometry.attributes.position.count > 0);
-    assert.equal(map.laneConnectors.length, 3, 'the forbidden turn has no driveable ribbon');
+    assert.equal(map.laneConnectors.length, 4, 'the forbidden turn has no driveable ribbon');
   } finally { visual.dispose(); }
 });

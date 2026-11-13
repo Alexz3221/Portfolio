@@ -26,7 +26,8 @@ async function loadCity() {
 }
 
 function meshTriangles(world, names = ['imported-city-road', 'imported-city-junction',
-  'imported-city-junction-approach', 'imported-city-highway-grade']) {
+  'imported-city-junction-approach', 'imported-city-lane-connector',
+  'imported-city-highway-grade']) {
   const cells = new Map();
   let count = 0;
   world.traverse((object) => {

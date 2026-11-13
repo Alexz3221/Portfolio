@@ -53,7 +53,7 @@ Steps 1–5 now have a working browser implementation. The exporter patch is in
 `tools/cs2-lane-exporter/`; the converter writes compact lane-graph tiles and
 traffic-light positions, while old exports still work without them. The
 browser streams the new files with the corresponding road tiles, draws curved
-lane connectors and road-level merge/split guides, uses those curves for
+lane connectors and lane-boundary guides at merges and splits, uses those curves for
 raised-road collision, and paints per-lane permitted turns and stop lines at
 active signal nodes. There are 293 road/building tiles and 283 graph tiles.
 
@@ -68,9 +68,37 @@ p95 frame time over four seconds; nine nearby road tiles loaded by 2.2 s.
 There was still one 126 ms frame during streaming. Tile concurrency is capped
 at two to soften clustered mounts, but GPU upload hitches need another pass.
 
+The center 03 Orchard/Seabreeze and Fairview/Belmont merges now use exported
+edge-lane curves to taper the approach shoulders into the connector ribbons.
+The old full-width approach slabs left a broad, unmarked asphalt star at these
+nodes; the new pavement follows the actual 2+1 to 3-lane join. Boundary paint
+is placed between parallel connector paths and begins at the ramp only after
+the lanes converge. Real-save regression checks cover the Fairview approach
+and exit pavement and Orchard's two lane dividers. A local WebGL inspection
+also checked both joins and the nearby four-arm junction.
+
+The traffic exporter measures lateral lane offsets with the opposite road
+normal from the browser road mesh. The browser now reverses that offset before
+placing lane paint, arrows, and signs; tests compare the painted centerline
+with native forward/backward lane curves. Connections flagged `unsafe` remain
+in the graph but do not create ordinary turn arrows. Left/right turn heads
+also follow the full map's X/Z handedness. The full city map keeps
+the saved city's orientation. The imported 3D display, city steering, chase
+camera, and rotating minimap now use one matching orientation so left and
+right turns agree with the full map.
+
+The International Airport export contains a site-sized mesh bound rather
+than detailed terminal geometry. That bound no longer becomes a solid glass
+box. Procedural terminal pods, concourses, a control tower, and open dropoff
+canopies sit around the exported Eastgate and Daffodil roads. A regression
+checks all eleven airport approach road IDs against the terminal footprints
+and physical road surfaces. The replacement is an interpretation of the
+airport site, not a copy of its Cities: Skylines II asset.
+
 The export still cannot reproduce exact game intersection meshes, asset
-models, or traffic-light cycles. A few short straight-cut seams remain where
-generated connector ribbons meet the sampled approach pavement. One raised
+models, or traffic-light cycles. Small paint fragments remain at the
+Orchard/Seabreeze gore tip, and some four-arm junction centers still have
+large unmarked areas. One raised
 ramp join has a preexisting collision bump about 0.17–0.26 m above the new
 connector at two samples. These are geometry followups; they do not create
 missing lane-graph links.

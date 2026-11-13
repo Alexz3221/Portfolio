@@ -24,7 +24,7 @@ function harness(assetLoader, importer) {
   const fakeThree = {...THREE, WebGLRenderer: class {constructor(){this.shadowMap={};} setPixelRatio(){} setSize(){} render(){} }};
   const context = vm.createContext({window, document, THREE: fakeThree, DriveVehicleAssets: assetLoader, DrivePhysics: require('../js/physics.js'), requestAnimationFrame() {}, console});
   const source = fs.readFileSync(require.resolve('../js/main.js'), 'utf8');
-  vm.runInContext(source.replace(/\}\)\(\);\s*$/, 'globalThis.sim = {physics: () => physics, maps, samples: () => samples, world, vehicle, motion, carSpecs, carModels, keys, chooseMap, chooseCar, resetVehicle, updateVehicle, distanceToRoad, camera, updateCamera, setCameraMode, renderer, sky};})();'), context);
+  vm.runInContext(source.replace(/\}\)\(\);\s*$/, 'globalThis.sim = {physics: () => physics, maps, samples: () => samples, world, vehicle, vehicleFrame, motion, carSpecs, carModels, keys, chooseMap, chooseCar, resetVehicle, recoverVehicleInPlace, jumpToStop, updateVehicle, distanceToRoad, camera, updateCamera, setCameraMode, renderer, sky, animate};})();'), context);
   context.sim.chooseMap('city');
   return {sim: context.sim, document, window, cars, controls};
 }
@@ -48,6 +48,56 @@ test('browser adopts a loaded imported district while keeping other routes playa
   assert.equal(p.body.position.x,spawnX+5,'normal driving below world y=-30 does not reset');
   p.body.position.y=-81;p.syncRenderState();sim.updateVehicle(0);
   assert.equal(p.body.position.x,spawnX,'falling 30m below local terrain still resets');
+});
+
+test('imported city display keeps physical left turns on the big map’s left side', async () => {
+  const fallback = require('../js/city');
+  let streamedCamera = null;
+  const landmark = new THREE.Group(); landmark.position.set(0, 0, 20);
+  const imported = {...fallback, edge:520,
+    terrain:{elementSize:880,originX:-440,maxZ:440,data:[[-50,-50],[-50,-50]]},
+    build(_three, world) { world.add(landmark); return {
+      update(camera) { streamedCamera = {...camera.position}; }, dispose() {}}; }};
+  const {sim} = harness(undefined, {load:() => Promise.resolve(imported)});
+  await new Promise(setImmediate);
+  assert.equal(sim.world.scale.z, -1, 'the imported city is reflected for Three.js');
+  assert.equal(sim.vehicleFrame.scale.z, -1, 'the visible car shares the city frame');
+  const physics = sim.physics();
+  physics.reset(0, 0, 0);
+  sim.updateVehicle(0);
+  sim.vehicleFrame.updateMatrixWorld(true);
+  sim.world.updateMatrixWorld(true);
+  assert.ok(landmark.getWorldPosition(new THREE.Vector3()).z < -19.9,
+    'city landmarks use the reflected display frame');
+  const visibleCar = sim.vehicle.getWorldPosition(new THREE.Vector3());
+  const visibleForward = sim.vehicle.localToWorld(new THREE.Vector3(0, 0, 1)).sub(visibleCar);
+  assert.ok(visibleForward.z < -.9, 'the car faces along the reflected road');
+  sim.updateCamera(1);
+  assert.ok(sim.camera.position.z > -sim.vehicle.position.z + 2,
+    'the chase camera stays behind the visible northbound car');
+  sim.animate();
+  assert.ok(streamedCamera && Math.abs(streamedCamera.z + sim.camera.position.z) < .001,
+    'tile streaming reads the raw physics position behind the reflected camera');
+  sim.setCameraMode(); sim.setCameraMode(); sim.updateCamera(1);
+  assert.ok(sim.camera.position.z < -sim.vehicle.position.z,
+    'the hood camera remains ahead of the visible car');
+  sim.setCameraMode();
+  sim.jumpToStop({x:30, z:40, heading:0});
+  assert.ok(Math.abs(physics.body.position.z - 40) < .001 &&
+    Math.abs(sim.vehicle.getWorldPosition(new THREE.Vector3()).z + 40) < .001,
+    'fast travel keeps the map marker and visible car on the same raw road');
+  sim.recoverVehicleInPlace();
+  assert.ok(Math.abs(physics.body.position.z - 40) < .001 &&
+    Math.abs(sim.camera.position.z + sim.vehicle.position.z) > 2,
+    'F recovery stays in place with a chase camera in the reflected frame');
+  physics.reset(0, 0, 0); sim.updateVehicle(0);
+  sim.keys.add('w'); sim.keys.add('a');
+  for (let i = 0; i < 180; i++) sim.updateVehicle(1 / 60);
+  assert.ok(physics.body.position.x < -5,
+    'pressing left moves west on the unchanged big-map coordinate frame');
+  sim.chooseMap('mountain');
+  assert.equal(sim.world.scale.z, 1, 'other route scenery keeps its prior frame');
+  assert.equal(sim.vehicleFrame.scale.z, 1, 'other route cars keep their prior frame');
 });
 
 test('all three maps have distinct drivable, finite closed routes and safe spawns', () => {

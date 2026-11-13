@@ -11,6 +11,8 @@
   const keys = new Set();
   const keyboardKeys = new Set(), touchPointers = new Map();
   const vehicle = new THREE.Group();
+  const vehicleFrame = new THREE.Group();
+  vehicleFrame.add(vehicle);
   const motion = {speed: 0, heading: 0};
   // Geometry and simulation share dimensions derived from the selected source cars.
   const carSpecs = Object.fromEntries(Object.entries({
@@ -31,6 +33,8 @@
   const world = new THREE.Group();
   scene.add(world);
   let selectedMap = 'city';
+  function mirroredCityView() { return selectedMap === 'city' && !!city.terrain; }
+  function displayZ(z) { return mirroredCityView() ? -z : z; }
   let samples = [];
   let cityVisual = null;
   let portfolio = null;
@@ -134,6 +138,8 @@
     });
     world.clear();
     cityVisual = null;
+    world.scale.z = mirroredCityView() ? -1 : 1;
+    vehicleFrame.scale.z = world.scale.z;
     geometries.forEach(geometry => geometry.dispose());
     materials.forEach(material => material.dispose());
     textures.forEach(texture => texture.dispose());
@@ -548,7 +554,7 @@
       if(selectedCar === type) document.querySelector('#modelStatus').textContent = 'Model unavailable · fallback car';
     });
   }
-  scene.add(vehicle);
+  scene.add(vehicleFrame);
   function resetVehicle() {
     resetOrbit();
     const spawn = samples[0];
@@ -560,7 +566,8 @@
     vehicle.position.set(spawn.point.x, .03, spawn.point.z);
     vehicle.rotation.set(0,motion.heading,0);
     if (physics) vehicle.position.y = physics.body.position.y - 1.05;
-    camera.position.set(vehicle.position.x - Math.sin(motion.heading) * 9, vehicle.position.y + 5, vehicle.position.z - Math.cos(motion.heading) * 9);
+    camera.position.set(vehicle.position.x - Math.sin(motion.heading) * 9,
+      vehicle.position.y + 5, displayZ(vehicle.position.z - Math.cos(motion.heading) * 9));
   }
   function recoverVehicleInPlace() {
     if (!physics) return;
@@ -580,7 +587,7 @@
     motion.heading = heading;
     updateVehicle(0);
     camera.position.set(vehicle.position.x - Math.sin(heading) * 9,
-      vehicle.position.y + 5, vehicle.position.z - Math.cos(heading) * 9);
+      vehicle.position.y + 5, displayZ(vehicle.position.z - Math.cos(heading) * 9));
   }
   function jumpToStop(stop) {
     if (selectedMap !== 'city' || !physics) return;
@@ -595,7 +602,7 @@
       motion.heading = heading;
       updateVehicle(0);
       camera.position.set(vehicle.position.x - Math.sin(heading) * 9,
-        vehicle.position.y + 5, vehicle.position.z - Math.cos(heading) * 9);
+        vehicle.position.y + 5, displayZ(vehicle.position.z - Math.cos(heading) * 9));
     };
     if(typeof city.ensureNear==='function') {
       // Move first so both the visual streamer and physics request the target district.
@@ -778,7 +785,8 @@
   function updateVehicle(delta) {
     const spec = carSpecs[selectedCar];
     const throttle = Number(keys.has('w') || keys.has('arrowup')) - Number(keys.has('s') || keys.has('arrowdown'));
-    const steering = Number(keys.has('a') || keys.has('arrowleft')) - Number(keys.has('d') || keys.has('arrowright'));
+    const steering = (Number(keys.has('a') || keys.has('arrowleft')) -
+      Number(keys.has('d') || keys.has('arrowright'))) * (mirroredCityView() ? -1 : 1);
     if (physics) {
       const state=physics.step(delta,{throttle,steer:steering,brake:keys.has(' ')});
       motion.speed=state.speed;
@@ -831,9 +839,12 @@
       // Aim at the car body, not a point four metres ahead of it.
       target.set(0, 1.2, 0).add(vehicle.position);
     }
+    desired.z = displayZ(desired.z);
+    target.z = displayZ(target.z);
     if (cameraMode === 2) camera.position.copy(desired);
     else camera.position.lerp(desired, 1 - Math.exp(-5 * delta));
-    if (physics) camera.position.y=Math.max(camera.position.y,physics.terrainHeight(camera.position.x,camera.position.z)+1.5);
+    if (physics) camera.position.y=Math.max(camera.position.y,
+      physics.terrainHeight(camera.position.x,displayZ(camera.position.z))+1.5);
     camera.lookAt(target);
     // Keep the enclosing sky centered on the camera and within its far plane.
     sky.position.copy(camera.position);
@@ -844,13 +855,14 @@
     const delta = Math.min(clock.getDelta(), .05);
     updateVehicle(portfolio?.isOpen() ? 0 : delta);
     updateCamera(delta);
-    cityVisual?.update?.(camera, delta);
+    cityVisual?.update?.(mirroredCityView()
+      ? {position:{x:camera.position.x,y:camera.position.y,z:-camera.position.z}} : camera, delta);
     portfolio?.update(physics.body.position, motion.speed, motion.heading);
     renderer.render(scene, camera);
     if (firstFrame) { message.classList.add('done'); firstFrame = false; }
     requestAnimationFrame(animate);
   }
   resize();
-  camera.position.set(vehicle.position.x - 8, 5, vehicle.position.z - 8);
+  camera.position.set(vehicle.position.x - 8, 5, displayZ(vehicle.position.z - 8));
   animate();
 })();

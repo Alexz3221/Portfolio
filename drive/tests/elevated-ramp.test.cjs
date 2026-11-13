@@ -47,6 +47,21 @@ function rayHeight(physics, x, z, startY) {
     new C.Vec3(x, startY - 100, z), {}, result));
   return result.hitPointWorld.y;
 }
+function roadTopAt(world, x, z) {
+  let top = -Infinity;
+  const names = new Set(['imported-city-road', 'imported-city-highway-grade',
+    'imported-city-junction-approach', 'imported-city-junction',
+    'imported-city-lane-connector']);
+  world.traverse(object => {
+    if (names.has(object.name)) top = Math.max(top, topAt(object, x, z));
+  });
+  return top;
+}
+function cubic(curve, t) {
+  const u = 1 - t;
+  return [0, 1, 2].map(i => u ** 3 * curve[0][i] + 3 * u * u * t * curve[1][i] +
+    3 * u * t * t * curve[2][i] + t ** 3 * curve[3][i]);
+}
 
 test('real curved ramp is a continuous deck across all 46 exported samples', async () => {
   const {map, visual, tile} = await loadAt(1485, -700);
@@ -169,4 +184,43 @@ test('barriers stop before a real three-way elevated highway merge', async () =>
   }
   assert.ok(tile.getObjectByName('imported-city-guardrail'), 'raised approaches retain barriers');
   visual.dispose();
+});
+
+test('raised Fairview merge supports its connector and tapered exit shoulder', async () => {
+  const node = {x:4528.527, z:-3658.37};
+  const map = await Imported.load('data/imported-city/manifest.json', {fetch: fetchLocal});
+  const world = new THREE.Group(), visual = map.build(THREE, world);
+  visual.update({position: {x:node.x, y:80, z:node.z}}, 0);
+  await map.ensureNear(node.x, node.z, 280);
+  const physics = Physics.create({map:'city', city:map});
+  try {
+    // Physics starts at the distant spawn and streams this tile out. Reload
+    // the target before measuring the colliders actually used after travel.
+    physics.reset(node.x, node.z);
+    await map.ensureNear(node.x, node.z, 280);
+    physics.reset(node.x, node.z);
+    physics.body.position.set(0, 10000, 0);
+    const connector = map.nearbyLaneConnectors(node.x, node.z, 65)
+      .find(item => item.entity_id === 4386732);
+    assert.ok(connector, 'Belmont ramp connector is loaded');
+    const lanes = [...map.loadedTiles.values()].filter(tile => tile.state === 'loaded')
+      .flatMap(tile => tile.data.edgeLanes || []);
+    const exit = lanes.find(lane => lane.entity_id === 5345912);
+    assert.ok(exit, 'Fairview exit lane is loaded');
+    const point = cubic(exit.curve, .06), forward = cubic(exit.curve, .061);
+    const dx = forward[0] - point[0], dz = forward[2] - point[2];
+    const length = Math.hypot(dx, dz);
+    const probes = connector.samples.filter((_, i) =>
+      i === 0 || i === Math.floor((connector.samples.length - 1) / 2) ||
+      i === connector.samples.length - 1).map(sample => [sample.x, sample.z]);
+    for (const offset of [-3.2, 0, 3.2]) probes.push([
+      point[0] + dz / length * offset, point[2] - dx / length * offset]);
+    for (const [x, z] of probes) {
+      const visible = roadTopAt(world, x, z);
+      assert.ok(Number.isFinite(visible), `merge asphalt covers ${x}, ${z}`);
+      const physical = rayHeight(physics, x, z, visible + 5);
+      assert.ok(Math.abs(visible - physical) < .35,
+        `merge deck has physical support at ${x}, ${z}: ${visible} vs ${physical}`);
+    }
+  } finally { physics.dispose(); visual.dispose(); }
 });

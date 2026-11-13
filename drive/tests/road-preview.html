@@ -11,7 +11,7 @@
   const scene=new THREE.Scene();scene.background=new THREE.Color(0x7b9ba3);
   scene.add(new THREE.HemisphereLight(0xffffff,0x74849b,1.25));
   const sun=new THREE.DirectionalLight(0xffffff,.7);sun.position.set(x-30,80,z-20);scene.add(sun);
-  const world=new THREE.Group();scene.add(world);
+  const world=new THREE.Group();world.scale.z=params.has('mirror')?-1:1;scene.add(world);
   const visual=map.build(THREE,world);
   // Building the visual primes spawn streaming; load the requested district
   // afterwards so a far-away preview does not render an empty first frame.
@@ -24,11 +24,20 @@
     });
   }
   const aspect=innerWidth/innerHeight;
-  const camera=new THREE.OrthographicCamera(-span*aspect/2,span*aspect/2,span/2,-span/2,.1,2000);
-  if(params.has('oblique')) camera.position.set(x+span*.65,map.terrainHeight(x,z)+span*.9,z+span*.65);
-  else camera.position.set(x,map.terrainHeight(x,z)+500,z+.01);
-  camera.up.set(0,0,-1);camera.lookAt(x,map.terrainHeight(x,z),z);
-  visual.update(camera,0);
+  const mirror=world.scale.z<0;
+  let camera;
+  if(params.has('street')) {
+    camera=new THREE.PerspectiveCamera(72,aspect,.1,2000);
+    const lookX=Number(params.get('lookX')||x-100),lookZ=Number(params.get('lookZ')||z);
+    camera.position.set(x,Number(params.get('eyeY')||map.terrainHeight(x,z)+4),mirror?-z:z);
+    camera.lookAt(lookX,Number(params.get('lookY')||map.terrainHeight(lookX,lookZ)+5),mirror?-lookZ:lookZ);
+  } else {
+    camera=new THREE.OrthographicCamera(-span*aspect/2,span*aspect/2,span/2,-span/2,.1,2000);
+    if(params.has('oblique')) camera.position.set(x+span*.65,map.terrainHeight(x,z)+span*.9,z+span*.65);
+    else camera.position.set(x,map.terrainHeight(x,z)+500,z+.01);
+    camera.up.set(0,0,-1);camera.lookAt(x,map.terrainHeight(x,z),z);
+  }
+  visual.update({position:{x,y:camera.position.y,z}},0);
   const renderer=new THREE.WebGLRenderer({canvas:document.getElementById('view'),antialias:true});
   renderer.setSize(innerWidth,innerHeight);renderer.outputEncoding=THREE.sRGBEncoding;
   renderer.render(scene,camera);
