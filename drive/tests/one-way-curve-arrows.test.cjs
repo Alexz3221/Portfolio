@@ -20,7 +20,8 @@ test('short sampled one-way curves near center 03 keep visible travel arrows', a
     // Build initializes at downtown; load this far district afterward.
     await map.ensureNear(x, z, 700);
     visual.update({ position: { x, y: map.terrainHeight(x, z) + 20, z } }, 0);
-    const targetIds = ['5516868', '5516697', '5516806'];
+    // The Save 12 export's Cherry/Seabreeze highways have 1 m curve samples.
+    const targetIds = ['530561', '3375208', '3375363'];
     const arrows = new Map(targetIds.map(id => [id, []]));
     world.traverse(mesh => {
       if (mesh.name !== 'imported-city-direction-arrow') return;

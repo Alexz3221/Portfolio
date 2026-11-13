@@ -11,9 +11,27 @@ const { once } = require('node:events');
 
 const RELEVANT_ROOT = new Set([
   'schema_version', 'metadata', 'sea_level', 'terrain',
-  'networks', 'buildings', 'districts', 'traffic',
+  'networks', 'buildings', 'districts', 'traffic', 'extensions',
 ]);
-const ITEM_ARRAYS = new Set(['networks', 'buildings', 'districts', 'traffic.segments']);
+const EDGE_LANES = 'extensions.cs2.lane_graph.edge_lanes';
+const CONNECTORS = 'extensions.cs2.lane_graph.connectors';
+const ITEM_ARRAYS = new Set(['networks', 'buildings', 'districts', 'traffic.segments', 'traffic.lights', EDGE_LANES, CONNECTORS]);
+// Each lane record is stored as an array in the order declared here. Keeping
+// the field names once in the manifest saves several MB on large cities.
+const EDGE_LANE_FIELDS = [
+  'entity_id', 'entity_version', 'edge_id', 'edge_version',
+  'edge_start_node_id', 'edge_end_node_id',
+  'start_lane_index', 'end_lane_index', 'start_path_index', 'end_path_index',
+  'edge_delta', 'width_m', 'speed_limit_mps', 'car_flags',
+  'twoway', 'forbidden', 'unsafe', 'public_only', 'curve',
+];
+const CONNECTOR_FIELDS = [
+  'entity_id', 'entity_version', 'node_id', 'node_version',
+  'from_edge_id', 'from_edge_version', 'from_lane_index', 'from_path_index',
+  'to_edge_id', 'to_edge_version', 'to_lane_index', 'to_path_index',
+  'path_methods', 'path_methods_bits', 'width_m', 'car_flags',
+  'forbidden', 'unsafe', 'public_only', 'curve',
+];
 
 function parseTuple(value, length, label) {
   const parts = String(value).split(',').map(Number);
@@ -140,8 +158,10 @@ function simplifyLine(points, tolerance = 8) {
 // terrain base64 is delivered in chunks to a zlib decoder, and all other large
 // top-level arrays are scanned without constructing their values.
 class CmmReader {
-  constructor(handlers) {
+  constructor(handlers, options = {}) {
     this.handlers = handlers;
+    this.relevantRoot = options.relevantRoot || RELEVANT_ROOT;
+    this.itemArrays = options.itemArrays || ITEM_ARRAYS;
     this.stack = [];
     this.mode = 'normal';
     this.token = '';
@@ -156,7 +176,7 @@ class CmmReader {
     if (!parent) return '';
     if (parent.path === null) return null;
     if (parent.type === 'object') {
-      if (parent.path === '' && !RELEVANT_ROOT.has(parent.key)) return null;
+      if (parent.path === '' && !this.relevantRoot.has(parent.key)) return null;
       return parent.path ? `${parent.path}.${parent.key}` : parent.key;
     }
     return `${parent.path}[${parent.index}]`;
@@ -165,7 +185,7 @@ class CmmReader {
   begin(type) {
     const parent = this.stack.at(-1);
     if (parent && parent.expect !== 'value') throw new Error('Malformed JSON: unexpected value');
-    const itemRoot = parent?.type === 'array' && ITEM_ARRAYS.has(parent.path);
+    const itemRoot = parent?.type === 'array' && this.itemArrays.has(parent.path);
     const build = !!(parent?.build || itemRoot);
     const value = build ? (type === 'object' ? {} : []) : undefined;
     if (parent?.build) this.attach(parent, value);
@@ -377,8 +397,19 @@ class CityConverter {
     this.meta = { origin: [] };
     this.tiles = new Map();
     this.openTiles = new Map();
+    this.laneTiles = new Map();
+    this.openLaneTiles = new Map();
+    this.edgeLaneStarts = new Map();
+    this.edgeLaneEnds = new Map();
+    this.pendingConnectors = [];
+    this.laneGraphSeen = false;
+    this.laneGraphSchema = null;
+    this.laneGraphStats = {};
+    this.laneGraphCounts = { sourceEdgeLanes: 0, sourceConnectors: 0, selectedEdgeLanes: 0, selectedConnectors: 0 };
     this.counts = { networks: 0, roads: 0, buildings: 0, districts: 0, roadParts: 0 };
     this.trafficLanes = new Map();
+    this.trafficLights = [];
+    this.trafficLightSourceCount = 0;
     this.meshBackedParentIds = new Set();
     this.overviewRoads = 0;
     this.overviewDistricts = [];
@@ -398,6 +429,13 @@ class CityConverter {
     else if (pathName === 'terrain.origin[1]') this.meta.origin[1] = value;
     else if (pathName === 'terrain.height.encoding') this.meta.heightEncoding = value;
     else if (pathName === 'terrain.water_depth.encoding') this.meta.waterEncoding = value;
+    else if (pathName === 'extensions.cs2.lane_graph.schema_version') {
+      this.laneGraphSeen = true;
+      this.laneGraphSchema = value;
+    } else if (pathName.startsWith('extensions.cs2.lane_graph.stats.')) {
+      this.laneGraphSeen = true;
+      this.laneGraphStats[pathName.slice('extensions.cs2.lane_graph.stats.'.length)] = value;
+    }
   }
 
   init() {
@@ -527,6 +565,144 @@ class CityConverter {
     return [round(Number(p.x) - this.originWorld[0]), round(Number(p.y) - this.seaLevel), round(Number(p.z) - this.originWorld[2])];
   }
 
+  laneTile(ix, iz, kind) {
+    const key = `${ix}_${iz}`;
+    let tile = this.laneTiles.get(key);
+    if (!tile) {
+      tile = { ix, iz };
+      this.laneTiles.set(key, tile);
+    }
+    if (!tile[kind]) {
+      const file = `lane-graph/${kind}/${key}.json`;
+      const part = { file, count: 0, ix, iz, kind };
+      tile[kind] = part;
+      fs.mkdirSync(path.dirname(path.join(this.args.out, file)), { recursive: true });
+      fs.writeFileSync(path.join(this.args.out, file),
+        JSON.stringify({ format: 'drive-city-lane-tile-v1', ix, iz, kind }).slice(0, -1) + ',"items":[');
+    }
+    return tile[kind];
+  }
+
+  laneTileFd(tile) {
+    const key = `${tile.kind}/${tile.ix}_${tile.iz}`;
+    if (tile.fd !== undefined) {
+      this.openLaneTiles.delete(key);
+      this.openLaneTiles.set(key, tile);
+      return tile.fd;
+    }
+    if (this.openLaneTiles.size >= 32) {
+      const [oldKey, oldTile] = this.openLaneTiles.entries().next().value;
+      fs.closeSync(oldTile.fd);
+      oldTile.fd = undefined;
+      this.openLaneTiles.delete(oldKey);
+    }
+    tile.fd = fs.openSync(path.join(this.args.out, tile.file), 'a');
+    this.openLaneTiles.set(key, tile);
+    return tile.fd;
+  }
+
+  laneCurveTiles(curve) {
+    const minX = Math.min(...curve.map(p => p[0])), maxX = Math.max(...curve.map(p => p[0]));
+    const minZ = Math.min(...curve.map(p => p[2])), maxZ = Math.max(...curve.map(p => p[2]));
+    if (maxX < this.bounds.minX || minX > this.bounds.maxX ||
+        maxZ < this.bounds.minZ || minZ > this.bounds.maxZ) return [];
+    const minIX = Math.max(this.minTileX, Math.floor(minX / this.args.tileSize));
+    const maxIX = Math.min(this.maxTileX, Math.floor(maxX / this.args.tileSize));
+    const minIZ = Math.max(this.minTileZ, Math.floor(minZ / this.args.tileSize));
+    const maxIZ = Math.min(this.maxTileZ, Math.floor(maxZ / this.args.tileSize));
+    if (minIX > maxIX || minIZ > maxIZ) return [];
+    const span = (maxIX - minIX + 1) * (maxIZ - minIZ + 1);
+    if (span > 4096) throw new Error('A lane graph Bezier spans too many tiles');
+    const result = [];
+    for (let ix = minIX; ix <= maxIX; ix++) for (let iz = minIZ; iz <= maxIZ; iz++)
+      result.push([ix, iz]);
+    return result;
+  }
+
+  writeLaneItem(ix, iz, kind, item) {
+    const tile = this.laneTile(ix, iz, kind);
+    if (!tile.entities) tile.entities = new Set();
+    const identity = `${item[0]}:${item[1]}`;
+    if (tile.entities.has(identity)) return;
+    fs.writeSync(this.laneTileFd(tile), (tile.count ? ',' : '') + JSON.stringify(item));
+    tile.count++;
+    tile.entities.add(identity);
+  }
+
+  indexEdgeLane(index, edge, lane, entry) {
+    const key = `${edge}:${lane}`;
+    if (!index.has(key)) index.set(key, []);
+    index.get(key).push(entry);
+  }
+
+  matchingEdgeLane(index, edge, lane, endpoint) {
+    const choices = index.get(`${edge}:${lane}`) || [];
+    let selected = null, best = Infinity;
+    for (const choice of choices) {
+      const point = choice.curve[index === this.edgeLaneEnds ? 3 : 0];
+      const gap = Math.hypot(point[0] - endpoint[0], point[1] - endpoint[1], point[2] - endpoint[2]);
+      if (gap < best) { selected = choice; best = gap; }
+    }
+    return best <= .25 ? selected : null;
+  }
+
+  laneItem(pathName, record) {
+    this.init();
+    this.laneGraphSeen = true;
+    const isEdge = pathName === EDGE_LANES;
+    const kind = isEdge ? 'edgeLanes' : 'connectors';
+    const sourceCount = isEdge ? 'sourceEdgeLanes' : 'sourceConnectors';
+    const selectedCount = isEdge ? 'selectedEdgeLanes' : 'selectedConnectors';
+    const fields = isEdge ? EDGE_LANE_FIELDS : CONNECTOR_FIELDS;
+    this.laneGraphCounts[sourceCount]++;
+    if (!Array.isArray(record?.curve) || record.curve.length !== 4 ||
+        record.curve.some(p => !Array.isArray(p) || p.length !== 3 || p.some(v => !Number.isFinite(v)))) {
+      throw new Error(`${pathName} has an invalid Bezier curve`);
+    }
+    const curve = record.curve.map(([x, y, z]) => [
+      round(x - this.originWorld[0]), round(y - this.seaLevel), round(z - this.originWorld[2]),
+    ]);
+    const tiles = this.laneCurveTiles(curve);
+    if (!tiles.length) return;
+    // The entire Bezier is copied into every tile touched by its control hull.
+    // A renderer can deduplicate by entity_id + entity_version at tile seams.
+    const item = fields.map(field => field === 'curve' ? curve : record[field] ?? null);
+    this.laneGraphCounts[selectedCount]++;
+    if (isEdge) {
+      const entry = { item, curve, tiles };
+      this.indexEdgeLane(this.edgeLaneStarts, record.edge_id, record.start_lane_index, entry);
+      this.indexEdgeLane(this.edgeLaneEnds, record.edge_id, record.end_lane_index, entry);
+      for (const [ix, iz] of tiles) this.writeLaneItem(ix, iz, kind, item);
+    } else {
+      // Resolve the two endpoint lanes after parsing. The format normally
+      // emits edge lanes first, but postprocessing also handles reversed order.
+      this.pendingConnectors.push({ item, curve, tiles });
+    }
+  }
+
+  writeConnectorsWithLocalLanes() {
+    for (const { item, curve, tiles } of this.pendingConnectors) {
+      const connector = Object.fromEntries(CONNECTOR_FIELDS.map((field, i) => [field, item[i]]));
+      const source = this.matchingEdgeLane(this.edgeLaneEnds,
+        connector.from_edge_id, connector.from_lane_index, curve[0]);
+      const target = this.matchingEdgeLane(this.edgeLaneStarts,
+        connector.to_edge_id, connector.to_lane_index, curve[3]);
+      const destinations = new Map(tiles.map(([ix, iz]) => [`${ix}_${iz}`, [ix, iz]]));
+      // The arrow sits before the connector, sometimes across a tile seam.
+      // Its source lane's Bezier hull contains every possible paint point.
+      for (const [ix, iz] of source?.tiles || []) {
+        if (this.tiles.get(`${ix}_${iz}`)?.roadCount)
+          destinations.set(`${ix}_${iz}`, [ix, iz]);
+      }
+      for (const [ix, iz] of destinations.values()) {
+        this.writeLaneItem(ix, iz, 'connectors', item);
+        if (source) this.writeLaneItem(ix, iz, 'edgeLanes', source.item);
+        if (target) this.writeLaneItem(ix, iz, 'edgeLanes', target.item);
+      }
+    }
+    this.pendingConnectors = [];
+  }
+
   road(network) {
     this.counts.networks++;
     if (network.kind !== 'ROAD') return;
@@ -639,6 +815,22 @@ class CityConverter {
     if (lanes.length) this.trafficLanes.set(String(segment.segment_id), lanes);
   }
 
+  trafficLight(light) {
+    this.init();
+    this.trafficLightSourceCount++;
+    const nodeId = light?.node_id;
+    const position = light?.position;
+    if (!Number.isSafeInteger(nodeId) || nodeId < 0 ||
+        !position || ![position.x, position.y, position.z].every(Number.isFinite) ||
+        typeof light.active !== 'boolean') {
+      throw new Error('CMM traffic light has an invalid node, position, or active state');
+    }
+    const local = this.pointLocal(position);
+    if (local[0] < this.bounds.minX || local[0] >= this.bounds.maxX ||
+        local[2] < this.bounds.minZ || local[2] >= this.bounds.maxZ) return;
+    this.trafficLights.push({ nodeId, position: local, active: light.active });
+  }
+
   district(district) {
     const raw = district.boundary?.points;
     if (!Array.isArray(raw) || raw.length < 3) return;
@@ -653,6 +845,49 @@ class CityConverter {
     else if (kind === 'buildings') this.building(value);
     else if (kind === 'districts') this.district(value);
     else if (kind === 'traffic.segments') this.trafficSegment(value);
+    else if (kind === 'traffic.lights') this.trafficLight(value);
+    else if (kind === EDGE_LANES || kind === CONNECTORS) this.laneItem(kind, value);
+  }
+
+  finalizeLaneGraph(verticalOffset) {
+    if (!this.laneGraphSeen) return null;
+    if (this.laneGraphSchema !== 1) {
+      throw new Error(`Unsupported CMM lane graph schema ${this.laneGraphSchema ?? '(missing)'}`);
+    }
+    for (const [stat, count] of [
+      ['edge_lanes', this.laneGraphCounts.sourceEdgeLanes],
+      ['connectors', this.laneGraphCounts.sourceConnectors],
+    ]) {
+      if (this.laneGraphStats[stat] !== undefined && this.laneGraphStats[stat] !== count) {
+        throw new Error(`Lane graph ${stat} count differs from export stats`);
+      }
+    }
+    this.writeConnectorsWithLocalLanes();
+    const tiles = [...this.laneTiles.values()].sort((a, b) => a.iz - b.iz || a.ix - b.ix);
+    for (const tile of tiles) for (const kind of ['edgeLanes', 'connectors']) {
+      const part = tile[kind];
+      if (!part) continue;
+      const file = path.join(this.args.out, part.file);
+      if (part.fd === undefined) fs.appendFileSync(file, ']}');
+      else { fs.writeSync(part.fd, ']}'); fs.closeSync(part.fd); part.fd = undefined; }
+      const payload = JSON.parse(fs.readFileSync(file, 'utf8'));
+      for (const item of payload.items) {
+        for (const point of item.at(-1)) point[1] = round(point[1] - verticalOffset);
+      }
+      fs.writeFileSync(file, JSON.stringify(payload));
+    }
+    this.openLaneTiles.clear();
+    return {
+      format: 'drive-city-lane-graph-v1', schemaVersion: 1,
+      coordinateSystem: 'browser-local-xyz',
+      edgeFields: EDGE_LANE_FIELDS, connectorFields: CONNECTOR_FIELDS,
+      counts: this.laneGraphCounts, sourceStats: this.laneGraphStats,
+      tiles: tiles.map(tile => ({
+        ix: tile.ix, iz: tile.iz,
+        ...(tile.edgeLanes && { edgeLanes: { file: tile.edgeLanes.file, count: tile.edgeLanes.count } }),
+        ...(tile.connectors && { connectors: { file: tile.connectors.file, count: tile.connectors.count } }),
+      })),
+    };
   }
 
   finalize() {
@@ -747,6 +982,17 @@ class CityConverter {
       }
       fs.writeFileSync(file, JSON.stringify(payload));
     }
+    const laneGraph = this.finalizeLaneGraph(verticalOffset);
+    let trafficLights = null;
+    if (this.trafficLightSourceCount) {
+      for (const light of this.trafficLights) light.position[1] = round(light.position[1] - verticalOffset);
+      const file = 'traffic-lights.json';
+      fs.writeFileSync(path.join(this.args.out, file), JSON.stringify({
+        format: 'drive-city-traffic-lights-v1', coordinateSystem: 'browser-local-xyz',
+        lights: this.trafficLights,
+      }));
+      trafficLights = { file, count: this.trafficLights.length, sourceCount: this.trafficLightSourceCount };
+    }
     const terrain = {
       format: 'drive-city-terrain-v1', rows: this.target.rows, cols: this.target.cols,
       origin: this.target.origin, cell: this.target.cell,
@@ -765,10 +1011,16 @@ class CityConverter {
       featuredDistrict,
       centerCandidates,
     };
+    if (laneGraph) manifest.laneGraph = laneGraph;
+    if (trafficLights) manifest.trafficLights = trafficLights;
     fs.writeFileSync(path.join(this.args.out, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
-    const files = ['manifest.json', 'overview.json', 'terrain.json', ...tiles.map(t => t.file)];
+    const laneFiles = laneGraph?.tiles.flatMap(tile => [tile.edgeLanes?.file, tile.connectors?.file].filter(Boolean)) || [];
+    const files = ['manifest.json', 'overview.json', 'terrain.json', ...tiles.map(t => t.file), ...laneFiles,
+      ...(trafficLights ? [trafficLights.file] : [])];
     const bytes = files.reduce((sum, file) => sum + fs.statSync(path.join(this.args.out, file)).size, 0);
-    return { counts: this.counts, tiles: tiles.length, terrainSamples: terrain.rows * terrain.cols, bytes, featuredDistrict };
+    const summary = { counts: this.counts, tiles: tiles.length, terrainSamples: terrain.rows * terrain.cols, bytes, featuredDistrict };
+    if (laneGraph) summary.laneGraph = { ...this.laneGraphCounts, tiles: laneGraph.tiles.length };
+    return summary;
   }
 }
 

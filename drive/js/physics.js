@@ -127,7 +127,7 @@
     }
     if (course) box(ramp.x,ramp.y,ramp.z,ramp.halfWidth,.18,ramp.halfLength,ramp.angle);
     const streamingCity=isCity && cityMap!==City && typeof cityMap.nearbyBuildings==='function';
-    const activeCity={buildings:new Map(),roads:new Map(),highways:new Map(),guardrails:new Map(),supports:new Map()};
+    const activeCity={buildings:new Map(),roads:new Map(),highways:new Map(),connectors:new Map(),guardrails:new Map(),supports:new Map()};
     let lastCityX=Infinity,lastCityZ=Infinity;
     function roadBox(segment) {
       const x1=segment.x1??segment.x, x2=segment.x2??segment.x;
@@ -174,6 +174,33 @@
       const slopeLength=Math.hypot(length,topEnd-topStart);
       const centerY=(topStart+topEnd)/2-.25/Math.cos(pitch);
       return box((x1+x2)/2,centerY,(z1+z2)/2,segment.width/2,.25,slopeLength/2,pitch,yaw);
+    }
+    function connectorBody(connector) {
+      const samples=connector.samples;
+      if(!Array.isArray(samples)||samples.length<2)return null;
+      const origin=samples[Math.floor(samples.length/2)];
+      const body=new C.Body({mass:0,material:terrainMaterial});
+      body.position.set(origin.x,origin.y-.12,origin.z);
+      const width=Math.max(1.5,Math.min(9,Number(connector.width_m)||3))+.32;
+      for(let i=0;i<samples.length-1;i++) {
+        const a=samples[i],b=samples[i+1];
+        // The terrain heightfield already supports ground-level connectors.
+        // Add an authored slab only where the game road rises above it.
+        if(Math.max(a.sourceY-height(a.x,a.z),b.sourceY-height(b.x,b.z))<.22)continue;
+        const dx=b.x-a.x,dz=b.z-a.z,dy=b.y-a.y,length=Math.hypot(dx,dz);
+        if(length<.05)continue;
+        const pitch=-Math.atan2(dy,length),yaw=Math.atan2(dx,dz);
+        const tilt=new C.Quaternion(),turn=new C.Quaternion(),orientation=new C.Quaternion();
+        tilt.setFromAxisAngle(new C.Vec3(1,0,0),pitch);
+        turn.setFromAxisAngle(new C.Vec3(0,1,0),yaw);
+        turn.mult(tilt,orientation);
+        const center=new C.Vec3((a.x+b.x)/2,(a.y+b.y)/2-.12,(a.z+b.z)/2);
+        body.addShape(new C.Box(new C.Vec3(width/2,.12,Math.hypot(length,dy)/2+.22)),
+          center.vsub(body.position),orientation);
+      }
+      if(!body.shapes.length)return null;
+      world.addBody(body);
+      return body;
     }
     function buildingBody(building) {
       // A mesh-backed special building has a broad lot/parent record and a
@@ -235,6 +262,8 @@
       }
       updateLocalColliders(activeCity.buildings,cityMap.nearbyBuildings(x,z,radius),buildingBody);
       updateLocalColliders(activeCity.highways,nearbyItems(cityMap.nearbyHighways?.bind(cityMap),cityMap.highwaySegments,x,z,radius),roadBox);
+      if(typeof cityMap.nearbyLaneConnectors==='function')
+        updateLocalColliders(activeCity.connectors,cityMap.nearbyLaneConnectors(x,z,radius),connectorBody);
       if(cityTerrain && typeof cityMap.nearbyRoads==='function') {
         const raised=cityMap.nearbyRoads(x,z,radius).filter(s=>
           !/tunnel|underground/i.test(String(s.mode||''))&&

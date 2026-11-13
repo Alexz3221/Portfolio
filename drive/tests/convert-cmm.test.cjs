@@ -75,7 +75,10 @@ async function run(inputObject, options = {}) {
     const files = new Map();
     const readNow = file => JSON.parse(fs.readFileSync(path.join(out, file), 'utf8'));
     const manifest = readNow('manifest.json');
-    for (const file of ['manifest.json', 'overview.json', 'terrain.json', ...manifest.tiles.map(t => t.file)]) {
+    const laneFiles = manifest.laneGraph?.tiles.flatMap(tile =>
+      [tile.edgeLanes?.file, tile.connectors?.file].filter(Boolean)) || [];
+    for (const file of ['manifest.json', 'overview.json', 'terrain.json', ...manifest.tiles.map(t => t.file),
+      ...laneFiles, ...(manifest.trafficLights ? [manifest.trafficLights.file] : [])]) {
       files.set(file, readNow(file));
     }
     const read = file => files.get(file);
@@ -89,6 +92,8 @@ async function run(inputObject, options = {}) {
 test('whole-city conversion preserves road height, tile seams, footprints, terrain, and districts', async () => {
   const { summary, manifest, overview, terrain, read } = await run(fixture());
   assert.equal(manifest.format, 'drive-city-v1');
+  assert.equal(manifest.laneGraph, undefined, 'older CMM exports keep the existing manifest shape');
+  assert.equal(manifest.trafficLights, undefined);
   assert.equal(manifest.source.cityName, 'Testopolis');
   const shift = manifest.verticalOriginWorld - 5;
   assert.deepEqual(manifest.originWorld, [120, manifest.verticalOriginWorld, 220]);
@@ -123,6 +128,154 @@ test('whole-city conversion preserves road height, tile seams, footprints, terra
   assert.equal(summary.tiles, manifest.tiles.length);
   assert.equal(summary.counts.buildings, 2);
   assert.ok(summary.bytes > 0);
+});
+
+test('native lane curves stream into local-coordinate tiles with full indexes and flags', async () => {
+  const source = fixture();
+  const edge = {
+    entity_id: 301, entity_version: 2, edge_id: 11, edge_version: 7,
+    edge_start_node_id: 100, edge_end_node_id: 101,
+    start_lane_index: 1, end_lane_index: 2,
+    start_path_index: 1025, end_path_index: 2050,
+    edge_delta: [0.2, 0.8], width_m: 3.5, speed_limit_mps: 16.667,
+    car_flags: 17, twoway: false, forbidden: true, unsafe: false, public_only: true,
+    curve: [[115, 5, 210], [119, 6, 210], [121, 7, 211], [125, 8, 211]],
+  };
+  const connector = {
+    entity_id: 501, entity_version: 3, node_id: 101, node_version: 4,
+    from_edge_id: 11, from_edge_version: 7,
+    from_lane_index: 2, from_path_index: 2050,
+    to_edge_id: 11, to_edge_version: 7,
+    to_lane_index: 1, to_path_index: 1025,
+    path_methods: 'Road', path_methods_bits: 1, width_m: null, car_flags: 8,
+    forbidden: false, unsafe: true, public_only: false,
+    curve: [[119, 8, 211], [120, 8, 211], [121, 8, 211], [122, 8, 211]],
+  };
+  source.extensions = { cs2: { lane_graph: {
+    schema_version: 1,
+    edge_lanes: [edge, { ...edge, entity_id: 302, curve: [[135, 5, 230], [136, 5, 230], [137, 5, 230], [138, 5, 230]] }],
+    connectors: [connector],
+    stats: { edge_lanes: 2, connectors: 1, unresolved_connectors: 9, invalid_curves: 0 },
+  } } };
+  const { manifest, summary, read } = await run(source, { bounds: [100, 200, 130, 220] });
+  const graph = manifest.laneGraph;
+  assert.equal(graph.format, 'drive-city-lane-graph-v1');
+  assert.equal(graph.schemaVersion, 1);
+  assert.equal(graph.coordinateSystem, 'browser-local-xyz');
+  assert.deepEqual(graph.counts, {
+    sourceEdgeLanes: 2, sourceConnectors: 1,
+    selectedEdgeLanes: 1, selectedConnectors: 1,
+  });
+  assert.equal(graph.sourceStats.unresolved_connectors, 9);
+  assert.deepEqual(graph.tiles.map(tile => [tile.ix, tile.iz]), [[-1, -1], [0, -1]]);
+  assert.equal(summary.laneGraph.tiles, 2);
+  const shift = manifest.verticalOriginWorld - 5;
+  for (const tile of graph.tiles) {
+    const edgeTile = read(tile.edgeLanes.file);
+    const connectorTile = read(tile.connectors.file);
+    assert.equal(edgeTile.items.length, 1);
+    assert.equal(connectorTile.items.length, 1);
+    const localEdge = Object.fromEntries(graph.edgeFields.map((field, i) => [field, edgeTile.items[0][i]]));
+    const localConnector = Object.fromEntries(graph.connectorFields.map((field, i) => [field, connectorTile.items[0][i]]));
+    assert.equal(localEdge.entity_id, 301);
+    assert.equal(localEdge.edge_version, 7);
+    assert.equal(localEdge.start_path_index, 1025);
+    assert.equal(localEdge.end_path_index, 2050);
+    assert.equal(localEdge.car_flags, 17);
+    assert.equal(localEdge.forbidden, true);
+    assert.equal(localEdge.public_only, true);
+    assert.deepEqual(localEdge.edge_delta, [0.2, 0.8]);
+    assert.deepEqual(localEdge.curve, [
+      [-5, -shift, -10], [-1, 1 - shift, -10],
+      [1, 2 - shift, -9], [5, 3 - shift, -9],
+    ]);
+    assert.equal(localConnector.from_path_index, 2050);
+    assert.equal(localConnector.to_path_index, 1025);
+    assert.equal(localConnector.path_methods_bits, 1);
+    assert.equal(localConnector.unsafe, true);
+    assert.equal(localConnector.width_m, null);
+    assert.deepEqual(localConnector.curve[0], [-1, 3 - shift, -9]);
+  }
+});
+
+test('connector copies follow the source lane across tile seams with both endpoint lanes present', async () => {
+  const source = fixture();
+  source.networks[0].geometry.points[1] = { x: 120, y: 15, z: 205 };
+  source.networks.push({ id: 14, kind: 'ROAD', mode: 'GROUND', level: 'MAIN', width: 8,
+    name: 'One Way Road', game_name: 'Merge Street', lane_summary: { car_lane_count: 1 },
+    car_access: { forward: 'allowed', backward: 'forbidden' },
+    geometry: { points: [{ x: 125, y: 15, z: 205 }, { x: 155, y: 15, z: 205 }] } });
+  const from = { entity_id: 301, entity_version: 1, edge_id: 11, edge_version: 1,
+    start_lane_index: 2, end_lane_index: 2, edge_delta: [0, 1], width_m: 3,
+    curve: [[105, 5, 205], [110, 8, 205], [115, 12, 205], [120, 15, 205]] };
+  const to = { entity_id: 302, entity_version: 1, edge_id: 14, edge_version: 1,
+    start_lane_index: 2, end_lane_index: 2, edge_delta: [0, 1], width_m: 3,
+    curve: [[125, 15, 205], [135, 15, 205], [145, 15, 205], [155, 15, 205]] };
+  const connector = { entity_id: 501, entity_version: 1, node_id: 900, node_version: 1,
+    from_edge_id: 11, from_lane_index: 2, to_edge_id: 14, to_lane_index: 2,
+    path_methods: 'Road', path_methods_bits: 2, width_m: 3, forbidden: false,
+    curve: [[120, 15, 205], [121, 15, 205], [124, 15, 205], [125, 15, 205]] };
+  source.extensions = { cs2: { lane_graph: { schema_version: 1,
+    edge_lanes: [from, to], connectors: [connector],
+    stats: { edge_lanes: 2, connectors: 1, unresolved_connectors: 0, invalid_curves: 0 },
+  } } };
+  const { manifest, read } = await run(source, { bounds: [100, 200, 160, 220] });
+  const graph = manifest.laneGraph;
+  assert.equal(graph.counts.selectedEdgeLanes, 2);
+  assert.equal(graph.counts.selectedConnectors, 1);
+  const byTile = new Map(graph.tiles.map(tile => [`${tile.ix}_${tile.iz}`, tile]));
+  const sourceTile = byTile.get('-1_-1');
+  const connectorTile = byTile.get('0_-1');
+  assert.ok(sourceTile?.connectors && connectorTile?.connectors,
+    'the connector reaches the road tile before its own Bezier starts');
+  assert.equal(sourceTile.connectors.count, 1);
+  assert.equal(connectorTile.connectors.count, 1);
+  for (const tile of [sourceTile, connectorTile]) {
+    const lanes = read(tile.edgeLanes.file).items.map(row =>
+      Object.fromEntries(graph.edgeFields.map((field, i) => [field, row[i]])));
+    const connections = read(tile.connectors.file).items.map(row =>
+      Object.fromEntries(graph.connectorFields.map((field, i) => [field, row[i]])));
+    const sourceLane = lanes.find(lane => lane.edge_id === 11);
+    const targetLane = lanes.find(lane => lane.edge_id === 14);
+    assert.equal(lanes.length, 2, 'each local connector tile has exactly one copy of each endpoint lane');
+    assert.deepEqual(sourceLane.curve[3], connections[0].curve[0]);
+    assert.deepEqual(targetLane.curve[0], connections[0].curve[3]);
+  }
+  const sourceLane = read(sourceTile.edgeLanes.file).items.find(row => row[2] === 11);
+  assert.ok(sourceLane.at(-1)[3][0] - 11 < 0,
+    'an arrow eleven meters before the connector belongs to the source road tile');
+});
+
+test('unsupported native lane graph version fails conversion', async () => {
+  const source = fixture();
+  source.extensions = { cs2: { lane_graph: { schema_version: 2, edge_lanes: [], connectors: [] } } };
+  await assert.rejects(run(source), /Unsupported CMM lane graph schema/);
+});
+
+test('source traffic lights preserve native node positions and active states', async () => {
+  const source = fixture();
+  source.traffic = { lights: [
+    { node_id: 101, position: { x: 120, y: 7, z: 210 }, active: true, states: [] },
+    { node_id: 102, position: { x: 125, y: 9, z: 215 }, active: false, states: [] },
+    { node_id: 103, position: { x: 135, y: 5, z: 230 }, active: true, states: [] },
+  ] };
+  const { manifest, read } = await run(source, { bounds: [100, 200, 130, 220] });
+  const descriptor = manifest.trafficLights;
+  assert.deepEqual(descriptor, { file: 'traffic-lights.json', count: 2, sourceCount: 3 });
+  const payload = read(descriptor.file);
+  assert.equal(payload.format, 'drive-city-traffic-lights-v1');
+  assert.equal(payload.coordinateSystem, 'browser-local-xyz');
+  const shift = manifest.verticalOriginWorld - 5;
+  assert.deepEqual(payload.lights, [
+    { nodeId: 101, position: [0, 2 - shift, -10], active: true },
+    { nodeId: 102, position: [5, 4 - shift, -5], active: false },
+  ]);
+});
+
+test('invalid traffic light geometry fails conversion', async () => {
+  const source = fixture();
+  source.traffic = { lights: [{ node_id: 101, position: { x: 120, y: null, z: 210 }, active: true }] };
+  await assert.rejects(run(source), /CMM traffic light has an invalid/);
 });
 
 test('district selection clips road geometry while retaining full-city overview', async () => {

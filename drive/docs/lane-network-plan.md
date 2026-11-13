@@ -5,25 +5,27 @@ Cities: Skylines II network, including lane-specific turns and highway merges.
 Use fast-travel center 03 (Terminus District, near the Seabreeze/Washington/
 Belmont split) as the first reference junction, then cover the other centers.
 
-## What the current export can prove
+## Save 12 export and scope
 
 - Each road has a centerline, width, class, car travel direction, speed limit,
   and sampled vehicle lane offsets, widths, and directions. The browser can
   draw lane separators, travel-direction arrows, and speed signs from those.
-- The 2026-11-12 `.cmm.gz` contains 455 traffic-light node positions and a
-  paused signal snapshot. It does not contain approach-by-approach signal
-  colors or timing, and its traffic snapshot has no vehicle positions.
-- The exported `lane_index` is the position in the exporter's `SubLane` buffer,
-  **not** a stable game lane identifier. It cannot be joined to a junction
-  connector by itself.
-- CSLModernMap's car-navigation pass deliberately skips `Game.Net.NodeLane`.
-  Those are the game-provided junction/entrance paths needed to identify
-  permitted turns. The current browser junction surface therefore fills road
-  mouths without the game's lane-to-lane paths. Painting left/right/merge
-  arrows from road angles alone would invent permissions.
+- The patched 2026-11-12 Save 12 `.cmm.gz` contains 27,363 edge-lane curves,
+  20,016 junction connectors, 53 forbidden connectors, and 455 active
+  traffic-light node positions. Every emitted connector resolves to two
+  exported lanes. The exporter also counted 40,636 car node-lane candidates
+  that did not resolve to two exported road edges; their distribution still
+  needs investigation before claiming complete game routing coverage.
+- The older traffic snapshot's `lane_index` is a `SubLane` buffer position,
+  **not** a stable game lane identifier. The new graph instead preserves
+  native entity IDs, versions, and path-node lane indexes for each connector.
+- The game export contains no junction mesh vertices, painted decals,
+  approach-by-approach signal colors, or signal timing. The browser builds
+  pavement and markings from actual lane paths and road widths. It does not
+  replay traffic-light phases or vehicles.
 
 The [CSLModernMap exporter](https://github.com/Liuiuera/CSLModernMap-CodeMod/blob/main/CS2/Systems/CarNavigationExport.cs)
-shows the omitted `NodeLane` path and its
+shows the upstream omitted `NodeLane` path and its
 [traffic pass](https://github.com/Liuiuera/CSLModernMap-CodeMod/blob/main/CS2/Systems/TrafficExport.cs)
 shows the lane samples. The open-source
 [Traffic mod connector code](https://github.com/krzychu124/Traffic/blob/main/Code/Systems/LaneConnections/GenerateConnectorsSystem.GenerateConnectionLanesJob.cs)
@@ -45,11 +47,39 @@ count transitions where a single-lane ramp joins a wider highway section.
 | 5. Citywide and performance pass | Compare top-down game references with the browser at spawn and all seven fast-travel centers. Add graph continuity/coverage checks over every tile, then tune streaming and batching for the full 293-tile city. | No new road holes or large frame-time spikes while driving or fast traveling; new and old junction tests pass. |
 | 6. Signals and traffic | Export node signal group/timer and each controlled lane's signal state/group mask if accurate working signals are desired. Place lights at existing exported nodes; later route procedural cars over the validated lane graph, respecting direction, connections, and signals. | A representative signalized junction follows per-lane signal permissions and cars do not turn through forbidden connectors. Traffic remains a separate milestone after road geometry works. |
 
+## Implemented pass
+
+Steps 1–5 now have a working browser implementation. The exporter patch is in
+`tools/cs2-lane-exporter/`; the converter writes compact lane-graph tiles and
+traffic-light positions, while old exports still work without them. The
+browser streams the new files with the corresponding road tiles, draws curved
+lane connectors and road-level merge/split guides, uses those curves for
+raised-road collision, and paints per-lane permitted turns and stop lines at
+active signal nodes. There are 293 road/building tiles and 283 graph tiles.
+
+`node scripts/audit-lane-city.cjs data/imported-city` checks every tiled
+connector copy. All 20,016 unique connectors resolve; the largest rounded
+endpoint gap is 0.001 m, there are no locally missing lane copies, and all
+seven fast-travel centers have lanes and connectors. The browser uses 55
+distinct zoned building recipes (20 residential, 15 commercial, 10
+industrial, 10 office), all present in this save, plus 40 specialty recipes.
+At 1280×720, a local browser fast travel from spawn to center 03 had 5.6 ms
+p95 frame time over four seconds; nine nearby road tiles loaded by 2.2 s.
+There was still one 126 ms frame during streaming. Tile concurrency is capped
+at two to soften clustered mounts, but GPU upload hitches need another pass.
+
+The export still cannot reproduce exact game intersection meshes, asset
+models, or traffic-light cycles. A few short straight-cut seams remain where
+generated connector ribbons meet the sampled approach pavement. One raised
+ramp join has a preexisting collision bump about 0.17–0.26 m above the new
+connector at two samples. These are geometry followups; they do not create
+missing lane-graph links.
+
 ## Implementation order and boundaries
 
-1. Prototype step 1 on center 03 and one on-ramp in a separate exporter build,
-   then re-export this save. The current `.cmm.gz` cannot be upgraded into
-   exact turn data without reading the game again.
+1. For a future save, run the patched exporter and
+   `node scripts/inspect-lane-graph.cjs "C:/path/to/city.cmm.gz"` before
+   conversion to check connector IDs and unresolved counts.
 2. Keep the junction graph factual. Connector geometry is the source for
    legal turns and merge paths. Road-angle heuristics may fill visual gaps but
    may not create turn permissions.

@@ -51,7 +51,7 @@ function rayHeight(physics, x, z, startY) {
 test('real curved ramp is a continuous deck across all 46 exported samples', async () => {
   const {map, visual, tile} = await loadAt(1485, -700);
   const raw = JSON.parse(fs.readFileSync(path.join(dataRoot, 'tiles/2_-2.json'), 'utf8'));
-  const feature = raw.features.find((item) => item.type === 'road' && item.id === '3837132');
+  const feature = raw.features.find((item) => item.type === 'road' && item.id === '5338503');
   assert.equal(feature.points.length, 47);
   assert.equal(map.highwaySegments.filter((road) => road.id === feature.id).length, 46,
     'every source-elevated sample remains on one deck through the low ramp');
@@ -100,13 +100,13 @@ test('real curved ramp is a continuous deck across all 46 exported samples', asy
 
 test('real low-to-raised transition keeps physical road and starts rails after clearance', async () => {
   const {map, visual, tile} = await loadAt(2925, -332);
-  const roads = map.highwaySegments.filter((road) => road.id === '160045');
+  const roads = map.highwaySegments.filter((road) => road.id === '4572509');
   assert.equal(roads.length, 3, 'all three source samples stay on the elevated road chain');
   const deck = tile.getObjectByName('imported-city-highway');
   assert.ok(deck);
   const low = roads[0], start = [low.x1, low.z1];
   assert.ok(Number.isFinite(topAt(deck, start[0], start[1])), 'the low approach has deck pavement');
-  const rails = map.guardrails.filter((rail) => rail.roadId === '160045');
+  const rails = map.guardrails.filter((rail) => rail.roadId === '4572509');
   assert.ok(rails.length >= 2, 'raised span has barriers');
   assert.ok(rails.every((rail) => Math.hypot(rail.x - start[0], rail.z - start[1]) > 5),
     'barriers do not protrude onto the low approach');
@@ -123,7 +123,7 @@ test('real low-to-raised transition keeps physical road and starts rails after c
   assert.ok(Math.abs(collider - rendered) < .2,
     `collider ${collider} follows rendered raised deck ${rendered}`);
   const source = JSON.parse(fs.readFileSync(path.join(dataRoot, 'tiles/5_-1.json'), 'utf8'))
-    .features.find((item) => item.type === 'road' && item.id === '160045');
+    .features.find((item) => item.type === 'road' && item.id === '4572509');
   for (let i = 1; i < source.points.length - 1; i++) {
     const point = source.points[i], before = source.points[i - 1], after = source.points[i + 1];
     const dx = after[0] - before[0], dz = after[2] - before[2], length = Math.hypot(dx, dz);
@@ -143,7 +143,7 @@ test('real low-to-raised transition keeps physical road and starts rails after c
 test('barriers stop before a real three-way elevated highway merge', async () => {
   const node = {x:1424.372, y:10.995, z:-357.102};
   const {map, visual, tile} = await loadAt(node.x, node.z);
-  const ids = new Set(['5339362', '5339376', '5339750']);
+  const ids = new Set(['530539', '530905', '530915']);
   const arms = map.highwaySegments.filter((road) => ids.has(road.id) &&
     Math.min(Math.hypot(road.x1 - node.x, road.z1 - node.z),
       Math.hypot(road.x2 - node.x, road.z2 - node.z)) < .1);

@@ -1,0 +1,316 @@
+diff --git a/CS2/LANE_GRAPH_EXPORT.md b/CS2/LANE_GRAPH_EXPORT.md
+new file mode 100644
+index 0000000..d43a608
+--- /dev/null
++++ b/CS2/LANE_GRAPH_EXPORT.md
+@@ -0,0 +1,41 @@
++# Experimental CS2 lane graph capture
++
++This local modification adds `extensions.cs2.lane_graph` to a `cmm-v1` export.
++The original `nodes`, `networks`, and `traffic` fields remain unchanged. It
++captures every real car `EdgeLane` on exported road edges, including partial
++lanes at ramps, and car `NodeLane` connectors with road path method owned by
++exported network nodes.
++
++`edge_lanes` records the lane entity ID/version, owning edge ID/version,
++start/end composition lane indexes, full path indexes, edge range, width,
++speed, car flags, and four Bezier control points. `connectors` records the
++node, source/target edge and lane indexes, full curve, path-method flags, and
++forbidden/unsafe/public-only status. The matching IDs are native game entity
++IDs, not the old traffic snapshot's `lane_index` buffer position.
++
++`stats.unresolved_connectors` counts car node lanes whose path endpoints do
++not resolve to two exported road edges. Some may legitimately lead to
++non-road or non-exported edges; inspect the count and sample connections
++before using this as a complete routing graph. `invalid_curves` counts
++non-finite source curves omitted from either array.
++
++The capture reads ECS data on the main game thread after all tracked jobs
++complete. No gameplay systems or traffic simulation are modified.
++
++## Local compile experiment
++
++The official project uses the CS2 Modding Toolchain. For this source-only
++export change, `StandaloneBuild.csproj` also compiles directly against the
++installed game's managed assemblies with a .NET 8 SDK. It targets net48 and
++emits `CS2/bin/Release/net48/CSLModernMapCs2.dll`.
++
++```
++dotnet build CS2/StandaloneBuild.csproj -c Release
++```
++
++If the game is installed elsewhere, pass `-p:ManagedDir="C:\path\to\Cities2_Data\Managed"`.
++This local compile passed with zero warnings and errors against the installed
++game assemblies on 2026-11-12. Runtime loading, export duration, output size,
++and lane-graph completeness have **not** yet been verified. Do not publish or
++replace the installed mod with this DLL before backing up the existing
++version and testing the export in the game.
+diff --git a/CS2/StandaloneBuild.csproj b/CS2/StandaloneBuild.csproj
+new file mode 100644
+index 0000000..b6ac1aa
+--- /dev/null
++++ b/CS2/StandaloneBuild.csproj
+@@ -0,0 +1,23 @@
++<Project Sdk="Microsoft.NET.Sdk">
++  <!-- Local compile experiment; the official Modding Toolchain remains the supported build. -->
++  <PropertyGroup>
++    <TargetFramework>net48</TargetFramework>
++    <LangVersion>9.0</LangVersion>
++    <AssemblyName>CSLModernMapCs2</AssemblyName>
++    <RootNamespace>CSLModernMap</RootNamespace>
++    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
++    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
++    <ManagedDir Condition="'$(ManagedDir)' == ''">C:\Program Files (x86)\Steam\steamapps\common\Cities Skylines II\Cities2_Data\Managed</ManagedDir>
++  </PropertyGroup>
++  <ItemGroup>
++    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="All" />
++    <Compile Include="**\*.cs" Exclude="obj\**;bin\**" />
++    <EmbeddedResource Include="Locales\*.json" LogicalName="CSLModernMap.Locales.%(Filename)%(Extension)" />
++    <Reference Include="$(ManagedDir)\Game.dll" />
++    <Reference Include="$(ManagedDir)\Colossal.*.dll" />
++    <Reference Include="$(ManagedDir)\Unity.*.dll" />
++    <Reference Include="$(ManagedDir)\UnityEngine.*.dll" />
++    <Reference Include="$(ManagedDir)\Newtonsoft.Json.dll" />
++    <Reference Include="$(ManagedDir)\System.IO.Compression.dll" />
++  </ItemGroup>
++</Project>
+diff --git a/CS2/Systems/LaneGraphExport.cs b/CS2/Systems/LaneGraphExport.cs
+new file mode 100644
+index 0000000..3bbc5f7
+--- /dev/null
++++ b/CS2/Systems/LaneGraphExport.cs
+@@ -0,0 +1,214 @@
++using System;
++using System.Collections.Generic;
++using Game.Pathfind;
++using Newtonsoft.Json;
++using Newtonsoft.Json.Linq;
++using Unity.Entities;
++using Unity.Mathematics;
++
++namespace CSLModernMap.Systems
++{
++    /// <summary>
++    /// Captures the actual car-lane paths used by the game. The traffic snapshot
++    /// samples only the middle of each road, so it cannot describe partial ramp
++    /// lanes or the directed connectors inside a junction.
++    /// </summary>
++    internal sealed class LaneGraphExport
++    {
++        private readonly JArray m_EdgeLanes = new JArray();
++        private readonly JArray m_Connectors = new JArray();
++        private int m_UnresolvedConnectors;
++        private int m_InvalidCurves;
++
++        internal int EdgeLaneCount => m_EdgeLanes.Count;
++        internal int ConnectorCount => m_Connectors.Count;
++        internal int UnresolvedConnectorCount => m_UnresolvedConnectors;
++
++        internal static LaneGraphExport Capture(EntityManager em,
++            HashSet<Entity> exportedNodes, HashSet<Entity> exportedNetworks)
++        {
++            var result = new LaneGraphExport();
++            var roads = new List<Entity>();
++            foreach (var edge in exportedNetworks)
++            {
++                if (em.HasComponent<Game.Net.Road>(edge)
++                    && em.HasComponent<Game.Net.Edge>(edge)) roads.Add(edge);
++            }
++            roads.Sort(CompareEntity);
++            foreach (var edge in roads) result.AddEdgeLanes(em, edge);
++
++            var nodes = new List<Entity>(exportedNodes);
++            nodes.Sort(CompareEntity);
++            foreach (var node in nodes) result.AddNodeConnectors(em, node, exportedNetworks);
++            return result;
++        }
++
++        internal string ToJson()
++        {
++            return new JObject {
++                ["schema_version"] = 1,
++                ["edge_lanes"] = m_EdgeLanes,
++                ["connectors"] = m_Connectors,
++                ["stats"] = new JObject {
++                    ["edge_lanes"] = EdgeLaneCount,
++                    ["connectors"] = ConnectorCount,
++                    ["unresolved_connectors"] = m_UnresolvedConnectors,
++                    ["invalid_curves"] = m_InvalidCurves
++                }
++            }.ToString(Formatting.None);
++        }
++
++        private void AddEdgeLanes(EntityManager em, Entity edge)
++        {
++            if (!em.HasBuffer<Game.Net.SubLane>(edge)) return;
++            var network = em.GetComponentData<Game.Net.Edge>(edge);
++            var subLanes = em.GetBuffer<Game.Net.SubLane>(edge, true);
++            var seen = new HashSet<Entity>();
++            foreach (var subLane in subLanes)
++            {
++                var entity = subLane.m_SubLane;
++                if (!seen.Add(entity) || !IsCarLane(em, entity)
++                    || !em.HasComponent<Game.Net.EdgeLane>(entity)) continue;
++                var curve = em.GetComponentData<Game.Net.Curve>(entity).m_Bezier;
++                if (!Finite(curve)) { m_InvalidCurves++; continue; }
++                var lane = em.GetComponentData<Game.Net.Lane>(entity);
++                var car = em.GetComponentData<Game.Net.CarLane>(entity);
++                var edgeLane = em.GetComponentData<Game.Net.EdgeLane>(entity);
++                var delta = edgeLane.m_EdgeDelta;
++                if (!math.all(math.isfinite(delta))) continue;
++                m_EdgeLanes.Add(new JObject {
++                    ["entity_id"] = entity.Index,
++                    ["entity_version"] = entity.Version,
++                    ["edge_id"] = edge.Index,
++                    ["edge_version"] = edge.Version,
++                    ["edge_start_node_id"] = network.m_Start.Index,
++                    ["edge_end_node_id"] = network.m_End.Index,
++                    ["start_lane_index"] = lane.m_StartNode.GetLaneIndex() & 0xff,
++                    ["end_lane_index"] = lane.m_EndNode.GetLaneIndex() & 0xff,
++                    ["start_path_index"] = lane.m_StartNode.GetLaneIndex(),
++                    ["end_path_index"] = lane.m_EndNode.GetLaneIndex(),
++                    ["edge_delta"] = new JArray(delta.x, delta.y),
++                    ["width_m"] = LaneWidth(em, entity),
++                    ["speed_limit_mps"] = math.isfinite(car.m_SpeedLimit)
++                        ? new JValue(car.m_SpeedLimit) : JValue.CreateNull(),
++                    ["car_flags"] = (int)car.m_Flags,
++                    ["twoway"] = (car.m_Flags & Game.Net.CarLaneFlags.Twoway) != 0,
++                    ["forbidden"] = (car.m_Flags & Game.Net.CarLaneFlags.Forbidden) != 0,
++                    ["unsafe"] = (car.m_Flags & Game.Net.CarLaneFlags.Unsafe) != 0,
++                    ["public_only"] = (car.m_Flags & Game.Net.CarLaneFlags.PublicOnly) != 0,
++                    ["curve"] = CurveJson(curve)
++                });
++            }
++        }
++
++        private void AddNodeConnectors(EntityManager em, Entity node,
++            HashSet<Entity> exportedNetworks)
++        {
++            if (!em.HasBuffer<Game.Net.SubLane>(node)
++                || !em.HasBuffer<Game.Net.ConnectedEdge>(node)) return;
++            var subLanes = em.GetBuffer<Game.Net.SubLane>(node, true);
++            var connected = em.GetBuffer<Game.Net.ConnectedEdge>(node, true);
++            var seen = new HashSet<Entity>();
++            foreach (var subLane in subLanes)
++            {
++                var entity = subLane.m_SubLane;
++                if (!seen.Add(entity)
++                    || (subLane.m_PathMethods & PathMethod.Road) == 0
++                    || !em.HasComponent<Game.Net.NodeLane>(entity)
++                    || !IsCarLane(em, entity)) continue;
++                var lane = em.GetComponentData<Game.Net.Lane>(entity);
++                var from = FindConnectedEdge(connected, lane.m_StartNode);
++                var to = FindConnectedEdge(connected, lane.m_EndNode);
++                if (from == Entity.Null || to == Entity.Null
++                    || !exportedNetworks.Contains(from) || !exportedNetworks.Contains(to)
++                    || !em.HasComponent<Game.Net.Road>(from)
++                    || !em.HasComponent<Game.Net.Road>(to))
++                {
++                    m_UnresolvedConnectors++;
++                    continue;
++                }
++                var curve = em.GetComponentData<Game.Net.Curve>(entity).m_Bezier;
++                if (!Finite(curve)) { m_InvalidCurves++; continue; }
++                var car = em.GetComponentData<Game.Net.CarLane>(entity);
++                m_Connectors.Add(new JObject {
++                    ["entity_id"] = entity.Index,
++                    ["entity_version"] = entity.Version,
++                    ["node_id"] = node.Index,
++                    ["node_version"] = node.Version,
++                    ["from_edge_id"] = from.Index,
++                    ["from_edge_version"] = from.Version,
++                    ["from_lane_index"] = lane.m_StartNode.GetLaneIndex() & 0xff,
++                    ["from_path_index"] = lane.m_StartNode.GetLaneIndex(),
++                    ["to_edge_id"] = to.Index,
++                    ["to_edge_version"] = to.Version,
++                    ["to_lane_index"] = lane.m_EndNode.GetLaneIndex() & 0xff,
++                    ["to_path_index"] = lane.m_EndNode.GetLaneIndex(),
++                    ["path_methods"] = subLane.m_PathMethods.ToString(),
++                    ["path_methods_bits"] = (int)subLane.m_PathMethods,
++                    ["width_m"] = LaneWidth(em, entity),
++                    ["car_flags"] = (int)car.m_Flags,
++                    ["forbidden"] = (car.m_Flags & Game.Net.CarLaneFlags.Forbidden) != 0,
++                    ["unsafe"] = (car.m_Flags & Game.Net.CarLaneFlags.Unsafe) != 0,
++                    ["public_only"] = (car.m_Flags & Game.Net.CarLaneFlags.PublicOnly) != 0,
++                    ["curve"] = CurveJson(curve)
++                });
++            }
++        }
++
++        private static Entity FindConnectedEdge(DynamicBuffer<Game.Net.ConnectedEdge> edges,
++            PathNode path)
++        {
++            foreach (var entry in edges)
++            {
++                var candidate = entry.m_Edge;
++                if (path.OwnerEquals(new PathNode(candidate, 0))) return candidate;
++            }
++            return Entity.Null;
++        }
++
++        private static bool IsCarLane(EntityManager em, Entity entity)
++        {
++            if (!em.HasComponent<Game.Net.Lane>(entity)
++                || !em.HasComponent<Game.Net.CarLane>(entity)
++                || !em.HasComponent<Game.Net.Curve>(entity)
++                || !em.HasComponent<Game.Prefabs.PrefabRef>(entity)
++                || em.HasComponent<Game.Net.MasterLane>(entity)
++                || em.HasComponent<Game.Net.SecondaryLane>(entity)
++                || em.HasComponent<Game.Common.Deleted>(entity)
++                || em.HasComponent<Game.Tools.Temp>(entity)) return false;
++            var car = em.GetComponentData<Game.Net.CarLane>(entity);
++            if ((car.m_Flags & Game.Net.CarLaneFlags.Runway) != 0) return false;
++            var prefab = em.GetComponentData<Game.Prefabs.PrefabRef>(entity).m_Prefab;
++            return em.HasComponent<Game.Prefabs.CarLaneData>(prefab)
++                && (em.GetComponentData<Game.Prefabs.CarLaneData>(prefab).m_RoadTypes
++                    & Game.Net.RoadTypes.Car) != 0;
++        }
++
++        private static JToken LaneWidth(EntityManager em, Entity entity)
++        {
++            var prefab = em.GetComponentData<Game.Prefabs.PrefabRef>(entity).m_Prefab;
++            if (!em.HasComponent<Game.Prefabs.NetLaneData>(prefab)) return JValue.CreateNull();
++            var width = em.GetComponentData<Game.Prefabs.NetLaneData>(prefab).m_Width;
++            return math.isfinite(width) && width > 0 ? new JValue(width) : JValue.CreateNull();
++        }
++
++        private static bool Finite(Colossal.Mathematics.Bezier4x3 curve)
++        {
++            return math.all(math.isfinite(curve.a)) && math.all(math.isfinite(curve.b))
++                && math.all(math.isfinite(curve.c)) && math.all(math.isfinite(curve.d));
++        }
++
++        private static JArray CurveJson(Colossal.Mathematics.Bezier4x3 curve)
++        {
++            return new JArray(Vec(curve.a), Vec(curve.b), Vec(curve.c), Vec(curve.d));
++        }
++
++        private static JArray Vec(float3 p) => new JArray(p.x, p.y, p.z);
++
++        private static int CompareEntity(Entity a, Entity b)
++        {
++            var byIndex = a.Index.CompareTo(b.Index);
++            return byIndex == 0 ? a.Version.CompareTo(b.Version) : byIndex;
++        }
++    }
++}
+diff --git a/CS2/Systems/MapExportUISystem.Document.cs b/CS2/Systems/MapExportUISystem.Document.cs
+index af4a1cc..17802a9 100644
+--- a/CS2/Systems/MapExportUISystem.Document.cs
++++ b/CS2/Systems/MapExportUISystem.Document.cs
+@@ -33,6 +33,7 @@ namespace CSLModernMap.Systems
+             var nodeCount = AppendNodes(nodeJson, exportedNodes);
+             var networkCount = AppendNetworks(
+                 networkJson, exportedNodes, exportedNetworks, derived, traffic, optionalIssues);
++            var laneGraph = LaneGraphExport.Capture(EntityManager, exportedNodes, exportedNetworks);
+             traffic.AddLights(EntityManager, exportedNodes);
+             var buildingCount = AppendBuildings(buildingJson, optionalIssues);
+             var areas = AppendAreas(areaJson);
+@@ -152,6 +153,7 @@ namespace CSLModernMap.Systems
+             json.Append(", \"world\": ");
+             CmmJson.AppendString(json, World.Name);
+             json.Append(", \"traffic_snapshot\": ").Append(traffic.MetadataJson());
++            json.Append(", \"lane_graph\": ").Append(laneGraph.ToJson());
+             json.Append(", \"cargo_routes\": ")
+                 .Append(transit.CargoRouteCount.ToString(CultureInfo.InvariantCulture));
+             json.Append(", \"network_modes\": ")

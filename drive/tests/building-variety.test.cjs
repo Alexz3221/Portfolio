@@ -52,15 +52,19 @@ test('touching exported lots gain a real gap in both meshes and colliders', asyn
   physics.dispose();visual.dispose();
 });
 
-test('75 deterministic building recipes have five distinct geometric variants per family', async () => {
+test('55 zoned and 40 landmark recipes have distinct geometry with stable source assignments', async () => {
   const families = [
     ['house','RESIDENTIAL','NA Low Density Housing',9],
     ['rowhouse','RESIDENTIAL','EU Row Housing',14],
     ['apartments','RESIDENTIAL','NA Medium Density Housing',26],
     ['tower','RESIDENTIAL','NA High Density Housing',110],
     ['storefront','COMMERCIAL','NA Low Density Business',18],
+    ['gasstation','COMMERCIAL','NA Low Density Business',8,'NA_CommercialGasStation01_L5_4x6'],
     ['glass','COMMERCIAL','NA High Density Business',100],
     ['industrial','INDUSTRIAL','Industrial Manufacturing',20],
+    ['warehouse','INDUSTRIAL','Industrial Manufacturing',20,'IndustrialManufacturing02_L5_5x6'],
+    ['office','OFFICE','Low Density Offices',22],
+    ['officeTower','OFFICE','High Density Offices',110],
     ['civic','INFRASTRUCTURE','City Hall',25],
     ['campus','EDUCATION','University',25],
     ['hospital','HEALTHCARE','Hospital',25],
@@ -70,43 +74,55 @@ test('75 deterministic building recipes have five distinct geometric variants pe
     ['parking','INFRASTRUCTURE','Parking Garage',24],
     ['monument','PARK_SERVICE','Monument',24]
   ];
-  assert.equal(new Set(Imported.modelCatalog).size,75);
+  assert.equal(new Set(Imported.modelCatalog).size,95);
+  const zoned = families.filter(([,role])=>['RESIDENTIAL','COMMERCIAL','INDUSTRIAL','OFFICE'].includes(role));
+  assert.equal(zoned.length*5,55,'all four zoning roles contribute authored models');
   assert.deepEqual(Imported.modelCatalog.map(key=>key.split(':')[0]),
     families.flatMap(([style])=>Array(5).fill(style)));
   const records = [], labels = [];
-  for (const [style,role,category,height] of families) for (let variant=0;variant<5;variant++) {
+  for (const [style,role,category,height,prefab] of families) for (let variant=0;variant<5;variant++) {
     let id;
     for (let suffix=0;;suffix++) {
       const candidate = `${style}-recipe-${suffix}`;
       if (hash('model:'+candidate)%5===variant) {id=candidate;break;}
     }
     const index = records.length, x=60+index*48;
-    records.push({type:'building',id,role,category,height,baseY:0,
+    records.push({type:'building',id,role,category,prefab,height,baseY:0,
       geometrySource:'cs2:mesh-bounds',footprint:[[x-10,60],[x+10,60],[x+10,78],[x-10,78]]});
     labels.push({style,variant,x,id});
   }
   const base='data/model-catalog/';
-  const manifest={format:'drive-city-v1',bounds:{minX:0,maxX:4000,minZ:0,maxZ:200},
-    tileSize:4000,focus:[1800,70],terrain:{file:'terrain.json'},
-    tiles:[{ix:0,iz:0,file:'tiles/0_0.json',buildingCount:75}]};
+  const manifest={format:'drive-city-v1',bounds:{minX:0,maxX:4800,minZ:0,maxZ:200},
+    tileSize:4800,focus:[1800,70],terrain:{file:'terrain.json'},
+    tiles:[{ix:0,iz:0,file:'tiles/0_0.json',buildingCount:95}]};
   const overview={format:'drive-city-overview-v1',roads:[{id:'main',width:12,
-    points:[[0,0,20],[4000,0,20]]}],districts:[],stops:[]};
-  const terrain={format:'drive-city-terrain-v1',rows:4,cols:42,origin:[0,0],cell:100,
-    heights:Array(168).fill(0)};
+    points:[[0,0,20],[4800,0,20]]}],districts:[],stops:[]};
+  const terrain={format:'drive-city-terrain-v1',rows:4,cols:50,origin:[0,0],cell:100,
+    heights:Array(200).fill(0)};
   const tile={format:'drive-city-tile-v1',features:records};
   const files=new Map([[base+'manifest.json',manifest],[base+'overview.json',overview],
     [base+'terrain.json',terrain],[base+'tiles/0_0.json',tile]]);
   const map=await Imported.load(base+'manifest.json',{fetch:async url=>
     ({ok:files.has(url),json:async()=>files.get(url)})});
-  assert.equal(map.buildings.length,75);
+  assert.equal(map.buildings.length,95);
   for(const [i,building] of map.buildings.entries())
     assert.equal(building.modelVariant,labels[i].variant);
   const world=new THREE.Group(),visual=map.build(THREE,world);
+  for(const [style] of zoned)
+    assert.ok(world.getObjectByName('imported-city-building-'+style),
+      `${style} source role and prefab render with their own facade family`);
+  for(const [a,b] of [['office','glass'],['officeTower','tower'],['industrial','warehouse']]) {
+    const facadeA=world.getObjectByName('imported-city-building-'+a);
+    const facadeB=world.getObjectByName('imported-city-building-'+b);
+    assert.notDeepEqual(Array.from(facadeA.material.map.image.data.slice(0,96)),
+      Array.from(facadeB.material.map.image.data.slice(0,96)),
+      `${a} and ${b} use distinct facade patterns`);
+  }
   const roof=world.getObjectByName('imported-city-roof').geometry.attributes.position;
-  const vertices=Array.from({length:75},()=>[]);
+  const vertices=Array.from({length:95},()=>[]);
   for(let i=0;i<roof.count;i++) {
     const x=roof.getX(i), index=Math.round((x-60)/48);
-    if(index<0||index>=75||Math.abs(x-labels[index].x)>13)continue;
+    if(index<0||index>=95||Math.abs(x-labels[index].x)>13)continue;
     vertices[index].push([Math.round((x-labels[index].x)*100)/100,
       Math.round(roof.getY(i)*100)/100,Math.round((roof.getZ(i)-69)*100)/100]);
   }

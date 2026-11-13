@@ -192,7 +192,7 @@ test('sampled Fawn Street curve has continuous heights and asphalt UVs', async (
   await map.ensureNear(1585, -840, 0);
   const world = new THREE.Group(), visual = map.build(THREE, world);
   try {
-    const roads = map.roadSegments.filter((road) => road.id === '3152560');
+    const roads = map.roadSegments.filter((road) => road.id === '4838561');
     const starts = new Map(roads.map((road) => [`${road.x1},${road.z1}`, road]));
     let joins = 0;
     for (const road of roads) {

@@ -16,10 +16,17 @@
     { id: 'skills', title: 'The Toolbox', color: '#9bf5ae', fx: .2, fz: .5 },
     { id: 'contact', title: 'Signal Tower', color: '#ff87dd', fx: .8, fz: .5 }
   ];
-  // Five geometric recipes per family are selected from the stable source ID.
-  // Facade colors and window atlases vary separately from these silhouettes.
-  const modelFamilies = ['house', 'rowhouse', 'apartments', 'tower', 'storefront', 'glass',
-    'industrial', 'civic', 'campus', 'hospital', 'castle', 'airport', 'stadium', 'parking', 'monument'];
+  // The four exported zoning roles have 55 authored silhouettes. Landmark
+  // families add another 40. Source IDs select a stable recipe within a family;
+  // prefab and category decide which family a building belongs to.
+  const zoningModelFamilies = Object.freeze({
+    residential: ['house', 'rowhouse', 'apartments', 'tower'],
+    commercial: ['storefront', 'gasstation', 'glass'],
+    industrial: ['industrial', 'warehouse'],
+    office: ['office', 'officeTower']
+  });
+  const modelFamilies = [...Object.values(zoningModelFamilies).flat(),
+    'civic', 'campus', 'hospital', 'castle', 'airport', 'stadium', 'parking', 'monument'];
   const modelCatalog = Object.freeze(modelFamilies.flatMap((style) =>
     Array.from({ length: 5 }, (_, variant) => `${style}:${variant}`)));
   const finite = (value, fallback = 0) => Number.isFinite(Number(value)) ? Number(value) : fallback;
@@ -48,6 +55,43 @@
     if (Array.isArray(raw)) return [finite(raw[0]), finite(raw[1]), finite(raw[2])];
     if (raw && typeof raw === 'object') return [finite(raw.x), finite(raw.y), finite(raw.z)];
     return [0, 0, 0];
+  }
+  function cubicPoint(curve, t) {
+    const s = 1 - t, a = s * s * s, b = 3 * s * s * t,
+      c = 3 * s * t * t, d = t * t * t;
+    return [0, 1, 2].map((axis) =>
+      curve[0][axis] * a + curve[1][axis] * b + curve[2][axis] * c + curve[3][axis] * d);
+  }
+  function cubicTangent(curve, t) {
+    const s = 1 - t;
+    return [0, 1, 2].map((axis) =>
+      3 * s * s * (curve[1][axis] - curve[0][axis]) +
+      6 * s * t * (curve[2][axis] - curve[1][axis]) +
+      3 * t * t * (curve[3][axis] - curve[2][axis]));
+  }
+  function validLaneCurve(curve) {
+    return Array.isArray(curve) && curve.length === 4 && curve.every((p) =>
+      Array.isArray(p) && p.length === 3 && p.every(Number.isFinite));
+  }
+  function sampleLaneConnector(connector, terrainHeight) {
+    const curve = connector.curve;
+    if (!validLaneCurve(curve)) return [];
+    let controlLength = 0;
+    for (let i = 0; i < 3; i++)
+      controlLength += Math.hypot(curve[i + 1][0] - curve[i][0], curve[i + 1][2] - curve[i][2]);
+    const steps = clamp(Math.ceil(controlLength / 3), 2, 32), samples = [];
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps, [x, sourceY, z] = cubicPoint(curve, t);
+      let [dx, , dz] = cubicTangent(curve, t);
+      let length = Math.hypot(dx, dz);
+      if (length < .001) {
+        dx = curve[3][0] - curve[0][0]; dz = curve[3][2] - curve[0][2];
+        length = Math.hypot(dx, dz) || 1;
+      }
+      samples.push({ x, y: Math.max(sourceY + .08, terrainHeight(x, z) + .095), z,
+        nx: dz / length, nz: -dx / length, sourceY });
+    }
+    return samples;
   }
   function validBounds(raw) {
     if (!raw || !['minX', 'maxX', 'minZ', 'maxZ'].every((name) => Number.isFinite(Number(raw[name])))) throw new Error('Imported city has invalid bounds');
@@ -317,6 +361,7 @@
     const edge = Math.ceil(Math.max(Math.abs(detailBounds.minX), Math.abs(detailBounds.maxX), Math.abs(detailBounds.minZ), Math.abs(detailBounds.maxZ)) + 40);
     const roadIndex = spatialIndex(180), detailRoadIndex = spatialIndex(180), buildingIndex = spatialIndex(180);
     const highwayIndex = spatialIndex(180), railIndex = spatialIndex(180), supportIndex = spatialIndex(180);
+    const laneConnectorIndex = spatialIndex(120);
     for (const road of allOverviewRoads) roadIndex.add(road, {
       minX: Math.min(road.x1, road.x2) - road.width, maxX: Math.max(road.x1, road.x2) + road.width,
       minZ: Math.min(road.z1, road.z2) - road.width, maxZ: Math.max(road.z1, road.z2) + road.width
@@ -326,9 +371,13 @@
       kind: district.kind || '', polygon: Array.isArray(district.polygon) ? district.polygon
         .map((p) => [finite(p[0], NaN), finite(p[1], NaN)]).filter((p) => p.every(Number.isFinite)) : []
     })).filter((district) => district.polygon.length >= 3);
+    const trafficLights = (options.trafficLights?.lights || []).filter((light) =>
+      light && Array.isArray(light.position) && light.position.length === 3 &&
+      light.position.every(Number.isFinite)).map((light) => ({
+      nodeId: light.nodeId, position: light.position, active: !!light.active }));
     const map = { source: 'CSLModernMap', imported: true, manifest, bounds, detailBounds, worldBounds, focus, edge, tileSize, terrain,
       roadHalfWidth, overviewRoads, networkRoads: allOverviewRoads, stops, routeSamples, buildings: [], roadSegments: [],
-      highwaySegments: [], guardrails: [], supports: [], districts, terrainHeight };
+      highwaySegments: [], guardrails: [], supports: [], laneConnectors: [], trafficLights, districts, terrainHeight };
     map.snapToRoad = (x, z) => {
       const normal = (road) => !isElevated(road.mode) && !isMotorway(road);
       const match = closestRoad(x, z, detailedRoads, normal) || closestRoad(x, z, detailedRoads);
@@ -357,6 +406,9 @@
       segmentDistance(x, z, road).distance <= radius + road.width / 2);
     map.nearbyHighways = (x, z, radius = 100) => highwayIndex.query(x, z, radius).filter((road) =>
       segmentDistance(x, z, road).distance <= radius + road.width / 2);
+    map.nearbyLaneConnectors = (x, z, radius = 100) => laneConnectorIndex.query(x, z, radius).filter((connector) =>
+      connector.bounds.maxX >= x - radius && connector.bounds.minX <= x + radius &&
+      connector.bounds.maxZ >= z - radius && connector.bounds.minZ <= z + radius);
     map.nearbyGuardrails = (x, z, radius = 100) => railIndex.query(x, z, radius).filter((rail) => {
       const dx = x - rail.x, dz = z - rail.z, yaw = rail.yaw || 0;
       return Math.abs(dx * Math.sin(yaw) + dz * Math.cos(yaw)) <= rail.length / 2 + radius &&
@@ -378,6 +430,49 @@
       const base = options.baseUrl || '';
       const queue = [];
       let active = 0;
+      const graph = manifest.laneGraph;
+      const graphTiles = new Map((Array.isArray(graph?.tiles) ? graph.tiles : [])
+        .filter((tile) => Number.isInteger(tile?.ix) && Number.isInteger(tile?.iz))
+        .map((tile) => [key(tile.ix, tile.iz), tile]));
+      const graphFields = { edgeLanes: graph?.edgeFields, connectors: graph?.connectorFields };
+      function decodeLaneTile(raw, kind, ix, iz) {
+        if (!raw) return [];
+        if (raw.format !== 'drive-city-lane-tile-v1' || raw.kind !== kind || raw.ix !== ix || raw.iz !== iz ||
+            !Array.isArray(raw.items) || !Array.isArray(graphFields[kind])) {
+          console.warn('Imported city ' + kind + ' tile has an unsupported format:', ix, iz);
+          return [];
+        }
+        const fields = graphFields[kind];
+        return raw.items.filter((item) => Array.isArray(item) && item.length === fields.length)
+          .map((item) => Object.fromEntries(fields.map((field, index) => [field, item[index]])))
+          .filter((item) => validLaneCurve(item.curve));
+      }
+      async function loadLanePart(info, kind) {
+        const file = info?.[kind]?.file;
+        if (!file) return null;
+        try { return await loadJson(resolve(base, file)); }
+        catch (error) {
+          console.warn('City lane graph tile could not load:', file, error);
+          return null;
+        }
+      }
+      function prepareConnector(connector, ix, iz) {
+        if (connector.forbidden || connector.path_methods_bits != null &&
+            !(Number(connector.path_methods_bits) & 2)) return false;
+        const midpoint = cubicPoint(connector.curve, .5);
+        if (Math.floor(midpoint[0] / tileSize) !== ix || Math.floor(midpoint[2] / tileSize) !== iz)
+          return false;
+        connector.samples = sampleLaneConnector(connector, terrainHeight);
+        if (connector.samples.length < 2) return false;
+        const reach = clamp(finite(connector.width_m, 3), 1.5, 9) / 2 + 2;
+        connector.bounds = {
+          minX: Math.min(...connector.samples.map((p) => p.x)) - reach,
+          maxX: Math.max(...connector.samples.map((p) => p.x)) + reach,
+          minZ: Math.min(...connector.samples.map((p) => p.z)) - reach,
+          maxZ: Math.max(...connector.samples.map((p) => p.z)) + reach
+        };
+        return true;
+      }
       const endpointCells = new Map();
       for (const feature of overview.roads || []) {
         if (!Array.isArray(feature.points) || feature.points.length < 2 || isTunnel(feature.mode)) continue;
@@ -470,6 +565,10 @@
       function unload(entry) {
         if (entry.state !== 'loaded' || !entry.data) return;
         const data = entry.data;
+        for (const connector of data.ownedConnectors || []) {
+          laneConnectorIndex.remove(connector);
+          map.laneConnectors.splice(map.laneConnectors.indexOf(connector), 1);
+        }
         for (const road of data.roads) { detailRoadIndex.remove(road); roadIndex.remove(road); map.roadSegments.splice(map.roadSegments.indexOf(road), 1); }
         for (const road of data.highways) { highwayIndex.remove(road); roadIndex.remove(road); map.highwaySegments.splice(map.highwaySegments.indexOf(road), 1); }
         for (const building of data.buildings) { buildingIndex.remove(building); map.buildings.splice(map.buildings.indexOf(building), 1); }
@@ -487,12 +586,23 @@
         }
       };
       function pump() {
-        while (active < 4 && queue.length) {
+        // Mounting several dense building/junction tiles in one browser frame
+        // can stall fast travel. Keep two fetch/decode jobs in flight.
+        while (active < 2 && queue.length) {
           const job = queue.shift();
           active++;
-          Promise.resolve().then(() => loadJson(resolve(base, job.entry.descriptor.file)))
-            .then((raw) => {
+          const descriptor = job.entry.descriptor;
+          const laneTile = graphTiles.get(key(descriptor.ix, descriptor.iz));
+          Promise.resolve().then(() => Promise.all([
+            loadJson(resolve(base, descriptor.file)),
+            loadLanePart(laneTile, 'edgeLanes'),
+            loadLanePart(laneTile, 'connectors')
+          ])).then(([raw, edgeRaw, connectorRaw]) => {
               if (!raw || raw.format !== 'drive-city-tile-v1') throw new Error('Imported city tile has an unsupported format');
+              const tileEdgeLanes = decodeLaneTile(edgeRaw, 'edgeLanes', descriptor.ix, descriptor.iz);
+              const tileConnectors = decodeLaneTile(connectorRaw, 'connectors', descriptor.ix, descriptor.iz);
+              const ownedConnectors = tileConnectors.filter((connector) =>
+                prepareConnector(connector, descriptor.ix, descriptor.iz));
               const tileRoads = [], tileHighways = [], tileBuildings = [], tileRails = [], tileSupports = [];
               for (const feature of raw.features || []) {
                 if (!feature || !feature.type) continue;
@@ -515,8 +625,13 @@
               }
               job.entry.data = { ix: job.entry.descriptor.ix, iz: job.entry.descriptor.iz,
                 roads: tileRoads, highways: tileHighways, buildings: tileBuildings,
-                guardrails: tileRails, supports: tileSupports };
+                guardrails: tileRails, supports: tileSupports,
+                edgeLanes: tileEdgeLanes, connectors: tileConnectors, ownedConnectors };
               job.entry.state = 'loaded';
+              for (const connector of ownedConnectors) {
+                map.laneConnectors.push(connector);
+                laneConnectorIndex.add(connector, connector.bounds);
+              }
               for (const road of tileRoads) {
                 map.roadSegments.push(road);
                 roadIndex.add(road, roadBounds(road)); detailRoadIndex.add(road, roadBounds(road));
@@ -570,7 +685,7 @@
     async function getJson(path) {
       // Keep regenerated map tiles fresh on static hosts while fixture fetches
       // continue to use their exact in-memory paths.
-      const requestPath = options.fetch ? path : path + (path.includes('?') ? '&' : '?') + 'v=4';
+      const requestPath = options.fetch ? path : path + (path.includes('?') ? '&' : '?') + 'v=5';
       const response = await requester(requestPath);
       if (!response || !response.ok) throw new Error('Could not load imported city asset: ' + path);
       return response.json();
@@ -578,11 +693,13 @@
     const base = url.slice(0, url.lastIndexOf('/') + 1);
     const manifest = await getJson(url);
     if (!manifest || manifest.format !== 'drive-city-v1') throw new Error('Imported city manifest has an unsupported format');
-    const [overview, terrain] = await Promise.all([
+    const [overview, terrain, trafficLights] = await Promise.all([
       getJson(resolve(base, manifest.overview && manifest.overview.file || 'overview.json')),
-      getJson(resolve(base, manifest.terrain && manifest.terrain.file || 'terrain.json'))
+      getJson(resolve(base, manifest.terrain && manifest.terrain.file || 'terrain.json')),
+      manifest.trafficLights?.file ? getJson(resolve(base, manifest.trafficLights.file))
+        .catch((error) => { console.warn('City traffic lights could not load:', error); return null; }) : null
     ]);
-    const map = create(manifest, overview, terrain, { loadJson: getJson, baseUrl: base });
+    const map = create(manifest, overview, terrain, { loadJson: getJson, baseUrl: base, trafficLights });
     const spawn = map.routeSamples[0];
     await map.ensureNear(spawn.x, spawn.z, Math.max(240, map.tileSize * 1.05));
     return map;
@@ -728,13 +845,16 @@
 
     // One small procedural atlas per architectural family keeps the tile meshes
     // merged while giving houses, factories and towers visibly different fronts.
-    const facadeKinds = ['house', 'rowhouse', 'apartments', 'tower', 'storefront', 'glass', 'industrial', 'civic',
+    const facadeKinds = ['house', 'rowhouse', 'apartments', 'tower', 'storefront', 'gasstation',
+      'glass', 'industrial', 'warehouse', 'office', 'officeTower', 'civic',
       'campus', 'hospital', 'castle', 'airport'];
     const facadeVariants = 4;
     const facadeBase = {
       house: [210, 206, 193], rowhouse: [187, 161, 145], apartments: [179, 185, 193],
-      tower: [132, 161, 184], storefront: [180, 172, 185], glass: [116, 166, 204],
-      industrial: [153, 166, 166], civic: [198, 190, 176], campus: [174, 132, 115],
+      tower: [132, 161, 184], storefront: [180, 172, 185], gasstation: [186, 202, 198],
+      glass: [116, 166, 204], industrial: [153, 166, 166], warehouse: [135, 153, 162],
+      office: [169, 175, 183], officeTower: [106, 130, 152],
+      civic: [198, 190, 176], campus: [174, 132, 115],
       hospital: [212, 225, 228], castle: [154, 157, 154], airport: [129, 176, 198]
     };
     function facadeTextures(kind, variant) {
@@ -742,12 +862,18 @@
       const glow = new Uint8Array(width * height * 4), base = facadeBase[kind];
       for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
         const bayX = Math.floor(x / 24), bayY = Math.floor(y / 32), px = x % 24, py = y % 32;
-        const lit = hash(kind + ':' + variant + ':' + bayX + ':' + bayY) % (kind === 'glass' || kind === 'tower' ? 5 : 9) < 3;
+        const lit = hash(kind + ':' + variant + ':' + bayX + ':' + bayY) %
+          (kind === 'glass' || kind === 'tower' || kind === 'officeTower' ? 5 : 9) < 3;
         const glassWindow = variant === 0 ? px > 3 && px < 21 && py > 3 && py < 29 :
           variant === 1 ? (px > 4 && px < 10 || px > 14 && px < 20) && py > 4 && py < 28 :
           variant === 2 ? px > 2 && px < 22 && (py > 4 && py < 14 || py > 19 && py < 28) :
           px > 7 && px < 17 && py > 4 && py < 28 && bayX % 3 !== 1;
         const window = kind === 'industrial' ? px > 4 && px < 20 && py > 19 && py < 27 && bayY % 2 === 0 :
+          kind === 'warehouse' ? px > 3 && px < 21 && (py > 21 && py < 28 ||
+            py > 3 && py < 19 && bayY % 2 === 0 && bayX % 2 === 0) :
+          kind === 'gasstation' ? px > 2 && px < 22 && py > 7 && py < 25 && bayY % 2 === 0 :
+          kind === 'office' ? px > 2 && px < 22 && py > 8 && py < 26 && bayX % 3 !== variant % 3 :
+          kind === 'officeTower' ? glassWindow && bayX % 2 !== variant % 2 :
           kind === 'castle' ? px > 10 && px < 14 && py > 9 && py < 27 && bayX % 2 === 0 :
           kind === 'airport' ? px > 2 && px < 22 && py > 5 && py < 28 :
           kind === 'hospital' ? px > 3 && px < 21 && py > 7 && py < 25 && bayX % 2 === 0 :
@@ -760,10 +886,11 @@
         const brick = (kind === 'rowhouse' || kind === 'civic' || kind === 'campus' || kind === 'castle') &&
           (py % (variant === 1 ? 6 : 8) === 0 || px % 12 === 0 && Math.floor(py / 8) % 2 === 0);
         const siding = kind === 'house' && py % 5 === 0;
-        const corrugated = kind === 'industrial' && px % 4 === 0;
-        const glowColor = kind === 'glass' || kind === 'tower' ?
+        const corrugated = (kind === 'industrial' || kind === 'warehouse') && px % 4 === 0;
+        const glowColor = kind === 'glass' || kind === 'tower' || kind === 'officeTower' ?
           [[103, 224, 242], [255, 197, 117], [230, 112, 191], [180, 218, 229]][variant] :
-          kind === 'airport' ? [103, 224, 242] : [255, 206, 145];
+          kind === 'airport' ? [103, 224, 242] :
+          kind === 'gasstation' ? [255, 164, 95] : [255, 206, 145];
         let rgb = window ? (lit ? glowColor : [27, 47, 67]) :
           base.map((channel) => channel - (brick ? 30 : siding ? 18 : corrugated ? 24 : 0) + (variant - 1) * 7);
         if (mullion || px === 0 || py === 0) rgb = base.map((channel) => Math.round(channel * .43));
@@ -790,9 +917,12 @@
       const atlas = facadeTextures(kind, variant);
       return wallMaterials[key] = new THREE.MeshStandardMaterial({ color: 0xffffff, map: atlas.color,
         emissive: 0xffffff, emissiveMap: atlas.glow,
-        emissiveIntensity: kind === 'glass' || kind === 'tower' ? [.6, .43, .58, .3][variant] : .48,
-        vertexColors: true, roughness: kind === 'glass' ? .25 : kind === 'industrial' ? .77 : .58,
-        metalness: kind === 'glass' ? .55 : kind === 'industrial' ? .2 : .12, side: THREE.DoubleSide });
+        emissiveIntensity: kind === 'glass' || kind === 'tower' || kind === 'officeTower' ?
+          [.6, .43, .58, .3][variant] : .48,
+        vertexColors: true, roughness: kind === 'glass' || kind === 'officeTower' ? .25 :
+          kind === 'industrial' || kind === 'warehouse' ? .77 : .58,
+        metalness: kind === 'glass' || kind === 'officeTower' ? .55 :
+          kind === 'industrial' || kind === 'warehouse' ? .2 : .12, side: THREE.DoubleSide });
     }
     const buildingTrimMat = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide });
     function geometry(positions, colors, uvs) {
@@ -1105,6 +1235,175 @@
         }
       }
     }
+    function bezierPoint(curve, t) {
+      const u = 1 - t, a = u * u * u, b = 3 * u * u * t;
+      const c = 3 * u * t * t, d = t * t * t;
+      return [0, 1, 2].map(i => a * curve[0][i] + b * curve[1][i] +
+        c * curve[2][i] + d * curve[3][i]);
+    }
+    function bezierTangent(curve, t) {
+      const u = 1 - t;
+      return [0, 1, 2].map(i => 3 * (u * u * (curve[1][i] - curve[0][i]) +
+        2 * u * t * (curve[2][i] - curve[1][i]) + t * t * (curve[3][i] - curve[2][i])));
+    }
+    function laneTurn(source, target, connector) {
+      const incoming = bezierTangent(source?.curve || connector.curve, source ? 1 : 0);
+      const outgoing = bezierTangent(target?.curve || connector.curve, target ? 0 : 1);
+      const al = Math.hypot(incoming[0], incoming[2]), bl = Math.hypot(outgoing[0], outgoing[2]);
+      if (al < .01 || bl < .01) return 'straight';
+      const dot = clamp((incoming[0] * outgoing[0] + incoming[2] * outgoing[2]) / (al * bl), -1, 1);
+      const angle = Math.acos(dot);
+      if (angle < Math.PI / 7) return 'straight';
+      if (angle > Math.PI * .78) return 'uturn';
+      // Positive Y of the 3D cross product is the driver's left.
+      return incoming[2] * outgoing[0] - incoming[0] * outgoing[2] > 0 ? 'left' : 'right';
+    }
+    function beforeLaneEnd(curve, distance) {
+      const samples = 24, lengths = [0];
+      let previous = curve[0];
+      for (let i = 1; i <= samples; i++) {
+        const current = bezierPoint(curve, i / samples);
+        lengths.push(lengths[i - 1] + Math.hypot(current[0] - previous[0], current[2] - previous[2]));
+        previous = current;
+      }
+      const total = lengths[samples];
+      if (total < 7) return null;
+      const target = Math.max(2.7, total - Math.min(distance, total * .55));
+      let i = 1;
+      while (i < samples && lengths[i] < target) i++;
+      const fraction = (target - lengths[i - 1]) / Math.max(.001, lengths[i] - lengths[i - 1]);
+      const t = (i - 1 + fraction) / samples;
+      return { point: bezierPoint(curve, t), tangent: bezierTangent(curve, t) };
+    }
+    function addLaneGraphPaint(tile, arrows, mergeGuides, stopLines, records) {
+      if (!tile.edgeLanes?.length || !tile.connectors?.length) return;
+      const endLanes = new Map(), startLanes = new Map(), exits = new Map(), arrivals = new Map();
+      const fromRoadTargets = new Map(), toRoadSources = new Map(), matched = [];
+      const signalNodes = new Set((map.trafficLights || []).filter(light => light.active)
+        .map(light => String(light.nodeId)));
+      function addTo(index, key, item) {
+        if (!index.has(key)) index.set(key, []);
+        index.get(key).push(item);
+      }
+      function addSet(index, key, value) {
+        if (!index.has(key)) index.set(key, new Set());
+        index.get(key).add(String(value));
+      }
+      const laneKey = (edge, lane) => `${edge}:${lane}`;
+      for (const lane of tile.edgeLanes) {
+        addTo(endLanes, laneKey(lane.edge_id, lane.end_lane_index), lane);
+        addTo(startLanes, laneKey(lane.edge_id, lane.start_lane_index), lane);
+      }
+      const nearest = (lanes, point, end) => (lanes || []).reduce((best, lane) => {
+        const p = lane.curve[end ? 3 : 0];
+        const distance = Math.hypot(p[0] - point[0], (p[1] - point[1]) * 2, p[2] - point[2]);
+        return !best || distance < best.distance ? { lane, distance } : best;
+      }, null);
+      for (const connector of tile.connectors) {
+        if (connector.forbidden || connector.public_only || !Array.isArray(connector.curve)) continue;
+        const from = laneKey(connector.from_edge_id, connector.from_lane_index);
+        const to = laneKey(connector.to_edge_id, connector.to_lane_index);
+        const source = nearest(endLanes.get(from), connector.curve[0], true);
+        const target = nearest(startLanes.get(to), connector.curve[3], false);
+        if (!source || source.distance > 3 || !target || target.distance > 3) continue;
+        const kind = laneTurn(source.lane, target.lane, connector);
+        addTo(exits, `${connector.node_id}:${from}`, { connector, source: source.lane, kind });
+        addTo(arrivals, `${connector.node_id}:${to}`, { connector, from, kind });
+        matched.push({ connector, kind });
+        if (kind === 'straight') {
+          addSet(fromRoadTargets, `${connector.node_id}:${connector.from_edge_id}`,
+            connector.to_edge_id);
+          addSet(toRoadSources, `${connector.node_id}:${connector.to_edge_id}`,
+            connector.from_edge_id);
+        }
+      }
+      const insideTile = p => p[0] >= tile.ix * map.tileSize &&
+        p[0] < (tile.ix + 1) * map.tileSize && p[2] >= tile.iz * map.tileSize &&
+        p[2] < (tile.iz + 1) * map.tileSize;
+      for (const [key, options] of exits) {
+        const source = options[0].source;
+        const placement = beforeLaneEnd(source.curve, 11);
+        if (!placement || !insideTile(placement.point)) continue;
+        const [x, sourceY, z] = placement.point;
+        const [tx, ty, tz] = placement.tangent, length = Math.hypot(tx, tz);
+        if (length < .01) continue;
+        const ux = tx / length, uz = tz / length, lx = uz, lz = -ux;
+        const grade = ty / length;
+        const point = (forward, left) => {
+          const px = x + ux * forward + lx * left, pz = z + uz * forward + lz * left;
+          // Connector ribbons rise at least .105 m above source lanes and
+          // .13 m above terrain. Keep the decal just above either surface.
+          return [px, Math.max(sourceY + grade * forward + .135,
+            map.terrainHeight(px, pz) + .155), pz];
+        };
+        if (options.some(option => signalNodes.has(String(option.connector.node_id)))) {
+          const stop = beforeLaneEnd(source.curve, 2.2);
+          if (stop && insideTile(stop.point)) {
+            const [sx, sy, sz] = stop.point, [vx, vy, vz] = stop.tangent;
+            const vl = Math.hypot(vx, vz) || 1, acrossX = vz / vl, acrossZ = -vx / vl;
+            const half = clamp(Number(source.width_m) / 2 - .13, .6, 3.5);
+            const stopPoint = (forward, side) => {
+              const px = sx + vx / vl * forward + acrossX * side;
+              const pz = sz + vz / vl * forward + acrossZ * side;
+              return [px, Math.max(sy + vy / vl * forward + .135,
+                map.terrainHeight(px, pz) + .155), pz];
+            };
+            quad(stopLines, stopPoint(-.18, -half), stopPoint(.18, -half),
+              stopPoint(.18, half), stopPoint(-.18, half));
+          }
+        }
+        const kinds = [...new Set(options.map(option => option.kind))];
+        const order = { left: 0, straight: 1, right: 2, uturn: 3 };
+        kinds.sort((a, b) => order[a] - order[b]);
+        // U-turns are often permitted alongside a normal turn but painting
+        // both heads into a 3 m lane creates an unreadable white knot.
+        const paintedKinds = kinds.length > 1 ? kinds.filter(kind => kind !== 'uturn') : kinds;
+        quad(arrows, point(-1.4, -.14), point(.5, -.14),
+          point(.5, .14), point(-1.4, .14));
+        if (paintedKinds.includes('straight')) triangle(arrows,
+          point(.35, -.63), point(1.65, 0), point(.35, .63));
+        for (const kind of paintedKinds.filter(value => value !== 'straight')) {
+          const side = kind === 'left' || kind === 'uturn' ? 1 : -1;
+          const reach = kind === 'uturn' ? .65 : .9;
+          quad(arrows, point(.12, side * .02), point(.62, side * .02),
+            point(.62, side * reach), point(.12, side * reach));
+          triangle(arrows, point(-.08, side * (reach - .2)),
+            point(.38, side * (reach + .38)), point(.84, side * (reach - .2)));
+        }
+        records.push({ roadId: String(source.edge_id), laneIndex: source.end_lane_index,
+          turns: kinds, connectorIds: options.map(option => String(option.connector.entity_id)), x, z });
+      }
+      // Use shallow, exported paths to reveal lane merges and splits. Ordinary
+      // crossing turns do not count toward this road-level guidance.
+      const laneMerges = new Set();
+      for (const arrivalsAtLane of arrivals.values()) {
+        const through = arrivalsAtLane.filter(entry => entry.kind === 'straight');
+        if (new Set(through.map(entry => entry.from)).size >= 2)
+          through.forEach(entry => laneMerges.add(String(entry.connector.entity_id)));
+      }
+      const paintedMerges = new Set();
+      for (const { connector, kind } of matched) {
+        if (kind !== 'straight') continue;
+        const node = connector.node_id;
+        const roadMerge = (toRoadSources.get(`${node}:${connector.to_edge_id}`)?.size || 0) >= 2;
+        const roadSplit = (fromRoadTargets.get(`${node}:${connector.from_edge_id}`)?.size || 0) >= 2;
+        if (!roadMerge && !roadSplit && !laneMerges.has(String(connector.entity_id))) continue;
+        const id = `${connector.entity_id}:${connector.entity_version}`;
+        if (paintedMerges.has(id) || !insideTile(bezierPoint(connector.curve, .5))) continue;
+        paintedMerges.add(id);
+        for (let t = .12; t < .82; t += .2) {
+          const a = bezierPoint(connector.curve, t), b = bezierPoint(connector.curve, t + .1);
+          const tangent = bezierTangent(connector.curve, t + .05), magnitude = Math.hypot(tangent[0], tangent[2]) || 1;
+          const nx = tangent[2] / magnitude * .065, nz = -tangent[0] / magnitude * .065;
+          const height = p => [p[0], Math.max(p[1] + .135,
+            map.terrainHeight(p[0], p[2]) + .155), p[2]];
+          quad(mergeGuides, height([a[0] - nx, a[1], a[2] - nz]),
+            height([b[0] - nx, b[1], b[2] - nz]),
+            height([b[0] + nx, b[1], b[2] + nz]),
+            height([a[0] + nx, a[1], a[2] + nz]));
+        }
+      }
+    }
     function addSpeedSigns(out, uvs, posts, records, sites, road, layout, intervals) {
       const dx = road.x2 - road.x1, dz = road.z2 - road.z1;
       const length = Math.hypot(dx, dz);
@@ -1239,8 +1538,11 @@
       if (/hospital|medical|clinic|health research|crematorium/.test(label)) return 'hospital';
       if (/university|school|college|library/.test(label)) return 'campus';
       if (/airport|hangar|terminal/.test(label) || role === 'airport') return 'airport';
-      if (/industrial/.test(role) || /factory|warehouse|shipping container|refinery/.test(category)) return 'industrial';
-      if (/office/.test(role) || /office/.test(category)) return height > 30 ? 'glass' : 'storefront';
+      if (/industrial/.test(role) || /factory|warehouse|shipping container|refinery/.test(category))
+        return /warehouse|shipping container|industrialmanufacturing02|cattle shed|chicken coop/.test(label) ?
+          'warehouse' : 'industrial';
+      if (/office/.test(role) || /office/.test(category)) return height > 40 ? 'officeTower' : 'office';
+      if (/gas station|gasstation|petrol/.test(label)) return 'gasstation';
       if (/commercial/.test(role) || /business|storefront|shop|retail/.test(category)) return height > 35 ? 'glass' : 'storefront';
       if (/residential/.test(role) || /housing|apartment/.test(category)) {
         if (/row housing|old town/.test(category)) return 'rowhouse';
@@ -1257,8 +1559,12 @@
       apartments: [0xb0b8c4, 0xc0ad9d, 0xaebcb1, 0xbdaec0],
       tower: [0x8aa6b8, 0x9a9fb5, 0x8ba8a8, 0xa5aabc],
       storefront: [0xc5a0b6, 0xb6a88d, 0x8daeb4, 0xaf9aaa],
+      gasstation: [0xd7e0d8, 0xb4cbd0, 0xe5cebe, 0xadb9cb],
       glass: [0x9dbecb, 0x91a9c4, 0x99c1be, 0xa6a7c6],
       industrial: [0xa3b0a9, 0x9ba3b2, 0xb5a48d, 0x8caaa6],
+      warehouse: [0x829aa6, 0x9eaab1, 0xb3a99e, 0x83978d],
+      office: [0xb6bec2, 0xa9adb9, 0xc1bab3, 0x9fb6b8],
+      officeTower: [0x839bac, 0x8b9cab, 0x779aa6, 0x9da9b9],
       civic: [0xc7c0ac, 0xb2b7bd, 0xc2b3a9, 0xb6b8a4],
       campus: [0xb88776, 0xa7776e, 0xc19b83], hospital: [0xd9e6e7, 0xbfcdd6, 0xe2e5de],
       castle: [0x969b97, 0xa8a49a, 0x838e91], airport: [0x90b6c3, 0xabbcc4, 0x829fb2],
@@ -1271,7 +1577,8 @@
     }
     function roofColor(style, building) {
       const palette = style === 'house' ? [0x554a59, 0x57636a, 0x76595c, 0x6c6573] :
-        style === 'industrial' ? [0x65747d, 0x7b8587, 0x6d7770] :
+        style === 'industrial' || style === 'warehouse' ? [0x65747d, 0x7b8587, 0x6d7770] :
+        style === 'office' || style === 'officeTower' ? [0x525d68, 0x687b82, 0x54687b] :
         style === 'civic' ? [0x7f8186, 0x867e79] : [0x555f70, 0x6e7182, 0x596b75];
       return new THREE.Color(palette[hash('roof:' + building.id) % palette.length]);
     }
@@ -1282,6 +1589,14 @@
     function insetRing(ring, scale) {
       const center = ringCenter(ring);
       return ring.map((p) => [center[0] + (p[0] - center[0]) * scale, center[1] + (p[1] - center[1]) * scale]);
+    }
+    // A bilinear patch stays inside a rotated lot. It lets a model have two
+    // wings, a stepped podium or an offset core without adding a new draw call.
+    function subRing(ring, u0, u1, v0, v1) {
+      const at = (u, v) => [0, 1].map((axis) =>
+        ring[0][axis] * (1 - u) * (1 - v) + ring[1][axis] * u * (1 - v) +
+        ring[2][axis] * u * v + ring[3][axis] * (1 - u) * v);
+      return [at(u0, v0), at(u1, v0), at(u1, v1), at(u0, v1)];
     }
     function roofTriangle(out, colors, a, b, c, tint) {
       triangle(out, a, b, c); colorTriangle(colors, tint);
@@ -1300,8 +1615,9 @@
         ringPoint(ring[face[0]], y), ringPoint(ring[face[1]], y), ringPoint(ring[face[2]], y), tint);
     }
     function addWallRing(batch, ring, bottom, top, tint, building, style) {
-      const bay = style === 'industrial' ? 5 : style === 'glass' ? 2.7 : style === 'house' ? 3.6 : 3.2;
-      const floor = style === 'industrial' ? 6 : style === 'house' ? 3.1 : 3.6;
+      const bay = style === 'industrial' || style === 'warehouse' ? 5 :
+        style === 'glass' || style === 'officeTower' ? 2.7 : style === 'house' ? 3.6 : 3.2;
+      const floor = style === 'industrial' || style === 'warehouse' ? 6 : style === 'house' ? 3.1 : 3.6;
       const u0 = (hash('u:' + building.id) % 4) / 4, v0 = (hash('v:' + building.id) % 4) / 4;
       for (let i = 0; i < ring.length; i++) {
         const a = ring[i], b = ring[(i + 1) % ring.length];
@@ -1366,26 +1682,30 @@
       }
     }
     function addTowerAccents(out, colors, ring, bottom, top, variant) {
-      const accent = new THREE.Color([0x6bd5e4, 0xe9bd83, 0xdf8bbd, 0xa9d1db][variant]);
-      if (variant === 0 || variant === 2 || variant === 3) {
-        const fractions = variant === 3 ? [.2, .4, .6, .8] : variant === 2 ? [.28, .57, .84] : [.34, .68];
-        for (const f of fractions) addTrimBand(out, colors, ring, bottom + (top - bottom) * f, accent);
-      }
-      if (variant === 0 || variant === 3) return;
-      const center = ringCenter(ring), ribTs = variant === 1 ? [.13, .87] : [.5];
+      const accent = new THREE.Color([0x6bd5e4, 0xe9bd83, 0xdf8bbd, 0xa9d1db, 0xc0a2ef][variant]);
+      const belts = [
+        [.16, .32, .48, .64, .8], [], [.25, .5, .75], [.12, .88], [.2, .4, .6, .8]
+      ][variant];
+      for (const f of belts) addTrimBand(out, colors, ring, bottom + (top - bottom) * f, accent);
+      if (variant === 0 || variant === 2) return;
+      const center = ringCenter(ring);
+      const ribs = variant === 1 ? [[.14, .025], [.86, .025]] :
+        variant === 3 ? [[.5, .12]] : [[.08, .018], [.34, .018], [.66, .018], [.92, .018]];
       for (let i = 0; i < ring.length; i++) {
         const a = ring[i], b = ring[(i + 1) % ring.length];
         const length = Math.hypot(b[0] - a[0], b[1] - a[1]);
         if (length < 3) continue;
-        const half = Math.min(.025, .26 / length);
         const point = (t) => {
           const p = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
           const dx = p[0] - center[0], dz = p[1] - center[1], d = Math.hypot(dx, dz) || 1;
-          return [p[0] + dx / d * .12, p[1] + dz / d * .12];
+          return [p[0] + dx / d * .22, p[1] + dz / d * .22];
         };
-        for (const t of ribTs) roofQuad(out, colors, ringPoint(point(t - half), bottom),
-          ringPoint(point(t + half), bottom), ringPoint(point(t + half), top),
-          ringPoint(point(t - half), top), accent);
+        for (const [t, width] of ribs) {
+          const half = Math.min(width, 1.6 / length);
+          roofQuad(out, colors, ringPoint(point(t - half), bottom),
+            ringPoint(point(t + half), bottom), ringPoint(point(t + half), top),
+            ringPoint(point(t - half), top), accent);
+        }
       }
     }
     function addNamedTowerCrown(outRoofs, outRoofColors, outTrim, outTrimColors, building) {
@@ -1497,6 +1817,155 @@
           addTrimBand(outTrim, outTrimColors, ring, top - floor * Math.min(3.4, height / (bands + 1)), accent);
       }
     }
+    function addZonedModel(batches, outRoofs, outRoofColors, outTrim, outTrimColors,
+      building, style, modelVariant, facadeVariant, tint, roofTint) {
+      if (!['storefront', 'gasstation', 'warehouse', 'office', 'officeTower'].includes(style) ||
+          building.footprint.length !== 4) return false;
+      const ring = building.footprint, base = building.baseY, height = building.height;
+      const top = base + height, batch = batches[style][facadeVariant];
+      const accent = new THREE.Color(style === 'gasstation' ? 0xf2a06e :
+        style === 'warehouse' ? 0x8baab0 : style === 'storefront' ? 0xf19bc7 : 0x71cad6);
+      const wall = (outline, from, to, shade = tint) =>
+        addWallRing(batch, outline, from, to, shade, building, style);
+      const plate = (outline, y = top) => roofPlate(outRoofs, outRoofColors, outline, y, roofTint);
+      const prism = (outline, from, to, shade = roofTint) =>
+        roofPrism(outRoofs, outRoofColors, outline, from, to, shade);
+      if (style === 'storefront') {
+        wall(ring, base, top);
+        const signY = base + Math.min(height - .3, Math.max(2, height * .57));
+        addTrimBand(outTrim, outTrimColors, ring, signY, accent);
+        if (modelVariant === 0) {
+          plate(ring); prism(insetRing(ring, .91), top, top + .5, accent);
+        } else if (modelVariant === 1) {
+          plate(ring); prism(insetRing(ring, .65), top, top + Math.min(2, height * .23));
+          addTrimBand(outTrim, outTrimColors, ring, top - .7, accent);
+        } else if (modelVariant === 2) {
+          plate(ring); prism(subRing(ring, .04, .25, .05, .95), top,
+            top + Math.min(3.2, height * .5), accent);
+        } else if (modelVariant === 3) {
+          slopedRing(outRoofs, outRoofColors, ring, insetRing(ring, .48), top,
+            top + Math.min(1.8, height * .2), roofTint);
+          plate(insetRing(ring, .48), top + Math.min(1.8, height * .2));
+        } else {
+          plate(ring);
+          prism(subRing(ring, .06, .44, .08, .9), top, top + .9, accent);
+          prism(subRing(ring, .56, .94, .08, .9), top, top + 1.45, roofTint);
+        }
+      } else if (style === 'gasstation') {
+        // The export gives a lot outline, not pump/kiosk submeshes. Keep a
+        // visible full shell so its collision remains honest, then vary its roof.
+        wall(ring, base, top);
+        const bandY = base + Math.min(height - .2, Math.max(2.2, height * .62));
+        addTrimBand(outTrim, outTrimColors, ring, bandY, accent);
+        if (modelVariant === 0) {
+          plate(ring); prism(subRing(ring, .06, .94, .08, .38), top, top + .55, accent);
+        } else if (modelVariant === 1) {
+          plate(ring);
+          prism(subRing(ring, .08, .92, .08, .3), top, top + .8, accent);
+          prism(subRing(ring, .08, .92, .7, .92), top, top + .8, accent);
+        } else if (modelVariant === 2) {
+          slopedRing(outRoofs, outRoofColors, ring, insetRing(ring, .58), top,
+            top + 1.45, roofTint);
+          plate(insetRing(ring, .58), top + 1.45);
+        } else if (modelVariant === 3) {
+          plate(ring);
+          prism(subRing(ring, .04, .21, .05, .3), top, top + 2.8, accent);
+          prism(subRing(ring, .16, .9, .12, .37), top, top + .5, roofTint);
+        } else {
+          plate(ring); prism(insetRing(ring, .72), top, top + 1.2, roofTint);
+          roofLedge(outRoofs, outRoofColors, ring, insetRing(ring, .82), top + .32, accent);
+        }
+      } else if (style === 'warehouse') {
+        const eave = top - Math.min(3.2, Math.max(.65, height * .18));
+        wall(ring, base, eave);
+        if (modelVariant === 0) {
+          prism(ring, eave, top - .45);
+          prism(subRing(ring, .16, .84, .36, .64), top - .45, top, accent);
+        } else if (modelVariant === 1) {
+          addHouseRoof(outRoofs, outRoofColors, ring, eave, top, roofTint, 1);
+          prism(subRing(ring, .07, .93, .04, .15), eave, eave + .45, accent);
+        } else if (modelVariant === 2) {
+          addIndustrialRoof(outRoofs, outRoofColors, ring, eave, top, roofTint, 0);
+          prism(subRing(ring, .08, .24, .1, .28), eave, eave + .75, accent);
+        } else if (modelVariant === 3) {
+          slopedRing(outRoofs, outRoofColors, ring, insetRing(ring, .45), eave, top, roofTint);
+          plate(insetRing(ring, .45));
+        } else {
+          prism(ring, eave, top - .6);
+          for (const u of [.13, .52])
+            prism(subRing(ring, u, u + .35, .2, .8), top - .6, top, accent);
+        }
+        addTrimBand(outTrim, outTrimColors, ring, base + Math.min(4.2, height * .48), accent);
+      } else if (style === 'office') {
+        const podium = base + Math.min(5, height * .36);
+        wall(ring, base, podium, tint.clone().multiplyScalar(.9));
+        if (modelVariant === 0) {
+          wall(ring, podium, top); plate(ring);
+          prism(insetRing(ring, .3), top, top + 1.15);
+        } else if (modelVariant === 1) {
+          const upper = insetRing(ring, .75);
+          roofLedge(outRoofs, outRoofColors, ring, upper, podium, roofTint);
+          wall(upper, podium, top); plate(upper);
+          prism(insetRing(upper, .38), top, top + 1.7, accent);
+        } else if (modelVariant === 2) {
+          plate(ring, podium);
+          for (const wing of [subRing(ring, .04, .44, .08, .92), subRing(ring, .56, .96, .08, .92)]) {
+            wall(wing, podium, top); plate(wing);
+          }
+        } else if (modelVariant === 3) {
+          plate(ring, podium);
+          for (const wing of [subRing(ring, .05, .43, .05, .95), subRing(ring, .43, .95, .58, .95)]) {
+            wall(wing, podium, top); plate(wing);
+          }
+        } else {
+          const mid = podium + (top - podium) * .54, upper = insetRing(ring, .63);
+          wall(ring, podium, mid);
+          roofLedge(outRoofs, outRoofColors, ring, upper, mid, roofTint);
+          wall(upper, mid, top); plate(upper);
+          prism(insetRing(upper, .48), top, top + 1.05, accent);
+        }
+        addTrimBand(outTrim, outTrimColors, ring, podium, accent);
+      } else {
+        const lobby = base + Math.min(8, height * .09);
+        wall(ring, base, lobby, tint.clone().multiplyScalar(1.16));
+        if (modelVariant === 0) {
+          const shaft = insetRing(ring, .84);
+          roofLedge(outRoofs, outRoofColors, ring, shaft, lobby, roofTint);
+          wall(shaft, lobby, top); plate(shaft);
+          prism(insetRing(shaft, .16), top, top + Math.min(7, height * .06), accent);
+        } else if (modelVariant === 1) {
+          plate(ring, lobby);
+          for (const shaft of [subRing(ring, .05, .44, .07, .93), subRing(ring, .56, .95, .07, .93)]) {
+            wall(shaft, lobby, top); plate(shaft);
+          }
+        } else if (modelVariant === 2) {
+          const mid = base + height * .52, high = base + height * .8;
+          const first = insetRing(ring, .86), second = insetRing(ring, .64), third = insetRing(ring, .4);
+          roofLedge(outRoofs, outRoofColors, ring, first, lobby, roofTint);
+          wall(first, lobby, mid);
+          roofLedge(outRoofs, outRoofColors, first, second, mid, roofTint);
+          wall(second, mid, high);
+          roofLedge(outRoofs, outRoofColors, second, third, high, roofTint);
+          wall(third, high, top); plate(third);
+        } else if (modelVariant === 3) {
+          plate(ring, lobby);
+          for (const wing of [subRing(ring, .07, .47, .06, .94), subRing(ring, .47, .93, .55, .94)]) {
+            wall(wing, lobby, top); plate(wing);
+          }
+          prism(subRing(ring, .11, .34, .16, .41), top, top + 3, accent);
+        } else {
+          const mid = base + height * .64, first = subRing(ring, .07, .93, .07, .93);
+          const upper = subRing(ring, .25, .87, .15, .83);
+          roofLedge(outRoofs, outRoofColors, ring, first, lobby, roofTint);
+          wall(first, lobby, mid);
+          roofLedge(outRoofs, outRoofColors, first, upper, mid, roofTint);
+          wall(upper, mid, top); plate(upper);
+          prism(insetRing(upper, .27), top, top + 2.2, accent);
+        }
+        addTrimBand(outTrim, outTrimColors, ring, lobby, accent);
+      }
+      return true;
+    }
     function addBuilding(batches, outRoofs, outRoofColors, outTrim, outTrimColors, building) {
       const ring = building.footprint, base = building.baseY, height = building.height;
       const style = buildingStyle(building);
@@ -1517,6 +1986,8 @@
         }
         return;
       }
+      if (addZonedModel(batches, outRoofs, outRoofColors, outTrim, outTrimColors,
+        building, style, modelVariant, facadeVariant, tint, roofTint)) return;
       if (style === 'stadium') {
         const lower = base + Math.min(4, height * .25);
         const rim = base + Math.min(height, Math.max(5, height * (.64 + modelVariant * .055)));
@@ -1674,21 +2145,29 @@
       if (style === 'house' && ring.length === 4 && height >= 4) {
         const rise = Math.min(3.7, Math.max(1.1, height * (.17 + modelVariant * .025)));
         const eave = base + height - rise;
-        addWallRing(batch, ring, base, eave, tint, building, style);
+        const upper = modelVariant === 3 ? insetRing(ring, .86) :
+          modelVariant === 4 ? insetRing(ring, .8) : ring;
+        if (modelVariant >= 3) {
+          const porch = base + Math.min(3.4, height * .43);
+          addWallRing(batch, ring, base, porch, tint, building, style);
+          roofLedge(outRoofs, outRoofColors, ring, upper, porch, roofTint);
+          addWallRing(batch, upper, porch, eave, tint.clone().multiplyScalar(1.05), building, style);
+        } else addWallRing(batch, ring, base, modelVariant === 2 ? base + height : eave,
+          tint, building, style);
         if (modelVariant === 2)
           addEverydayRoof(outRoofs, outRoofColors, outTrim, outTrimColors,
-            ring, eave, height, roofTint, style, modelVariant);
-        else addHouseRoof(outRoofs, outRoofColors, ring, eave, base + height,
-          roofTint, modelVariant === 0 ? 0 : 1);
+            ring, base + height, height, roofTint, style, modelVariant);
+        else addHouseRoof(outRoofs, outRoofColors, upper, eave, base + height,
+          roofTint, modelVariant === 0 || modelVariant === 4 ? 0 : 1);
         if (modelVariant === 3 || modelVariant === 4)
-          roofPrism(outRoofs, outRoofColors, localPad(insetRing(ring, .5)[0],
+          roofPrism(outRoofs, outRoofColors, localPad(insetRing(upper, .5)[0],
             Math.min(.65, Math.min(building.width, building.depth) * .08)),
-            eave, base + height + (modelVariant === 4 ? .9 : 1.6),
+            eave + rise * .24, base + height + (modelVariant === 4 ? .5 : .8),
             new THREE.Color(0x8a6a63));
         if (modelVariant === 4)
-          roofPrism(outRoofs, outRoofColors, localPad(insetRing(ring, .5)[2],
+          roofPrism(outRoofs, outRoofColors, localPad(insetRing(upper, .5)[2],
             Math.min(.5, Math.min(building.width, building.depth) * .06)),
-            eave, base + height + 1.4, new THREE.Color(0x8a6a63));
+            eave + rise * .16, base + height + .7, new THREE.Color(0x8a6a63));
       } else if (style === 'industrial' && ring.length === 4 && height >= 6) {
         const rise = Math.min(3.2, Math.max(1.2, height * .16));
         const eave = base + height - rise;
@@ -1714,21 +2193,21 @@
         const lobbyTop = base + Math.min(6, height * .09);
         addWallRing(batches.storefront[facadeVariant], ring, base, lobbyTop, tint.clone().multiplyScalar(1.16), building, 'storefront');
         addWallRing(batch, ring, lobbyTop, firstTop, tint, building, style);
-        addTowerAccents(outTrim, outTrimColors, ring, lobbyTop, firstTop, facadeVariant);
+        addTowerAccents(outTrim, outTrimColors, ring, lobbyTop, firstTop, modelVariant);
         roofLedge(outRoofs, outRoofColors, ring, upper, firstTop, roofTint);
         if (height > 65 && (modelVariant === 1 || modelVariant === 4)) {
           const secondTop = base + height * (modelVariant === 1 ? .86 : .91);
           const crown = insetRing(ring, modelVariant === 1 ? .48 : .56);
           addWallRing(batch, upper, firstTop, secondTop, tint.clone().multiplyScalar(.88), building, style);
-          addTowerAccents(outTrim, outTrimColors, upper, firstTop, secondTop, facadeVariant);
+          addTowerAccents(outTrim, outTrimColors, upper, firstTop, secondTop, modelVariant);
           roofLedge(outRoofs, outRoofColors, upper, crown, secondTop, roofTint);
           addWallRing(batch, crown, secondTop, base + height, tint, building, style);
-          addTowerAccents(outTrim, outTrimColors, crown, secondTop, base + height, facadeVariant);
+          addTowerAccents(outTrim, outTrimColors, crown, secondTop, base + height, modelVariant);
           roofPlate(outRoofs, outRoofColors, crown, base + height, roofTint);
           addTrimBand(outTrim, outTrimColors, crown, secondTop, new THREE.Color(0x67d9e6));
         } else {
           addWallRing(batch, upper, firstTop, base + height, tint.clone().multiplyScalar(.9), building, style);
-          addTowerAccents(outTrim, outTrimColors, upper, firstTop, base + height, facadeVariant);
+          addTowerAccents(outTrim, outTrimColors, upper, firstTop, base + height, modelVariant);
           roofPlate(outRoofs, outRoofColors, upper, base + height, roofTint);
         }
         if (modelVariant === 3) {
@@ -2105,6 +2584,42 @@
         uvs.push(a[0] / 5, a[2] / 5, b[0] / 5, b[2] / 5, c[0] / 5, c[2] / 5);
       }
     }
+    function graphCoversJunction(node, tile) {
+      if (!tile.connectors?.length) return false;
+      const arms = new Set(node.arms.map((arm) => String(arm.road.id)));
+      const reach = Math.max(24, ...node.arms.map((arm) => (arm.cut || 0) + 10));
+      const groups = new Map();
+      for (const connector of tile.connectors) {
+        if (connector.forbidden || connector.path_methods_bits != null &&
+            !(Number(connector.path_methods_bits) & 2) || !validLaneCurve(connector.curve)) continue;
+        const from = String(connector.from_edge_id), to = String(connector.to_edge_id);
+        if (!arms.has(from) && !arms.has(to)) continue;
+        const [x, , z] = cubicPoint(connector.curve, .5);
+        if (Math.hypot(x - node.x, z - node.z) > reach) continue;
+        if (!groups.has(connector.node_id)) groups.set(connector.node_id, new Set());
+        const group = groups.get(connector.node_id);
+        if (arms.has(from)) group.add(from);
+        if (arms.has(to)) group.add(to);
+      }
+      return [...groups.values()].some((covered) => [...arms].every((id) => covered.has(id)));
+    }
+    function addLaneConnector(out, uvs, connector) {
+      const samples = connector.samples;
+      if (!samples || samples.length < 2) return;
+      const half = clamp(finite(connector.width_m, 3), 1.5, 9) / 2 + .16;
+      const lift = hash(connector.entity_id) % 7 * .001;
+      const edge = (sample, side) => {
+        const x = sample.x + sample.nx * half * side;
+        const z = sample.z + sample.nz * half * side;
+        return [x, Math.max(sample.y, map.terrainHeight(x, z) + .095) + lift, z];
+      };
+      for (let i = 0; i < samples.length - 1; i++) {
+        const a = edge(samples[i], 1), b = edge(samples[i + 1], 1);
+        const c = edge(samples[i + 1], -1), d = edge(samples[i], -1);
+        triangle(out, a, c, b); triangle(out, a, d, c);
+        for (const p of [a, c, b, a, d, c]) uvs.push(p[0] / 5, p[2] / 5);
+      }
+    }
     function addCornerSidewalks(outWalks, outUVs, outCurbs, node) {
       for (let i = 0; i < node.arms.length; i++) {
         const arm = node.arms[i], next = node.arms[(i + 1) % node.arms.length];
@@ -2191,11 +2706,13 @@
       const groundPositions = [], groundUVs = [], groundHighways = [], highwayUVs = [];
       const bridgePositions = [], bridgeUVs = [], bridgeRailPositions = [];
       const junctionPositions = [], junctionUVs = [];
+      const laneConnectorPositions = [], laneConnectorUVs = [];
       const approachPositions = [], approachUVs = [];
       const sidewalkPositions = [], sidewalkUVs = [];
       const junctionSidewalks = [], junctionSidewalkUVs = [], junctionCurbs = [];
       const curbPositions = [], whiteLines = [], yellowLines = [], crosswalkPositions = [], treeSites = [];
       const arrowPositions = [], arrowRecords = [], arrowEntries = [];
+      const turnArrowPositions = [], turnArrowRecords = [], mergeGuidePositions = [], stopLinePositions = [];
       const speedSignPositions = [], speedSignUVs = [], speedPostPositions = [];
       const speedSignRecords = [], speedSignSites = [];
       const markQueue = [];
@@ -2274,10 +2791,12 @@
       }
       for (const node of junctionsByTile.get(id) || []) {
         prepareJunction(node);
-        addJunction(junctionPositions, junctionUVs, node);
+        if (!graphCoversJunction(node, tile)) addJunction(junctionPositions, junctionUVs, node);
         addCornerSidewalks(junctionSidewalks, junctionSidewalkUVs, junctionCurbs, node);
         addCrosswalks(crosswalkPositions, node);
       }
+      for (const connector of tile.ownedConnectors || [])
+        addLaneConnector(laneConnectorPositions, laneConnectorUVs, connector);
       for (const road of tile.highways) {
         applySmoothJoins(road);
         bridgeBox(bridgePositions, bridgeUVs, road);
@@ -2289,9 +2808,12 @@
           speedSignRecords, speedSignSites, road, layout, intervals);
       }
       addDirectionArrows(arrowPositions, arrowRecords, arrowEntries);
+      addLaneGraphPaint(tile, turnArrowPositions, mergeGuidePositions,
+        stopLinePositions, turnArrowRecords);
       mesh('imported-city-road', groundPositions, roadMat, group, null, groundUVs);
       mesh('imported-city-junction-approach', approachPositions, roadMat, group, null, approachUVs);
       mesh('imported-city-junction', junctionPositions, roadMat, group, null, junctionUVs);
+      mesh('imported-city-lane-connector', laneConnectorPositions, roadMat, group, null, laneConnectorUVs);
       mesh('imported-city-highway-grade', groundHighways, highwayRoadMat, group, null, highwayUVs);
       mesh('imported-city-highway', bridgePositions, elevatedMat, group, null, bridgeUVs);
       mesh('imported-city-guardrail', bridgeRailPositions, bridgePartMat, group);
@@ -2304,6 +2826,10 @@
       mesh('imported-city-crosswalk', crosswalkPositions, whiteMarkingMat, group);
       const arrows = mesh('imported-city-direction-arrow', arrowPositions, whiteMarkingMat, group);
       if (arrows) arrows.userData.arrows = arrowRecords;
+      const turns = mesh('imported-city-turn-arrow', turnArrowPositions, whiteMarkingMat, group);
+      if (turns) turns.userData.turnArrows = turnArrowRecords;
+      mesh('imported-city-merge-guide', mergeGuidePositions, whiteMarkingMat, group);
+      mesh('imported-city-stop-line', stopLinePositions, whiteMarkingMat, group);
       const speedSigns = mesh('imported-city-speed-sign', speedSignPositions,
         speedSignMat, group, null, speedSignUVs);
       if (speedSigns) speedSigns.userData.signs = speedSignRecords;
@@ -2344,7 +2870,8 @@
       const pavement = [], pavementUVs = [], walks = [], walkUVs = [], curbs = [];
       for (const node of nodes) {
         prepareJunction(node);
-        addJunction(pavement, pavementUVs, node);
+        const tile = map.loadedTiles.get(id)?.data;
+        if (!graphCoversJunction(node, tile || {})) addJunction(pavement, pavementUVs, node);
         addCornerSidewalks(walks, walkUVs, curbs, node);
       }
       for (const [name, positions, material, uvs] of [
