@@ -8,12 +8,14 @@
   const x=Number(params.get('x')||1840.721), z=Number(params.get('z')||-1052.141);
   const span=Number(params.get('span')||100);
   const map=await DriveImportedCity.load('../data/imported-city/manifest.json');
-  await map.ensureNear(x,z,Math.max(320,map.tileSize*.7));
   const scene=new THREE.Scene();scene.background=new THREE.Color(0x7b9ba3);
   scene.add(new THREE.HemisphereLight(0xffffff,0x74849b,1.25));
   const sun=new THREE.DirectionalLight(0xffffff,.7);sun.position.set(x-30,80,z-20);scene.add(sun);
   const world=new THREE.Group();scene.add(world);
   const visual=map.build(THREE,world);
+  // Building the visual primes spawn streaming; load the requested district
+  // afterwards so a far-away preview does not render an empty first frame.
+  await map.ensureNear(x,z,Math.max(320,map.tileSize*.7));
   if(params.has('plain')) {
     const diagnostic=new THREE.MeshBasicMaterial({color:0xf12549,side:THREE.DoubleSide});
     world.traverse(object=>{

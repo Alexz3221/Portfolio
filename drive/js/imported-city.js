@@ -1033,37 +1033,75 @@
       }
       return [x, Math.max(Math.max(sourceY, map.terrainHeight(x, z)) + .115, surfaceY + .055), z];
     }
-    function addDirectionArrows(out, records, road, layout, intervals) {
-      if (!layout.highway && !layout.oneWay) return;
-      const dx = road.x2 - road.x1, dz = road.z2 - road.z1;
-      const length = Math.hypot(dx, dz);
-      if (length < 8) return;
-      const lanesByDirection = new Map();
-      for (const lane of layout.lanes) {
-        const direction = /^backward$/i.test(lane.direction) ? 'Backward' :
-          /^forward$/i.test(lane.direction) ? 'Forward' : null;
-        if (!direction) continue;
-        if (!lanesByDirection.has(direction)) lanesByDirection.set(direction, []);
-        lanesByDirection.get(direction).push(lane);
+    function addDirectionArrows(out, records, entries) {
+      // An exported curve can have more than a hundred one-metre samples.
+      // Place paint along the source road's cumulative distance instead of
+      // requiring any one normalized segment to hold an entire arrow.
+      const roads = new Map();
+      for (const entry of entries) {
+        const { road, layout, intervals } = entry;
+        if (!layout.highway && !layout.oneWay) continue;
+        const length = Math.hypot(road.x2 - road.x1, road.z2 - road.z1);
+        if (length < .1 || !intervals.length) continue;
+        const source = `${road.id}:${road.part ?? 0}:${road.mode}`;
+        if (!roads.has(source)) roads.set(source, []);
+        roads.get(source).push({ road, layout, intervals, length,
+          start: finite(road.pathDistance), end: finite(road.pathDistance) + length });
       }
-      const spacing = layout.highway ? 78 : 55;
-      const pathStart = finite(road.pathDistance);
-      for (const [direction, lanes] of lanesByDirection) {
-        const lane = lanes[Math.floor(lanes.length / 2)];
-        const travel = direction === 'Forward' ? 1 : -1;
-        const phase = hash(String(road.id) + ':arrow:' + direction) % spacing;
-        const first = Math.ceil((pathStart - phase) / spacing) * spacing + phase;
-        for (let global = first; global < pathStart + length; global += spacing) {
-          const distance = global - pathStart;
-          if (!intervals.some(([start, end]) =>
-            distance > start * length + 3 && distance < end * length - 3)) continue;
-          const point = (along, lateral) => roadPaintPoint(road,
-            (distance + travel * along) / length, lane.position + lateral);
-          quad(out, point(-1.55, -.17), point(.45, -.17),
-            point(.45, .17), point(-1.55, .17));
-          triangle(out, point(.2, -.8), point(1.9, 0), point(.2, .8));
-          records.push({ roadId: String(road.id), direction,
-            x: road.x1 + dx * distance / length, z: road.z1 + dz * distance / length });
+      for (const segments of roads.values()) {
+        segments.sort((a, b) => a.start - b.start);
+        const firstRoad = segments[0].road, firstLayout = segments[0].layout;
+        const lanesByDirection = new Map();
+        for (const lane of firstLayout.lanes) {
+          const direction = /^backward$/i.test(lane.direction) ? 'Backward' :
+            /^forward$/i.test(lane.direction) ? 'Forward' : null;
+          if (!direction) continue;
+          if (!lanesByDirection.has(direction)) lanesByDirection.set(direction, []);
+          lanesByDirection.get(direction).push(lane);
+        }
+        const paintable = segments.flatMap((segment) => segment.intervals.map(([start, end]) =>
+          [segment.start + start * segment.length, segment.start + end * segment.length]));
+        paintable.sort((a, b) => a[0] - b[0]);
+        const runs = [];
+        for (const [start, end] of paintable) {
+          const previous = runs[runs.length - 1];
+          if (previous && start <= previous[1] + .02) previous[1] = Math.max(previous[1], end);
+          else runs.push([start, end]);
+        }
+        function sample(distance, lateral) {
+          const piece = segments.find((segment) =>
+            distance >= segment.start - .0001 && distance <= segment.end + .0001);
+          return piece ? roadPaintPoint(piece.road,
+            clamp((distance - piece.start) / piece.length, 0, 1), lateral) : null;
+        }
+        for (const [direction, lanes] of lanesByDirection) {
+          const lane = lanes[Math.floor(lanes.length / 2)];
+          const travel = direction === 'Forward' ? 1 : -1;
+          const spacing = firstLayout.highway ? 78 : 55;
+          const phase = hash(String(firstRoad.id) + ':arrow:' + direction) % spacing;
+          function paint(distance) {
+            const point = (along, lateral) => sample(distance + travel * along,
+              lane.position + lateral);
+            const shaft = [point(-1.55, -.17), point(.45, -.17),
+              point(.45, .17), point(-1.55, .17)];
+            const head = [point(.2, -.8), point(1.9, 0), point(.2, .8)];
+            const center = sample(distance, lane.position);
+            if (!center || shaft.some((vertex) => !vertex) || head.some((vertex) => !vertex)) return false;
+            quad(out, ...shaft);
+            triangle(out, ...head);
+            records.push({ roadId: String(firstRoad.id), direction, x: center[0], z: center[2] });
+            return true;
+          }
+          for (const [start, end] of runs) {
+            const margin = 3.2;
+            if (end - start < margin * 2 + 3) continue;
+            let painted = 0;
+            const first = Math.ceil((start + margin - phase) / spacing) * spacing + phase;
+            for (let distance = first; distance <= end - margin; distance += spacing)
+              if (paint(distance)) painted++;
+            // A short ramp or connector may fall between cadence points.
+            if (!painted && end - start >= 14) paint((start + end) / 2);
+          }
         }
       }
     }
@@ -2157,7 +2195,7 @@
       const sidewalkPositions = [], sidewalkUVs = [];
       const junctionSidewalks = [], junctionSidewalkUVs = [], junctionCurbs = [];
       const curbPositions = [], whiteLines = [], yellowLines = [], crosswalkPositions = [], treeSites = [];
-      const arrowPositions = [], arrowRecords = [];
+      const arrowPositions = [], arrowRecords = [], arrowEntries = [];
       const speedSignPositions = [], speedSignUVs = [], speedPostPositions = [];
       const speedSignRecords = [], speedSignSites = [];
       const markQueue = [];
@@ -2230,8 +2268,7 @@
         }
       for (const entry of markQueue) {
         markRoad(whiteLines, yellowLines, entry.road, entry.layout, true, entry.intervals);
-        addDirectionArrows(arrowPositions, arrowRecords,
-          entry.road, entry.layout, entry.intervals);
+        arrowEntries.push(entry);
         addSpeedSigns(speedSignPositions, speedSignUVs, speedPostPositions,
           speedSignRecords, speedSignSites, entry.road, entry.layout, entry.intervals);
       }
@@ -2247,10 +2284,11 @@
         bridgeRail(bridgeRailPositions, road);
         const layout = roadLayout(road), intervals = [[0, 1]];
         markRoad(whiteLines, yellowLines, road, layout, true);
-        addDirectionArrows(arrowPositions, arrowRecords, road, layout, intervals);
+        arrowEntries.push({ road, layout, intervals });
         addSpeedSigns(speedSignPositions, speedSignUVs, speedPostPositions,
           speedSignRecords, speedSignSites, road, layout, intervals);
       }
+      addDirectionArrows(arrowPositions, arrowRecords, arrowEntries);
       mesh('imported-city-road', groundPositions, roadMat, group, null, groundUVs);
       mesh('imported-city-junction-approach', approachPositions, roadMat, group, null, approachUVs);
       mesh('imported-city-junction', junctionPositions, roadMat, group, null, junctionUVs);
