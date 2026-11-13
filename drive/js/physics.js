@@ -127,14 +127,31 @@
     }
     if (course) box(ramp.x,ramp.y,ramp.z,ramp.halfWidth,.18,ramp.halfLength,ramp.angle);
     const streamingCity=isCity && cityMap!==City && typeof cityMap.nearbyBuildings==='function';
-    const activeCity={buildings:new Map(),roads:new Map(),highways:new Map(),connectors:new Map(),approaches:new Map(),guardrails:new Map(),supports:new Map()};
+    const activeCity={buildings:new Map(),roads:new Map(),highways:new Map(),connectors:new Map(),approaches:new Map(),junctions:new Map(),guardrails:new Map(),supports:new Map()};
     let lastCityX=Infinity,lastCityZ=Infinity;
+    let lastCityGeometryVersion=cityMap.collisionGeometryVersion || 0;
     function roadBox(segment) {
+      if(Number.isFinite(segment.renderedCarriageMin)&&
+          Number.isFinite(segment.renderedCarriageMax)) {
+        const x1=segment.x1??segment.x,z1=segment.z1??segment.z-segment.length/2;
+        const x2=segment.x2??segment.x,z2=segment.z2??segment.z+segment.length/2;
+        const dx=x2-x1,dz=z2-z1,length=Math.hypot(dx,dz)||1;
+        const normal=[dz/length,-dx/length];
+        const first=segment.startMiter||normal,last=segment.endMiter||normal;
+        const offset=(segment.renderedCarriageMin+segment.renderedCarriageMax)/2;
+        const width=segment.renderedCarriageMax-segment.renderedCarriageMin;
+        if(width<.1)return null;
+        return roadBox({...segment,
+          renderedCarriageMin:undefined,renderedCarriageMax:undefined,
+          x1:x1+first[0]*offset,z1:z1+first[1]*offset,
+          x2:x2+last[0]*offset,z2:z2+last[1]*offset,width});
+      }
       // The visual road mesh cuts bridge decks back at graph-covered merges.
       // Use those same intervals for collision so a removed deck cannot remain
       // as an invisible slab across the native lane connectors underneath.
-      if(Array.isArray(segment.visibleIntervals)) {
-        const intervals=segment.visibleIntervals.filter(([a,b])=>Number.isFinite(a)&&Number.isFinite(b)&&b-a>1e-5);
+      const renderedIntervals=segment.renderedVisibleIntervals ?? segment.visibleIntervals;
+      if(Array.isArray(renderedIntervals)) {
+        const intervals=renderedIntervals.filter(([a,b])=>Number.isFinite(a)&&Number.isFinite(b)&&b-a>1e-5);
         if(!intervals.length)return null;
         if(intervals.length!==1||intervals[0][0]>1e-5||intervals[0][1]<1-1e-5) {
           const x1=segment.x1??segment.x,z1=segment.z1??segment.z-segment.length/2;
@@ -142,12 +159,18 @@
           const y1=segment.topStart??segment.y1??0,y2=segment.topEnd??segment.y2??0;
           const dx=x2-x1,dz=z2-z1,length=Math.hypot(dx,dz)||1;
           const normal=[dz/length,-dx/length];
+          const first=segment.startMiter||normal,last=segment.endMiter||normal;
+          const miterAt=t=>[first[0]*(1-t)+last[0]*t,
+            first[1]*(1-t)+last[1]*t];
           const pieces=intervals.map(([a,b])=>roadBox({
-            ...segment,visibleIntervals:null,
+            ...segment,visibleIntervals:null,renderedVisibleIntervals:null,
             x1:x1+dx*a,z1:z1+dz*a,x2:x1+dx*b,z2:z1+dz*b,
             topStart:y1+(y2-y1)*a,topEnd:y1+(y2-y1)*b,
-            startMiter:a>1e-5?normal:segment.startMiter,
-            endMiter:b<1-1e-5?normal:segment.endMiter
+            // The rendered strip interpolates its endpoint miters at every
+            // cut. A perpendicular here moves a curved road's physical edge
+            // sideways, sometimes by nearly a metre at merge cutbacks.
+            startMiter:a>1e-5?miterAt(a):segment.startMiter,
+            endMiter:b<1-1e-5?miterAt(b):segment.endMiter
           })).filter(Boolean);
           return pieces.length===1?pieces[0]:pieces;
         }
@@ -206,11 +229,52 @@
       const width=Math.max(1.5,Math.min(9,Number(connector.width_m)||3))+.32;
       for(let i=0;i<samples.length-1;i++) {
         const a=samples[i],b=samples[i+1];
+        if(connector.renderedOnly&&!a.collisionRenderedToNext)continue;
         // The terrain heightfield already supports ground-level connectors.
         // Add an authored slab only where the game road rises above it.
         if(Math.max(a.sourceY-height(a.x,a.z),b.sourceY-height(b.x,b.z))<.22)continue;
         const dx=b.x-a.x,dz=b.z-a.z,dy=b.y-a.y,length=Math.hypot(dx,dz);
         if(length<.05)continue;
+        const extra=a.collisionWidthToNext;
+        const chordNormal=[dz/length,-dx/length];
+        const normal=(s)=>Number.isFinite(s.nx)&&Number.isFinite(s.nz)
+          ?[s.nx,s.nz]:chordNormal;
+        const startNormal=normal(a),endNormal=normal(b);
+        const edgeSkew=Math.max(
+          Math.hypot(startNormal[0]-chordNormal[0],startNormal[1]-chordNormal[1]),
+          Math.hypot(endNormal[0]-chordNormal[0],endNormal[1]-chordNormal[1]))*width/2;
+        if(extra?.[0]>1e-5||extra?.[1]>1e-5||edgeSkew>.25) {
+          // A chord-aligned box can extend well past a sharply curved lane or
+          // miss its outer edge. Match the renderer's two mitered triangles on
+          // those segments and on graph shoulders; retain cheap boxes on the
+          // nearly straight spans.
+          const edge=(s,side,added)=>{
+            const [nx,nz]=normal(s),radius=width/2+added;
+            const x=s.x+nx*radius*side,z=s.z+nz*radius*side;
+            const terrain=cityMap.terrainHeight?.(x,z)??height(x,z);
+            return [x,Math.max(s.y,terrain+.095),z];
+          };
+          const startPlus=edge(a,1,extra?.[0]||0),endPlus=edge(b,1,extra?.[1]||0);
+          const endMinus=edge(b,-1,extra?.[1]||0),startMinus=edge(a,-1,extra?.[0]||0);
+          for(const corners of [[startPlus,endMinus,endPlus],
+            [startPlus,startMinus,endMinus]]) {
+            const triangle=corners.slice();
+            const cross=(triangle[1][0]-triangle[0][0])*(triangle[2][2]-triangle[0][2])-
+              (triangle[1][2]-triangle[0][2])*(triangle[2][0]-triangle[0][0]);
+            if(Math.abs(cross)<1e-6)continue;
+            if(cross<0)[triangle[1],triangle[2]]=[triangle[2],triangle[1]];
+            const center=new C.Vec3(
+              triangle.reduce((sum,p)=>sum+p[0],0)/3,
+              triangle.reduce((sum,p)=>sum+p[1],0)/3-.12,
+              triangle.reduce((sum,p)=>sum+p[2],0)/3);
+            const vertices=[];
+            for(const lower of [true,false])for(const [x,y,z] of triangle)
+              vertices.push(new C.Vec3(x-center.x,y-(lower?.24:0)-center.y,z-center.z));
+            const faces=[[0,1,2],[5,4,3],[0,3,4,1],[1,4,5,2],[2,5,3,0]];
+            body.addShape(new C.ConvexPolyhedron(vertices,faces),center.vsub(body.position));
+          }
+          continue;
+        }
         const pitch=-Math.atan2(dy,length),yaw=Math.atan2(dx,dz);
         const tilt=new C.Quaternion(),turn=new C.Quaternion(),orientation=new C.Quaternion();
         tilt.setFromAxisAngle(new C.Vec3(1,0,0),pitch);
@@ -285,6 +349,33 @@
       return connectorBody({...approach,samples:samples.map((sample,i)=>
         correction[i]?{...sample,y:sample.y-correction[i]}:sample)});
     }
+    function junctionBody(surface) {
+      if(!surface.vertices?.length||!surface.indices?.length)return null;
+      const body=new C.Body({mass:0,material:terrainMaterial});
+      const mesh=new C.Trimesh(surface.vertices,surface.indices);
+      // cannon.js 0.6.2 removes an octree child whenever that child has no
+      // direct triangles, even if grandchildren hold hundreds of them. Its
+      // constructor can therefore lose most faces of a dense junction mesh.
+      // Rebuild the tree and retain every branch with data at any depth.
+      const tree=mesh.tree;
+      tree.reset();tree.aabb.copy(mesh.aabb);
+      const a=new C.Vec3(),b=new C.Vec3(),c=new C.Vec3(),bounds=new C.AABB();
+      for(let i=0;i<surface.indices.length/3;i++) {
+        mesh.getTriangleVertices(i,a,b,c);
+        bounds.setFromPoints([a,b,c]);
+        tree.insert(bounds,i);
+      }
+      const keep=node=>{
+        node.children=node.children.filter(keep);
+        return node.data.length>0||node.children.length>0;
+      };
+      keep(tree);
+      body.addShape(mesh);
+      body.position.set(surface.x,0,surface.z);
+      body.computeAABB();
+      world.addBody(body);
+      return body;
+    }
     function buildingBody(building) {
       // A mesh-backed special building has a broad lot/parent record and a
       // narrower visible proxy. The parent must not block the street around it.
@@ -343,8 +434,19 @@
       });
     }
     function refreshCityColliders(x,z,force=false,requestTiles=true) {
-      if(!streamingCity || !force && Math.hypot(x-lastCityX,z-lastCityZ)<20)return;
+      const geometryVersion=cityMap.collisionGeometryVersion || 0;
+      const geometryChanged=geometryVersion!==lastCityGeometryVersion;
+      if(!streamingCity || !force && !geometryChanged && Math.hypot(x-lastCityX,z-lastCityZ)<20)return;
       lastCityX=x;lastCityZ=z;
+      if(geometryChanged) {
+        for(const active of [activeCity.roads,activeCity.highways,
+          activeCity.approaches,activeCity.junctions]) {
+          for(const body of active.values())
+            for(const part of Array.isArray(body)?body:[body])world.removeBody(part);
+          active.clear();
+        }
+        lastCityGeometryVersion=geometryVersion;
+      }
       const radius=140;
       if(requestTiles) {
         const pending=cityMap.ensureNear?.(x,z,Math.max(280,cityMap.tileSize*1.05||0));
@@ -356,6 +458,8 @@
         updateLocalColliders(activeCity.connectors,cityMap.nearbyLaneConnectors(x,z,radius),connectorBody,'connector');
       if(typeof cityMap.nearbyLaneApproaches==='function')
         updateLocalColliders(activeCity.approaches,cityMap.nearbyLaneApproaches(x,z,radius),approachBody,'approach');
+      if(typeof cityMap.nearbyJunctionSurfaces==='function')
+        updateLocalColliders(activeCity.junctions,cityMap.nearbyJunctionSurfaces(x,z,90),junctionBody,'junction');
       if(cityTerrain && typeof cityMap.nearbyRoads==='function') {
         const raised=cityMap.nearbyRoads(x,z,radius).filter(s=>
           !/tunnel|underground/i.test(String(s.mode||''))&&

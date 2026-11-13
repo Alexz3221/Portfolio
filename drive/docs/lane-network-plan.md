@@ -44,7 +44,7 @@ count transitions where a single-lane ramp joins a wider highway section.
 | 2. Convert and validate | Add a versioned lane-graph section to `convert-cmm.cjs` and tile it independently of buildings. Preserve source IDs through clipping; apply the same browser-local transform to connector curves. Validate finite coordinates, endpoints, direction, and level/height. | The converter reports connector totals and unresolved/forbidden counts. Tests reject dangling IDs, reversed connectors, and grade-separated false junctions. Existing `.cmm.gz` files still load with basic markings. |
 | 3. Driveable junction meshes | Generate lane-centered curved ribbons through the node, join them to approach pavement, and use lane-width transitions for merge/diverge tapers. Build the matching collision surface and keep overpasses on separate levels. | At center 03 and sample T, four-way, roundabout, and highway junctions, lanes lead continuously from entrance to permitted exit without ground holes, overlaps, floating rails, or invisible walls. The car can drive each path. |
 | 4. Lane instructions and paint | Classify straight/left/right/U turns from connector tangents. Aggregate permitted exits per source lane for turn/combined arrows. Add merge guides, stop lines, and lane separators appropriate to the validated graph. Signs use the already exported speeds. | Turn arrows match the save at center 03 and selected city junctions. No lane displays a turn it cannot make. Paint follows curves and stays clear of intersections and sidewalks. |
-| 5. Citywide and performance pass | Compare top-down game references with the browser at spawn and all seven fast-travel centers. Add graph continuity/coverage checks over every tile, then tune streaming and batching for the full 293-tile city. | No new road holes or large frame-time spikes while driving or fast traveling; new and old junction tests pass. |
+| 5. Citywide and performance pass | Compare top-down game references with the browser at spawn, all seven original centers, and seventeen additional street jumps. Add graph continuity/coverage checks over every tile, then tune streaming and batching for the full 293-tile city. | No new road holes or large frame-time spikes while driving or fast traveling; new and old junction tests pass. |
 | 6. Signals and traffic | Export node signal group/timer and each controlled lane's signal state/group mask if accurate working signals are desired. Place lights at existing exported nodes; later route procedural cars over the validated lane graph, respecting direction, connections, and signals. | A representative signalized junction follows per-lane signal permissions and cars do not turn through forbidden connectors. Traffic remains a separate milestone after road geometry works. |
 
 ## Implemented pass
@@ -101,16 +101,16 @@ airport site, not a copy of its Cities: Skylines II asset.
 5,367 source roads, 8,231 road segments of at least 2 m, 27,363 native edge
 lanes, the rendered lane connectors, generated guardrails, and supports.
 `node scripts/audit-city-colliders.cjs --all` samples the actual streamed
-CANNON surfaces along every permitted connector in 1,583 map cells. The
+CANNON surfaces along every visible permitted connector in 1,581 map cells. The
 checks are reproducible, but they sample lane paths rather than driving
 every possible line across a road.
 
-The final CANNON sweep found zero missing surfaces in 67,312 lane samples.
-It found 1,249 places where the top collider is more than 0.5 m above the
+The final CANNON sweep found zero missing surfaces in 67,184 lane samples.
+It found 1,248 places where the top collider is more than 0.5 m above the
 exported lane height, including 177 over 1 m. Some reflect a native graph
 lane buried below a continuous, smooth source road deck, such as node
 `3025183`; others are real overlapping source surfaces that need route-aware
-resolution. At the 82 selected elevated graph junctions, only 6 of 1,534
+resolution. At the 82 selected elevated graph junctions, only 5 of 1,534
 samples differ by more than 0.5 m and none by more than 1 m. These ray checks
 cannot prove that every lateral path or collision impulse is smooth.
 
@@ -123,6 +123,27 @@ despite visible pavement. Conventional ground junctions with complete graph
 coverage, conflicting source heights, and lanes close to terrain receive the
 same selective treatment. Their local asphalt fill extends to the trimmed
 road shoulders.
+
+At the interchange east of the Experience stop, visual shoulder tapers and
+physical support now share the same width. Ground road colliders follow the
+visible carriageway and its rendered junction cutbacks, so hidden full-width
+slabs cannot block a graph merge. Elevated approach colliders are included
+only for lane segments actually rendered at that junction. The affected
+interchange, an unrendered elevated approach elsewhere, and a road-edge lip
+were checked with vertical visual and CANNON rays. The local raised surfaces
+had no unsupported pavement or invisible raised road bodies in those sweeps.
+
+Clipped curved road colliders interpolate the same edge miters as the painted
+mesh. Curved connector pieces use the rendered ribbon triangles where a box
+would protrude beyond the lane. Raised conventional junction fill has its own
+triangle surface for wheel contact, streamed per junction within 90 m. The
+fallback junction near (5293, -1527) now supports a simulated car crossing;
+its dense mesh costs about 1 ms per 60 Hz physics step while nearby. A
+visual-to-physics audit sampled 143 junction visits and 7,007 rays across the
+city. Its one remaining raised-body mismatch was a sub-meter tile-edge ray
+that matched the visible road 25 cm away. The legacy lane-centerline sweep
+above compares source heights to physics; it does not by itself detect
+invisible colliders outside visible pavement.
 
 Generated guardrails are clipped where they cross other same-level roads or
 permitted lane paths; their visual and physics lengths are identical. Bridge

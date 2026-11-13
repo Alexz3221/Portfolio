@@ -8,6 +8,8 @@ const path = require('node:path');
 const zlib = require('node:zlib');
 const { TextDecoder } = require('node:util');
 const { once } = require('node:events');
+const ImportedCity = require('../js/imported-city');
+const { generateTravelCandidates } = require('./travel-candidates.cjs');
 
 const RELEVANT_ROOT = new Set([
   'schema_version', 'metadata', 'sea_level', 'terrain',
@@ -1011,6 +1013,8 @@ class CityConverter {
       featuredDistrict,
       centerCandidates,
     };
+    manifest.travelCandidates = generateTravelCandidates(ImportedCity.create(manifest, overview, terrain), 17,
+      tile => JSON.parse(fs.readFileSync(path.join(this.args.out, tile.file), 'utf8')));
     if (laneGraph) manifest.laneGraph = laneGraph;
     if (trafficLights) manifest.trafficLights = trafficLights;
     fs.writeFileSync(path.join(this.args.out, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');

@@ -84,10 +84,28 @@
     'center-7_2': 'East Center'
   };
   const escapeHtml = value => String(value).replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+  function travelRegion(x, z, bounds) {
+    const midX = (bounds.minX + bounds.maxX) / 2;
+    const midZ = (bounds.minZ + bounds.maxZ) / 2;
+    const eastWest = x < midX - (bounds.maxX - bounds.minX) * .15 ? 'West' :
+      x > midX + (bounds.maxX - bounds.minX) * .15 ? 'East' : '';
+    const northSouth = z < midZ - (bounds.maxZ - bounds.minZ) * .15 ? 'South' :
+      z > midZ + (bounds.maxZ - bounds.minZ) * .15 ? 'North' : '';
+    return [northSouth, eastWest].filter(Boolean).join(' ') || 'Central';
+  }
   function deriveCenters(cityMap) {
     if (!Array.isArray(cityMap?.manifest?.centerCandidates) || typeof cityMap.snapToRoad !== 'function') return [];
     const bounds = cityMap.detailBounds || cityMap.bounds;
-    return cityMap.manifest.centerCandidates.flatMap((candidate, index) => {
+    const centerCandidates = cityMap.manifest.centerCandidates.map(candidate => ({...candidate, kind:'center'}));
+    const travelCandidates = (Array.isArray(cityMap.manifest.travelCandidates)
+      ? cityMap.manifest.travelCandidates : []).map(candidate => ({...candidate, kind:'street'}));
+    const roadsById = new Map();
+    for (const road of cityMap.networkRoads || []) {
+      const id = String(road.id);
+      if (!roadsById.has(id)) roadsById.set(id, []);
+      roadsById.get(id).push(road);
+    }
+    return [...centerCandidates, ...travelCandidates].flatMap((candidate, index) => {
       const x = Number(candidate.x), z = Number(candidate.z);
       if (!Number.isFinite(x) || !Number.isFinite(z) || !bounds ||
           x < bounds.minX || x > bounds.maxX || z < bounds.minZ || z > bounds.maxZ) return [];
@@ -95,11 +113,59 @@
       if (!street || !Number.isFinite(street.x) || !Number.isFinite(street.z) ||
           !Number.isFinite(street.heading) || !Number.isFinite(street.distance) || street.distance > 350 ||
           street.x < bounds.minX || street.x > bounds.maxX || street.z < bounds.minZ || street.z > bounds.maxZ) return [];
-      const title = cityMap.manifest.source?.cityName === "Obamna's America"
+      let destination = street;
+      if (candidate.kind === 'street') {
+        const roadParts = roadsById.get(String(street.roadId)) || [];
+        const road = roadParts.reduce((best, part) => {
+          const distance = item => {
+            const dx = item.x2 - item.x1, dz = item.z2 - item.z1;
+            const t = Math.max(0, Math.min(1,
+              ((street.x - item.x1) * dx + (street.z - item.z1) * dz) /
+              (dx * dx + dz * dz || 1)));
+            return Math.hypot(street.x - item.x1 - dx * t, street.z - item.z1 - dz * t);
+          };
+          return !best || distance(part) < distance(best) ? part : best;
+        }, null);
+        const clearance = typeof cityMap.terrainHeight === 'function'
+          ? street.y - cityMap.terrainHeight(street.x, street.z) : NaN;
+        if (String(street.roadId) !== String(candidate.roadId) || street.distance > 1 ||
+            !road || road.mode !== 'GROUND' ||
+            /highway|motorway|freeway|express/i.test(String(road.roadClass || '')) ||
+            !Number.isFinite(clearance) || clearance < -.25 || clearance > .5) return [];
+        const dx = road.x2 - road.x1, dz = road.z2 - road.z1;
+        const length = Math.hypot(dx, dz);
+        if (length < .1) return [];
+        const lanes = (road.laneDetails || []).filter(lane =>
+          Number.isFinite(Number(lane.position)) &&
+          /^(forward|backward)$/i.test(String(lane.direction || '')));
+        const forward = lanes.filter(lane => /^forward$/i.test(lane.direction))
+          .sort((a, b) => Number(a.position) - Number(b.position));
+        const backward = lanes.filter(lane => /^backward$/i.test(lane.direction))
+          .sort((a, b) => Number(b.position) - Number(a.position));
+        const direction = forward.length ? 1 : backward.length ? -1 : 1;
+        const offsets = (forward.length ? forward : backward).map(lane =>
+          Math.max(-road.width / 2 + 2.5, Math.min(road.width / 2 - 2.5,
+            -Number(lane.position))));
+        if (!offsets.length) offsets.push(direction * Math.min(3, road.width / 4));
+        const lane = offsets.map(offset => ({
+          x: street.x + dz / length * offset,
+          z: street.z - dx / length * offset,
+          heading: Math.atan2(dx * direction, dz * direction)
+        })).find(point => {
+          const laneClearance = street.y - cityMap.terrainHeight(point.x, point.z);
+          return laneClearance >= -.25 && laneClearance <= .65;
+        });
+        if (!lane) return [];
+        destination = { ...street, ...lane, mapX: street.x, mapZ: street.z };
+      }
+      const namedCenter = candidate.kind === 'center' &&
+        cityMap.manifest.source?.cityName === "Obamna's America"
         ? obamnasAmericaCenters[candidate.id] : null;
-      return [{ ...street, id: String(candidate.id || `center-${index + 1}`),
-        title: title || `City Center ${String(index + 1).padStart(2, '0')}`,
-        score: Number(candidate.score) || 0 }];
+      const title = candidate.kind === 'street'
+        ? `${String(candidate.roadName || `Street Jump ${String(index + 1).padStart(2, '0')}`)} · ${travelRegion(street.x, street.z, bounds)}`
+        : namedCenter || `City Center ${String(index + 1).padStart(2, '0')}`;
+      return [{ ...destination, id: String(candidate.id || `center-${index + 1}`),
+        kind: candidate.kind, title, score: Number(candidate.score) || 0 }];
     });
   }
   function create({document, window, stops, city, onJump, onOpen, onClose, driveTarget}) {
@@ -150,12 +216,12 @@
                 </div>
                 <span class="city-map-gesture">SCROLL OR +/− TO ZOOM · THEN DRAG TO PAN</span>
                 <span class="city-map-key">YOU ARE HERE <i></i></span>
-                <span class="city-center-key">◆ CENTERS / FAST TRAVEL</span>
+                <span class="city-center-key">◆ CENTER · ◇ JUMP</span>
               </div>
               <div class="city-stop-list"></div>
             </div>
-            <section class="city-centers" hidden aria-label="City center fast travel">
-              <div class="city-centers-head"><h3>City centers</h3><span>FAST TRAVEL / STREET LEVEL</span></div>
+            <section class="city-centers" hidden aria-label="City fast travel">
+              <div class="city-centers-head"><h3>Fast travel</h3><span>CENTERS + STREET JUMPS</span></div>
               <div class="city-center-list"></div>
             </section>
           </div>
@@ -378,7 +444,7 @@
       centerSection.hidden = !centers.length || typeof onJump !== 'function';
       centerKey.hidden = centerSection.hidden;
       centers.forEach((center, index) => {
-        const mapped = point(center.x, center.z);
+        const mapped = point(center.mapX ?? center.x, center.mapZ ?? center.z);
         const marker = document.createElement('button');
         marker.type = 'button';
         marker.className = 'city-map-center';
@@ -387,6 +453,7 @@
         marker.dataset.mapX = mapped.x;
         marker.dataset.mapY = mapped.y;
         marker.dataset.center = center.id;
+        marker.dataset.kind = center.kind;
         marker.setAttribute('aria-label', `Fast travel to ${center.title}`);
         marker.title = center.title;
         mapCenters.appendChild(marker);
@@ -396,13 +463,15 @@
         miniMarker.style.top = mapped.y + '%';
         miniMarker.dataset.mapX = mapped.x;
         miniMarker.dataset.mapY = mapped.y;
+        miniMarker.dataset.kind = center.kind;
         minimapCenters.appendChild(miniMarker);
         const item = document.createElement('button');
         item.type = 'button';
         item.className = 'city-center-item';
         item.dataset.center = center.id;
+        item.dataset.kind = center.kind;
         item.setAttribute('aria-label', `Fast travel to ${center.title}`);
-        item.innerHTML = `<span>${String(index + 1).padStart(2, '0')} / CENTER</span><strong>${escapeHtml(center.title)}</strong><small>JUMP TO STREET ↗</small>`;
+        item.innerHTML = `<span>${String(index + 1).padStart(2, '0')} / ${center.kind === 'street' ? 'STREET JUMP' : 'CENTER'}</span><strong>${escapeHtml(center.title)}</strong><small>JUMP TO STREET ↗</small>`;
         centerList.appendChild(item);
       });
       resetMapView();

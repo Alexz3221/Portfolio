@@ -7,11 +7,13 @@ const path = require('node:path');
 const THREE = require('three');
 const Imported = require('../js/imported-city');
 
-test('all seven city centers stream finite lane-junction surfaces within a bounded tile set', async () => {
+test('all city centers and street jumps stream finite lane-junction surfaces within a bounded tile set', async () => {
   const root = path.resolve(__dirname, '..');
   const manifest = JSON.parse(await fs.readFile(path.join(root, 'data/imported-city/manifest.json')));
   assert.equal(manifest.laneGraph?.format, 'drive-city-lane-graph-v1');
   assert.equal(manifest.centerCandidates.length, 7);
+  assert.equal(manifest.travelCandidates.length, 17);
+  const destinations = [...manifest.centerCandidates, ...manifest.travelCandidates];
   const map = await Imported.load('data/imported-city/manifest.json', {
     fetch: async url => ({ ok: true, json: async () =>
       JSON.parse(await fs.readFile(path.join(root, url))) })
@@ -19,12 +21,12 @@ test('all seven city centers stream finite lane-junction surfaces within a bound
   const world = new THREE.Group();
   const visual = map.build(THREE, world);
   try {
-    for (const center of manifest.centerCandidates) {
+    for (const center of destinations) {
       await map.ensureNear(center.x, center.z, 700);
       visual.update({ position: { x: center.x,
         y: map.terrainHeight(center.x, center.z) + 20, z: center.z } }, 0);
       const loaded = [...map.loadedTiles.values()].filter(tile => tile.state === 'loaded');
-      assert.ok(loaded.length > 0 && loaded.length <= 16,
+      assert.ok(loaded.length > 0 && loaded.length <= 25,
         `${center.id} keeps a bounded set of city tiles`);
       assert.ok(loaded.some(tile => tile.descriptor.ix === center.ix &&
         tile.descriptor.iz === center.iz), `${center.id} loaded its own tile`);

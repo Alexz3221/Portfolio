@@ -2922,6 +2922,178 @@
       "score": 653.67
     }
   ],
+  "travelCandidates": [
+    {
+      "id": "travel-1_-6",
+      "ix": 1,
+      "iz": -6,
+      "x": 752.933,
+      "z": -2890.698,
+      "roadId": "5338172",
+      "roadName": "Firthmore Street",
+      "score": 2532.72
+    },
+    {
+      "id": "travel--1_-2",
+      "ix": -1,
+      "iz": -2,
+      "x": -153.173,
+      "z": -766.092,
+      "roadId": "5337883",
+      "roadName": "Honeybrook Street",
+      "score": 2201.99
+    },
+    {
+      "id": "travel-10_-1",
+      "ix": 10,
+      "iz": -1,
+      "x": 5468.779,
+      "z": -231.534,
+      "roadId": "5338081",
+      "roadName": "Cherrydale Street",
+      "score": 2001.36
+    },
+    {
+      "id": "travel-8_-3",
+      "ix": 8,
+      "iz": -3,
+      "x": 4220.247,
+      "z": -1407.724,
+      "roadId": "5339289",
+      "roadName": "Middle Street",
+      "score": 1715.3
+    },
+    {
+      "id": "travel-11_-7",
+      "ix": 11,
+      "iz": -7,
+      "x": 6064.181,
+      "z": -3090.049,
+      "roadId": "3765898",
+      "roadName": "Eastgate Street",
+      "score": 1700.47
+    },
+    {
+      "id": "travel--7_3",
+      "ix": -7,
+      "iz": 3,
+      "x": -3193.795,
+      "z": 1597.976,
+      "roadId": "5338929",
+      "roadName": "Beech Street",
+      "score": 1664.36
+    },
+    {
+      "id": "travel-3_1",
+      "ix": 3,
+      "iz": 1,
+      "x": 1623.486,
+      "z": 689.043,
+      "roadId": "5339268",
+      "roadName": "Beechwood Street",
+      "score": 1608.13
+    },
+    {
+      "id": "travel-4_-5",
+      "ix": 4,
+      "iz": -5,
+      "x": 2406.848,
+      "z": -2355.822,
+      "roadId": "5264102",
+      "roadName": "King Street",
+      "score": 1591.15
+    },
+    {
+      "id": "travel--4_3",
+      "ix": -4,
+      "iz": 3,
+      "x": -1718.216,
+      "z": 1932.891,
+      "roadId": "5339638",
+      "roadName": "Umber Street",
+      "score": 1513.1
+    },
+    {
+      "id": "travel-6_0",
+      "ix": 6,
+      "iz": 0,
+      "x": 3317.11,
+      "z": 69.714,
+      "roadId": "5337884",
+      "roadName": "Highland Street",
+      "score": 1246.67
+    },
+    {
+      "id": "travel-2_-4",
+      "ix": 2,
+      "iz": -4,
+      "x": 1170.679,
+      "z": -1762.425,
+      "roadId": "5338602",
+      "roadName": "Rosecliff Street",
+      "score": 1203.13
+    },
+    {
+      "id": "travel-4_-8",
+      "ix": 4,
+      "iz": -8,
+      "x": 2502.596,
+      "z": -3837.751,
+      "roadId": "5338495",
+      "roadName": "Bayview Street",
+      "score": 1184.98
+    },
+    {
+      "id": "travel--3_7",
+      "ix": -3,
+      "iz": 7,
+      "x": -1301.007,
+      "z": 3940.995,
+      "roadId": "5339441",
+      "roadName": "Cornflower Street",
+      "score": 1175.48
+    },
+    {
+      "id": "travel-2_-2",
+      "ix": 2,
+      "iz": -2,
+      "x": 1206.354,
+      "z": -672.081,
+      "roadId": "5338447",
+      "roadName": "Bayview Street",
+      "score": 1042.77
+    },
+    {
+      "id": "travel-6_-5",
+      "ix": 6,
+      "iz": -5,
+      "x": 3399.263,
+      "z": -2254.288,
+      "roadId": "5338201",
+      "roadName": "Summerfield Street",
+      "score": 997.6
+    },
+    {
+      "id": "travel-9_2",
+      "ix": 9,
+      "iz": 2,
+      "x": 4793.811,
+      "z": 1178.198,
+      "roadId": "5339279",
+      "roadName": "Honeybrook Lane",
+      "score": 959.23
+    },
+    {
+      "id": "travel-6_-3",
+      "ix": 6,
+      "iz": -3,
+      "x": 3191.37,
+      "z": -1076.99,
+      "roadId": "5338282",
+      "roadName": "Brook Street",
+      "score": 935.86
+    }
+  ],
   "laneGraph": {
     "format": "drive-city-lane-graph-v1",
     "schemaVersion": 1,

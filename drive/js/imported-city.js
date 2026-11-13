@@ -413,7 +413,11 @@
     const terrain = terrainFromRaw(terrainRaw);
     const terrainHeight = (x, z) => sampleTerrain(terrain, x, z);
     // Underground centerlines are useful source data but are not a surface
-    // visitors can drive on in this browser terrain.
+    // visitors can drive on in this browser terrain. Their graph connectors
+    // must also stay underground; otherwise lane ribbons climb to the
+    // uncut terrain mesh and create phantom roads above tunnel portals.
+    const tunnelEdgeIds = new Set((overview.roads || [])
+      .filter((road) => isTunnel(road.mode)).map((road) => String(road.id)));
     const allOverviewRoads = (overview.roads || []).flatMap(normalizeRoad).filter((road) => !isTunnel(road.mode));
     if (!allOverviewRoads.length) throw new Error('Imported city overview has no roads');
     const cityExtent = { minX: Infinity, minZ: Infinity, maxX: -Infinity, maxZ: -Infinity };
@@ -450,6 +454,9 @@
     const roadIndex = spatialIndex(180), detailRoadIndex = spatialIndex(180), buildingIndex = spatialIndex(180);
     const highwayIndex = spatialIndex(180), railIndex = spatialIndex(180), supportIndex = spatialIndex(180);
     const laneConnectorIndex = spatialIndex(120), laneApproachIndex = spatialIndex(120);
+    const junctionSurfaceIndex = spatialIndex(180);
+    const renderedApproachesByTile = new Map();
+    const renderedJunctionsByTile = new Map();
     for (const road of allOverviewRoads) roadIndex.add(road, {
       minX: Math.min(road.x1, road.x2) - road.width, maxX: Math.max(road.x1, road.x2) + road.width,
       minZ: Math.min(road.z1, road.z2) - road.width, maxZ: Math.max(road.z1, road.z2) + road.width
@@ -466,7 +473,7 @@
     const map = { source: 'CSLModernMap', imported: true, manifest, bounds, detailBounds, worldBounds, focus, edge, tileSize, terrain,
       roadHalfWidth, overviewRoads, networkRoads: allOverviewRoads, stops, routeSamples, buildings: [], roadSegments: [],
       highwaySegments: [], guardrails: [], supports: [], laneConnectors: [],
-      laneApproaches: [], trafficLights, districts, terrainHeight };
+      laneApproaches: [], junctionSurfaces: [], trafficLights, districts, terrainHeight };
     map.snapToRoad = (x, z) => {
       const normal = (road) => !isElevated(road.mode) && !isMotorway(road);
       const match = closestRoad(x, z, detailedRoads, normal) || closestRoad(x, z, detailedRoads);
@@ -501,6 +508,41 @@
     map.nearbyLaneApproaches = (x, z, radius = 100) => laneApproachIndex.query(x, z, radius).filter((approach) =>
       approach.bounds.maxX >= x - radius && approach.bounds.minX <= x + radius &&
       approach.bounds.maxZ >= z - radius && approach.bounds.minZ <= z + radius);
+    map.nearbyJunctionSurfaces = (x, z, radius = 100) =>
+      junctionSurfaceIndex.query(x, z, radius).filter((surface) =>
+        surface.bounds.maxX >= x - radius && surface.bounds.minX <= x + radius &&
+        surface.bounds.maxZ >= z - radius && surface.bounds.minZ <= z + radius);
+    map.replaceRenderedJunctionSurfaces = (tile, surfaces) => {
+      const id = key(tile.ix, tile.iz), previous = renderedJunctionsByTile.get(id) || [];
+      for (const surface of previous) {
+        junctionSurfaceIndex.remove(surface);
+        const index = map.junctionSurfaces.indexOf(surface);
+        if (index >= 0) map.junctionSurfaces.splice(index, 1);
+      }
+      if (surfaces.length) renderedJunctionsByTile.set(id, surfaces);
+      else renderedJunctionsByTile.delete(id);
+      for (const surface of surfaces) {
+        map.junctionSurfaces.push(surface);
+        junctionSurfaceIndex.add(surface, surface.bounds);
+      }
+      return previous.length;
+    };
+    map.replaceRenderedApproaches = (tile, approaches) => {
+      const id = key(tile.ix, tile.iz);
+      const previous = renderedApproachesByTile.get(id) || [];
+      for (const approach of previous) {
+        laneApproachIndex.remove(approach);
+        const index = map.laneApproaches.indexOf(approach);
+        if (index >= 0) map.laneApproaches.splice(index, 1);
+      }
+      if (approaches.length) renderedApproachesByTile.set(id, approaches);
+      else renderedApproachesByTile.delete(id);
+      for (const approach of approaches) {
+        map.laneApproaches.push(approach);
+        laneApproachIndex.add(approach, approach.bounds);
+      }
+      return previous.length;
+    };
     map.nearbyGuardrails = (x, z, radius = 100) => railIndex.query(x, z, radius).filter((rail) => {
       const dx = x - rail.x, dz = z - rail.z, yaw = rail.yaw || 0;
       return Math.abs(dx * Math.sin(yaw) + dz * Math.cos(yaw)) <= rail.length / 2 + radius &&
@@ -937,6 +979,7 @@
             const run = samples.slice(first, end + 1), reach =
               clamp(finite(lane.width_m, 3), 1.5, 9) / 2 + 2;
             approaches.push({ entity_id: lane.entity_id, edge_id: lane.edge_id,
+              renderedOnly: true,
               width_m: lane.width_m, samples: run,
               bounds: {
                 minX: Math.min(...run.map(p => p.x)) - reach,
@@ -1211,7 +1254,9 @@
           ])).then(([raw, edgeRaw, connectorRaw]) => {
               if (!raw || raw.format !== 'drive-city-tile-v1') throw new Error('Imported city tile has an unsupported format');
               const tileEdgeLanes = decodeLaneTile(edgeRaw, 'edgeLanes', descriptor.ix, descriptor.iz);
-              const tileConnectors = decodeLaneTile(connectorRaw, 'connectors', descriptor.ix, descriptor.iz);
+              const tileConnectors = decodeLaneTile(connectorRaw, 'connectors', descriptor.ix, descriptor.iz)
+                .filter((connector) => !tunnelEdgeIds.has(String(connector.from_edge_id)) &&
+                  !tunnelEdgeIds.has(String(connector.to_edge_id)));
               const ownedConnectors = tileConnectors.filter((connector) =>
                 prepareConnector(connector, descriptor.ix, descriptor.iz));
               const tileRoads = [], tileHighways = [], tileBuildings = [], tileRails = [], tileSupports = [];
@@ -3533,7 +3578,8 @@
       }
     }
     function addGraphApproaches(out, uvs, tile, graphNodes) {
-      if (!graphNodes.size || !tile.edgeLanes?.length) return;
+      if (!graphNodes.size || !tile.edgeLanes?.length) return [];
+      const groundSegments = new Map();
       for (const node of graphNodes.keys()) for (const arm of node.arms) {
         const lanes = arm.graphLanes || [];
         if (!lanes.length) continue;
@@ -3549,6 +3595,7 @@
         for (let i = 0; i < lanes.length; i++) {
           const { lane, distance } = lanes[i];
           const samples = lane.approachSamples || sampleLaneConnector(lane, map.terrainHeight);
+          if (!lane.approachSamples) lane.approachSamples = samples;
           const reach = arm.renderCut + 4;
           if (!node.elevated && !node.gradeConflictSite) for (const sample of samples) {
             if (Math.hypot(sample.x - node.x, sample.z - node.z) > reach + 7) continue;
@@ -3561,12 +3608,62 @@
           const extraWidth = outer ? sample => outer * clamp(
             (Math.hypot(sample.x - node.x, sample.z - node.z) - distance) /
               Math.max(2, arm.renderCut - distance), 0, 1) : null;
-          addLaneRibbon(out, uvs, samples, lane.width_m, lane.entity_id, (a, b) => {
+          const include = (a, b) => {
             const x = (a.x + b.x) / 2, z = (a.z + b.z) / 2;
             return Math.hypot(x - node.x, z - node.z) <= reach;
-          }, extraWidth);
+          };
+          for (let j = 0; j < samples.length - 1; j++)
+            if (include(samples[j], samples[j + 1]))
+              samples[j].collisionRenderedToNext = true;
+          if (!node.elevated && !node.gradeConflictSite) {
+            if (!groundSegments.has(lane)) groundSegments.set(lane, new Set());
+            for (let j = 0; j < samples.length - 1; j++)
+              if (include(samples[j], samples[j + 1])) groundSegments.get(lane).add(j);
+          }
+          // The renderer expands outer approach lanes into a road shoulder.
+          // Keep that exact taper on the shared sample objects so the physical
+          // ribbon cannot be narrower than visible elevated pavement.
+          if (extraWidth) for (let j = 0; j < samples.length - 1; j++) {
+            if (!include(samples[j], samples[j + 1])) continue;
+            const pair = samples[j].collisionWidthToNext || [0, 0];
+            const widths = [extraWidth(samples[j]), extraWidth(samples[j + 1])];
+            for (let k = 0; k < 2; k++) if (widths[k] > pair[k] + 1e-5) {
+              pair[k] = widths[k];
+            }
+            samples[j].collisionWidthToNext = pair;
+          }
+          addLaneRibbon(out, uvs, samples, lane.width_m, lane.entity_id, include, extraWidth);
         }
       }
+      const physicalApproaches = [];
+      for (const [lane, covered] of groundSegments) {
+        const samples = lane.approachSamples;
+        if (!samples?.length) continue;
+        const ordered = [...covered].sort((a, b) => a - b);
+        let start = -1, end = -1;
+        const pushRun = () => {
+          if (start < 0) return;
+          const run = samples.slice(start, end + 2);
+          const reach = clamp(finite(lane.width_m, 3), 1.5, 9) / 2 + 5.7;
+          physicalApproaches.push({
+            entity_id: `graph-${lane.entity_id}-${start}`, edge_id: lane.edge_id,
+            width_m: lane.width_m, samples: run,
+            bounds: {
+              minX: Math.min(...run.map(p => p.x)) - reach,
+              maxX: Math.max(...run.map(p => p.x)) + reach,
+              minZ: Math.min(...run.map(p => p.z)) - reach,
+              maxZ: Math.max(...run.map(p => p.z)) + reach
+            }
+          });
+        };
+        for (const j of ordered) {
+          if (start < 0) { start = end = j; continue; }
+          if (j === end + 1) { end = j; continue; }
+          pushRun(); start = end = j;
+        }
+        pushRun();
+      }
+      return physicalApproaches;
     }
     function addCornerSidewalks(outWalks, outUVs, outCurbs, node) {
       for (let i = 0; i < node.arms.length; i++) {
@@ -3645,6 +3742,36 @@
         if (height !== undefined) positions[i + 1] = height;
       }
     }
+    function junctionCollisionSurface(tile, node, positions) {
+      // The vehicle's wheel rays need the actual subdivided, terrain-lifted
+      // junction triangles. Ground-level fill is already supported by the
+      // terrain heightfield and need not enter the collision world.
+      const originX = node.x, originZ = node.z;
+      const vertices = [], indices = [];
+      let minX = Infinity, minZ = Infinity, maxX = -Infinity, maxZ = -Infinity;
+      for (let i = 0; i < positions.length; i += 9) {
+        let raised = false;
+        for (let j = 0; j < 9; j += 3) if
+          (positions[i + j + 1] - map.terrainHeight(positions[i + j], positions[i + j + 2]) > .18)
+          raised = true;
+        if (!raised) continue;
+        const first = vertices.length / 3;
+        for (let j = 0; j < 9; j += 3) {
+          const x = positions[i + j], y = positions[i + j + 1], z = positions[i + j + 2];
+          vertices.push(x - originX, y, z - originZ);
+          minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+          minZ = Math.min(minZ, z); maxZ = Math.max(maxZ, z);
+        }
+        // Rendered junction triangles face down (DoubleSide material). Cannon
+        // wheel rays skip backfaces, so reverse each face to point upward.
+        indices.push(first, first + 2, first + 1);
+      }
+      return indices.length ? {
+        id: `junction-${tile.ix},${tile.iz}-${node.x.toFixed(2)},${node.z.toFixed(2)}`,
+        x: originX, z: originZ,
+        vertices, indices, bounds: { minX, maxX, minZ, maxZ }
+      } : null;
+    }
     function renderTile(tile) {
       if (disposed) return;
       const id = key(tile.ix, tile.iz);
@@ -3665,6 +3792,17 @@
       const speedSignPositions = [], speedSignUVs = [], speedPostPositions = [];
       const speedSignRecords = [], speedSignSites = [];
       const markQueue = [];
+      let collisionGeometryChanged = false;
+      const previousWidths = new Map(), previousRenderedPairs = new Map();
+      for (const lane of tile.edgeLanes || []) for (const sample of lane.approachSamples || []) {
+        if (previousWidths.has(sample)) continue;
+        previousWidths.set(sample, sample.collisionWidthToNext?.slice() || null);
+        previousRenderedPairs.set(sample, !!sample.collisionRenderedToNext);
+        delete sample.collisionWidthToNext;
+        delete sample.collisionRenderedToNext;
+      }
+      const sameIntervals = (a, b) => a.length === b.length && a.every((pair, i) =>
+        Math.abs(pair[0] - b[i][0]) < 1e-5 && Math.abs(pair[1] - b[i][1]) < 1e-5);
       const ownerJunctions = junctionsByTile.get(id) || [];
       const graphNodes = new Map();
       for (const node of ownerJunctions) {
@@ -3690,7 +3828,18 @@
         road.surfaceGrids = [];
         road.surfaceNeighbors = [];
         const layout = roadLayout(road), length = Math.hypot(road.x2 - road.x1, road.z2 - road.z1);
+        const priorMin = Number.isFinite(road.renderedCarriageMin) ?
+          road.renderedCarriageMin : -road.width / 2;
+        const priorMax = Number.isFinite(road.renderedCarriageMax) ?
+          road.renderedCarriageMax : road.width / 2;
+        road.renderedCarriageMin = layout.carriageMin;
+        road.renderedCarriageMax = layout.carriageMax;
+        if (Math.abs(priorMin - layout.carriageMin) > 1e-5 ||
+            Math.abs(priorMax - layout.carriageMax) > 1e-5)
+          collisionGeometryChanged = true;
         const intervals = visibleRoadIntervals(road);
+        const previousIntervals = road.renderedVisibleIntervals || road.visibleIntervals || [[0, 1]];
+        const physicalIntervals = intervals.slice();
         const carriageCenter = (layout.carriageMin + layout.carriageMax) / 2;
         const carriageHalf = (layout.carriageMax - layout.carriageMin) / 2;
         // A junction's outline cannot assume that a curved source road follows
@@ -3698,24 +3847,34 @@
         // beneath the node surface, while stopping all lines and walks.
         const approachStrip = (start, end) => {
           if (end <= start + .00001) return;
-          const t = (start + end) / 2;
-          const x = road.x1 + (road.x2 - road.x1) * t;
-          const z = road.z1 + (road.z2 - road.z1) * t;
-          // Full-width slabs at a graph-covered split produce a blocky,
-          // overlapping "star". Its actual edge lanes will fill this space.
-          for (const node of taperNodes.keys()) {
-            const arm = node.arms.find(candidate => String(candidate.road.id) === String(road.id));
-            if (!arm?.graphLanes?.length) continue;
-            if (Math.hypot(x - node.x, z - node.z) <=
-                arm.renderCut + 1) {
-              if (node.gradeConflictSite)
-                roadStrip(approachPositions, road, carriageHalf, .075,
-                  approachUVs, true, carriageCenter, start, end, 2, true, true);
-              return;
+          // Ground-road cuts are decided by the graph arms actually rendered
+          // here. A precomputed cut without a complete graph must keep its
+          // ordinary approach pavement and matching physical surface.
+          for (const [allowedStart, allowedEnd] of [[0, 1]]) {
+            const from = Math.max(start, allowedStart), to = Math.min(end, allowedEnd);
+            if (to <= from + .00001) continue;
+            const t = (from + to) / 2;
+            const x = road.x1 + (road.x2 - road.x1) * t;
+            const z = road.z1 + (road.z2 - road.z1) * t;
+            // Full-width slabs at a graph-covered split produce a blocky,
+            // overlapping "star". Its actual edge lanes will fill this space.
+            let covered = false;
+            for (const node of taperNodes.keys()) {
+              const arm = node.arms.find(candidate => String(candidate.road.id) === String(road.id));
+              if (!arm?.graphLanes?.length) continue;
+              if (Math.hypot(x - node.x, z - node.z) <= arm.renderCut + 1) {
+                if (node.gradeConflictSite)
+                  roadStrip(approachPositions, road, carriageHalf, .075,
+                    approachUVs, true, carriageCenter, from, to, 2, true, true);
+                covered = true;
+                break;
+              }
             }
+            if (covered) continue;
+            roadStrip(approachPositions, road, carriageHalf, .065,
+              approachUVs, true, carriageCenter, from, to, 2, true);
+            physicalIntervals.push([from, to]);
           }
-          roadStrip(approachPositions, road, carriageHalf, .065,
-            approachUVs, true, carriageCenter, start, end, 2, true);
         };
         let cursor = 0;
         for (const [start, end] of intervals) {
@@ -3723,6 +3882,15 @@
           cursor = end;
         }
         if (cursor < 1 - .00001) approachStrip(cursor, 1);
+        physicalIntervals.sort((a, b) => a[0] - b[0]);
+        const merged = [];
+        for (const [start, end] of physicalIntervals) {
+          if (merged.length && start <= merged[merged.length - 1][1] + 1e-5)
+            merged[merged.length - 1][1] = Math.max(merged[merged.length - 1][1], end);
+          else merged.push([start, end]);
+        }
+        road.renderedVisibleIntervals = merged;
+        if (!sameIntervals(previousIntervals, merged)) collisionGeometryChanged = true;
         if (!intervals.length) continue;
         for (const [start, end] of intervals) roadStrip(layout.highway ? groundHighways : groundPositions,
           road, carriageHalf, .06, layout.highway ? highwayUVs : groundUVs,
@@ -3777,16 +3945,44 @@
         addSpeedSigns(speedSignPositions, speedSignUVs, speedPostPositions,
           speedSignRecords, speedSignSites, entry.road, entry.layout, entry.intervals);
       }
+      const junctionSurfaces = [];
       for (const node of ownerJunctions) {
         if (node.elevated) continue;
         prepareJunction(node);
-        if (!graphNodes.has(node) || node.gradeConflictSite)
+        if (!graphNodes.has(node) || node.gradeConflictSite) {
+          const start = junctionPositions.length;
           addJunction(junctionPositions, junctionUVs, node,
             !!node.gradeConflictSite);
+          const surface = junctionCollisionSurface(tile, node,
+            junctionPositions.slice(start));
+          if (surface) junctionSurfaces.push(surface);
+        }
         addCornerSidewalks(junctionSidewalks, junctionSidewalkUVs, junctionCurbs, node);
         addCrosswalks(crosswalkPositions, node);
       }
-      addGraphApproaches(laneConnectorPositions, laneConnectorUVs, tile, taperNodes);
+      map.replaceRenderedJunctionSurfaces(tile, junctionSurfaces);
+      if (junctionSurfaces.length) collisionGeometryChanged = true;
+      const graphApproaches = addGraphApproaches(laneConnectorPositions,
+        laneConnectorUVs, tile, taperNodes);
+      map.replaceRenderedApproaches(tile, graphApproaches);
+      if (graphApproaches.length) collisionGeometryChanged = true;
+      for (const [sample, before] of previousWidths) {
+        const after = sample.collisionWidthToNext || null;
+        if (previousRenderedPairs.get(sample) !== !!sample.collisionRenderedToNext)
+          collisionGeometryChanged = true;
+        if (before === null && after === null) continue;
+        if (before === null || after === null ||
+            Math.abs(before[0] - after[0]) > 1e-5 ||
+            Math.abs(before[1] - after[1]) > 1e-5) {
+          collisionGeometryChanged = true;
+          break;
+        }
+      }
+      // Physics may have loaded this tile before its graph shoulders and road
+      // cutbacks were rendered. A version change refreshes those static bodies
+      // on the next simulation step, including when a taper shrinks.
+      if (collisionGeometryChanged)
+        map.collisionGeometryVersion = (map.collisionGeometryVersion || 0) + 1;
       for (const connector of tile.ownedConnectors || [])
         addLaneConnector(laneConnectorPositions, laneConnectorUVs, connector);
       for (const road of tile.highways) {
@@ -3869,19 +4065,32 @@
     function dropTile(tile) {
       const id = key(tile.ix, tile.iz), group = tileGroups.get(id);
       if (!group) return;
+      const hadApproaches = map.replaceRenderedApproaches(tile, []);
+      const hadJunction = map.replaceRenderedJunctionSurfaces(tile, []);
+      if (hadApproaches || hadJunction)
+        map.collisionGeometryVersion = (map.collisionGeometryVersion || 0) + 1;
       group.traverse((object) => { if (object.geometry && object.geometry !== box) object.geometry.dispose(); });
       chunkRoot.remove(group); tileGroups.delete(id);
     }
     function refreshJunctionTile(id) {
       const group = tileGroups.get(id), nodes = junctionsByTile.get(id);
       if (!group || !nodes?.length) return;
+      const tile = map.loadedTiles.get(id)?.data;
+      if (!tile) return;
       const pavement = [], pavementUVs = [], walks = [], walkUVs = [], curbs = [];
+      const junctionSurfaces = [];
       for (const node of nodes) {
         prepareJunction(node);
-        const tile = map.loadedTiles.get(id)?.data;
-        if (graphJunctionId(node, tile || {}) === null) addJunction(pavement, pavementUVs, node);
+        if (graphJunctionId(node, tile) === null) {
+          const start = pavement.length;
+          addJunction(pavement, pavementUVs, node);
+          const surface = junctionCollisionSurface(tile, node, pavement.slice(start));
+          if (surface) junctionSurfaces.push(surface);
+        }
         addCornerSidewalks(walks, walkUVs, curbs, node);
       }
+      map.replaceRenderedJunctionSurfaces(tile, junctionSurfaces);
+      map.collisionGeometryVersion = (map.collisionGeometryVersion || 0) + 1;
       for (const [name, positions, material, uvs] of [
         ['imported-city-junction', pavement, roadMat, pavementUVs],
         ['imported-city-junction-sidewalk', walks, sidewalkMat, walkUVs],
