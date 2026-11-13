@@ -171,6 +171,39 @@ test('streamed city colliders follow tile load and unload without retaining dist
   assert.equal(changed,null,'tile listener is released with physics world');
 });
 
+test('trimmed highway decks leave a physical opening for a lane-graph merge',()=>{
+  const C=require('cannon');
+  const bridge={x1:0,y1:5,z1:0,x2:0,y2:5,z2:100,width:12,
+    topStart:5,topEnd:5,visibleIntervals:[[0,.35],[.65,1]]};
+  const highways=[bridge];let changed=null;
+  const city={edge:150,roadHalfWidth:6,buildings:[],roadSegments:[],highwaySegments:highways,
+    guardrails:[],supports:[],nearbyBuildings:()=>[],nearbyRoads:()=>[],
+    nearbyHighways:()=>highways,onTileChanged(fn){changed=fn;return()=>{changed=null;}},
+    ensureNear:()=>Promise.resolve([])};
+  const p=P.create({map:'city',city});
+  const surface=(z)=>{
+    const hit=new C.RaycastResult();
+    assert.ok(p.world.raycastClosest(new C.Vec3(0,12,z),new C.Vec3(0,-2,z),{},hit));
+    return hit.hitPointWorld.y;
+  };
+  assert.ok(Math.abs(surface(20)-5)<.02,'approach keeps its bridge collider');
+  assert.ok(Math.abs(surface(50))<.02,'removed merge deck has no invisible slab');
+  assert.ok(Math.abs(surface(80)-5)<.02,'exit keeps its bridge collider');
+  const approach={width_m:3,samples:[
+    {x:0,y:5.08,z:35,sourceY:5},{x:0,y:5.08,z:50,sourceY:5},
+    {x:0,y:5.08,z:65,sourceY:5}]};
+  const approaches=[approach];
+  city.nearbyLaneApproaches=()=>approaches;
+  changed({type:'load'});
+  assert.ok(Math.abs(surface(50)-5.08)<.02,
+    'a native lane approach supports the car in the trimmed deck opening');
+  approaches.length=0;
+  highways.length=0;
+  changed({type:'unload'});
+  assert.ok(Math.abs(surface(20))<.02,'both collider pieces unload together');
+  p.dispose();
+});
+
 test('imported building collision follows its rotated footprint instead of blocking the street beside it',()=>{
   const C=require('cannon');
   const diamond={x:0,z:0,width:10,depth:10,height:10,baseY:0,

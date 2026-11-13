@@ -95,13 +95,59 @@ checks all eleven airport approach road IDs against the terminal footprints
 and physical road surfaces. The replacement is an interpretation of the
 airport site, not a copy of its Cities: Skylines II asset.
 
+## Mapwide road-surface audit (2026-11-12)
+
+`node scripts/audit-city-smoothness.cjs` loads all 293 tiles and examines
+5,367 source roads, 8,231 road segments of at least 2 m, 27,363 native edge
+lanes, the rendered lane connectors, generated guardrails, and supports.
+`node scripts/audit-city-colliders.cjs --all` samples the actual streamed
+CANNON surfaces along every permitted connector in 1,583 map cells. The
+checks are reproducible, but they sample lane paths rather than driving
+every possible line across a road.
+
+The final CANNON sweep found zero missing surfaces in 67,312 lane samples.
+It found 1,249 places where the top collider is more than 0.5 m above the
+exported lane height, including 177 over 1 m. Some reflect a native graph
+lane buried below a continuous, smooth source road deck, such as node
+`3025183`; others are real overlapping source surfaces that need route-aware
+resolution. At the 82 selected elevated graph junctions, only 6 of 1,534
+samples differ by more than 0.5 m and none by more than 1 m. These ray checks
+cannot prove that every lateral path or collision impulse is smooth.
+
+The bridge renderer now cuts full-width centerline slabs back where the
+exported lane graph supplies the merge, width transition, or sharp bend.
+Native edge-lane ribbons fill the approaches. Physics uses the same cuts and
+lane ribbons. The compound-collider bounding boxes now include every curved
+box segment, fixing a CANNON broadphase omission that left physical holes
+despite visible pavement. Conventional ground junctions with complete graph
+coverage, conflicting source heights, and lanes close to terrain receive the
+same selective treatment. Their local asphalt fill extends to the trimmed
+road shoulders.
+
+Generated guardrails are clipped where they cross other same-level roads or
+permitted lane paths; their visual and physics lengths are identical. Bridge
+supports are removed if they occupy a road or permitted lane, including a
+road from a neighboring tile. The audit reports no remaining sampled
+guardrail or support intrusions. It also checks tiles loaded in either order.
+
+Six source road segments exceed 35% grade. Three lie entirely under the new
+graph surface and no longer provide the visible or physical road deck. The
+three still exposed are Bayview `5339578`, Fawn `5264023`, and Cornfield
+`530495`; `node scripts/check-steep-surfaces.cjs` records their source grade
+and collider rays. The malformed near-vertical native lane curves on rendered
+approaches are regraded to the road deck. The other source slopes remain
+possible bumps rather than being globally flattened, which could break
+ramps or underpasses. At Cornfield, the approach collider now follows the
+existing road contact where they overlap; its worst sampled local grade fell
+from 68% to about 40%, with no missing contact.
+
 The export still cannot reproduce exact game intersection meshes, asset
 models, or traffic-light cycles. Small paint fragments remain at the
-Orchard/Seabreeze gore tip, and some four-arm junction centers still have
-large unmarked areas. One raised
-ramp join has a preexisting collision bump about 0.17–0.26 m above the new
-connector at two samples. These are geometry followups; they do not create
-missing lane-graph links.
+Orchard/Seabreeze gore tip, some four-arm junction centers have broad
+unmarked asphalt, and some source road heights disagree with native lane
+heights. A long graph route near node `3372922` passes beneath a road whose
+source edges do not share endpoints; changing either level globally would
+destroy one of the routes. This needs a route-aware junction reconstruction.
 
 ## Implementation order and boundaries
 

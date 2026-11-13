@@ -93,6 +93,36 @@
     }
     return samples;
   }
+  function malformedLaneGrade(curve) {
+    if (!validLaneCurve(curve)) return false;
+    let horizontal = 0, previous = cubicPoint(curve, 0);
+    for (let i = 1; i <= 8; i++) {
+      const next = cubicPoint(curve, i / 8);
+      const distance = Math.hypot(next[0] - previous[0], next[2] - previous[2]);
+      const rise = Math.abs(next[1] - previous[1]);
+      if (distance < 2 && rise > .75 && rise / Math.max(distance, .01) > .6)
+        return true;
+      horizontal += distance;
+      previous = next;
+    }
+    return horizontal < 2 && Math.abs(curve[3][1] - curve[0][1]) > 1 &&
+      Math.abs(curve[3][1] - curve[0][1]) / Math.max(horizontal, .01) > .6;
+  }
+  function outsideCircleIntervals(road, x, z, radius) {
+    const dx = road.x2 - road.x1, dz = road.z2 - road.z1;
+    const a = dx * dx + dz * dz;
+    if (a < 1e-8) return [];
+    const px = road.x1 - x, pz = road.z1 - z;
+    const b = 2 * (px * dx + pz * dz);
+    const c = px * px + pz * pz - radius * radius;
+    const disc = b * b - 4 * a * c;
+    if (disc <= 0) return [[0, 1]];
+    const root = Math.sqrt(disc), from = (-b - root) / (2 * a);
+    const to = (-b + root) / (2 * a), visible = [];
+    if (from > .00001) visible.push([0, Math.min(1, from)]);
+    if (to < .99999) visible.push([Math.max(0, to), 1]);
+    return visible.filter(([start, end]) => end - start > .00001);
+  }
   function validBounds(raw) {
     if (!raw || !['minX', 'maxX', 'minZ', 'maxZ'].every((name) => Number.isFinite(Number(raw[name])))) throw new Error('Imported city has invalid bounds');
     const bounds = { minX: Number(raw.minX), maxX: Number(raw.maxX), minZ: Number(raw.minZ), maxZ: Number(raw.maxZ) };
@@ -273,9 +303,15 @@
     const t = clamp(((x - road.x1) * dx + (z - road.z1) * dz) / (dx * dx + dz * dz), 0, 1);
     return { distance: Math.hypot(x - road.x1 - dx * t, z - road.z1 - dz * t), t };
   }
-  function roadDeckAt(segments, x, z) {
+  function roadDeckAt(segments, x, z, maxExtrapolation = Infinity) {
     let best = null, bestDistance = Infinity;
     for (const road of segments || []) {
+      if (Number.isFinite(maxExtrapolation)) {
+        const dx = road.x2 - road.x1, dz = road.z2 - road.z1;
+        const length = Math.hypot(dx, dz) || 1;
+        const along = ((x - road.x1) * dx + (z - road.z1) * dz) / length;
+        if (along < -maxExtrapolation || along > length + maxExtrapolation) continue;
+      }
       const hit = segmentDistance(x, z, road);
       if (hit.distance >= bestDistance) continue;
       best = road.y1 + (road.y2 - road.y1) * hit.t;
@@ -413,7 +449,7 @@
     const edge = Math.ceil(Math.max(Math.abs(detailBounds.minX), Math.abs(detailBounds.maxX), Math.abs(detailBounds.minZ), Math.abs(detailBounds.maxZ)) + 40);
     const roadIndex = spatialIndex(180), detailRoadIndex = spatialIndex(180), buildingIndex = spatialIndex(180);
     const highwayIndex = spatialIndex(180), railIndex = spatialIndex(180), supportIndex = spatialIndex(180);
-    const laneConnectorIndex = spatialIndex(120);
+    const laneConnectorIndex = spatialIndex(120), laneApproachIndex = spatialIndex(120);
     for (const road of allOverviewRoads) roadIndex.add(road, {
       minX: Math.min(road.x1, road.x2) - road.width, maxX: Math.max(road.x1, road.x2) + road.width,
       minZ: Math.min(road.z1, road.z2) - road.width, maxZ: Math.max(road.z1, road.z2) + road.width
@@ -429,7 +465,8 @@
       nodeId: light.nodeId, position: light.position, active: !!light.active }));
     const map = { source: 'CSLModernMap', imported: true, manifest, bounds, detailBounds, worldBounds, focus, edge, tileSize, terrain,
       roadHalfWidth, overviewRoads, networkRoads: allOverviewRoads, stops, routeSamples, buildings: [], roadSegments: [],
-      highwaySegments: [], guardrails: [], supports: [], laneConnectors: [], trafficLights, districts, terrainHeight };
+      highwaySegments: [], guardrails: [], supports: [], laneConnectors: [],
+      laneApproaches: [], trafficLights, districts, terrainHeight };
     map.snapToRoad = (x, z) => {
       const normal = (road) => !isElevated(road.mode) && !isMotorway(road);
       const match = closestRoad(x, z, detailedRoads, normal) || closestRoad(x, z, detailedRoads);
@@ -461,6 +498,9 @@
     map.nearbyLaneConnectors = (x, z, radius = 100) => laneConnectorIndex.query(x, z, radius).filter((connector) =>
       connector.bounds.maxX >= x - radius && connector.bounds.minX <= x + radius &&
       connector.bounds.maxZ >= z - radius && connector.bounds.minZ <= z + radius);
+    map.nearbyLaneApproaches = (x, z, radius = 100) => laneApproachIndex.query(x, z, radius).filter((approach) =>
+      approach.bounds.maxX >= x - radius && approach.bounds.minX <= x + radius &&
+      approach.bounds.maxZ >= z - radius && approach.bounds.minZ <= z + radius);
     map.nearbyGuardrails = (x, z, radius = 100) => railIndex.query(x, z, radius).filter((rail) => {
       const dx = x - rail.x, dz = z - rail.z, yaw = rail.yaw || 0;
       return Math.abs(dx * Math.sin(yaw) + dz * Math.cos(yaw)) <= rail.length / 2 + radius &&
@@ -525,9 +565,12 @@
         };
         return true;
       }
-      function gradeMergeConnectors(connectors, owned, roads) {
+      function gradeMergeConnectors(connectors, owned, roads, edgeLanes) {
         if (!owned.length || !roads.length) return;
         const roadsById = new Map(), byNode = new Map();
+        const malformedEdges = new Set((edgeLanes || [])
+          .filter((lane) => malformedLaneGrade(lane.curve))
+          .map((lane) => String(lane.edge_id)));
         for (const road of roads) {
           const id = String(road.id);
           if (!roadsById.has(id)) roadsById.set(id, []);
@@ -543,11 +586,34 @@
         }
         for (const connector of owned) {
           const node = byNode.get(String(connector.node_id));
-          if (!node || !(node.from.size >= 2 && node.to.size === 1 ||
-              node.from.size === 1 && node.to.size >= 2)) continue;
+          const merge = node && (node.from.size >= 2 && node.to.size === 1 ||
+            node.from.size === 1 && node.to.size >= 2);
+          const malformed = malformedEdges.has(String(connector.from_edge_id)) ||
+            malformedEdges.has(String(connector.to_edge_id));
+          const sourceRoad = roadsById.get(String(connector.from_edge_id))?.[0];
+          const targetRoad = roadsById.get(String(connector.to_edge_id))?.[0];
+          const modeTransition = sourceRoad && targetRoad &&
+            isElevated(sourceRoad.mode) !== isElevated(targetRoad.mode);
+          if (!merge && !malformed && !modeTransition) continue;
+          // Raised graph lanes carry their own grade. Their road centerlines
+          // can loop several metres above the actual merge mouths.
+          if (sourceRoad && targetRoad && isElevated(sourceRoad.mode) &&
+              isElevated(targetRoad.mode) && !malformed) continue;
           const first = connector.curve[0], last = connector.curve[3];
           const source = roadDeckAt(roadsById.get(String(connector.from_edge_id)), first[0], first[2]);
           const target = roadDeckAt(roadsById.get(String(connector.to_edge_id)), last[0], last[2]);
+          if (malformed && source !== null && target !== null &&
+              sourceRoad && targetRoad && isElevated(sourceRoad.mode) &&
+              isElevated(targetRoad.mode)) {
+            const length = connector.samples.length - 1;
+            for (let i = 0; i <= length; i++) {
+              const sample = connector.samples[i], t = i / length;
+              sample.sourceY = source + (target - source) * t;
+              sample.y = Math.max(sample.sourceY + .08,
+                terrainHeight(sample.x, sample.z) + .095);
+            }
+            continue;
+          }
           // Native lane elevations can differ several metres from the road
           // mesh at a graded merge. Match both mouths to the rendered deck,
           // preserving the source curves for lane identity and paint layout.
@@ -561,6 +627,421 @@
             sample.y = Math.max(sample.sourceY + .08, terrainHeight(sample.x, sample.z) + .095);
           }
         }
+      }
+      function reconcileOverlappingConnectors(connectors, owned, roads) {
+        // Some legal lane paths in the export merge in plan view while their
+        // heights still differ by a metre or two. Rendering both verbatim
+        // puts one solid lane slab through the car on the lower path. Only
+        // reconcile paths at the same graph node that share a road edge;
+        // unrelated stacked routes keep their separate grades.
+        const elevated = new Set(roads.filter(road => isElevated(road.mode))
+          .map(road => String(road.id)));
+        const byNode = new Map();
+        for (const connector of connectors) {
+          if (connector.forbidden || !connector.samples?.length ||
+              connector.path_methods_bits != null &&
+              !(Number(connector.path_methods_bits) & 2)) continue;
+          const edges = [String(connector.from_edge_id), String(connector.to_edge_id)];
+          if (!edges.every(id => elevated.has(id))) continue;
+          const id = String(connector.node_id);
+          if (!byNode.has(id)) byNode.set(id, []);
+          byNode.get(id).push(connector);
+        }
+        const proposals = new Map();
+        for (const lower of owned) {
+          const peers = byNode.get(String(lower.node_id));
+          if (!peers?.length || !lower.samples?.length) continue;
+          const edges = [String(lower.from_edge_id), String(lower.to_edge_id)];
+          const route = [0];
+          for (let i = 1; i < lower.samples.length; i++)
+            route.push(route[i - 1] + Math.hypot(
+              lower.samples[i].x - lower.samples[i - 1].x,
+              lower.samples[i].z - lower.samples[i - 1].z));
+          const required = new Array(lower.samples.length).fill(0);
+          for (const higher of peers) {
+            if (higher === lower || !edges.some(id =>
+                id === String(higher.from_edge_id) || id === String(higher.to_edge_id))) continue;
+            const halfWidth = clamp(finite(higher.width_m, 3), 1.5, 9) / 2 + .25;
+            for (let i = 1; i < lower.samples.length - 1; i++) {
+              const sample = lower.samples[i];
+              for (let j = 0; j < higher.samples.length - 1; j++) {
+                const a = higher.samples[j], b = higher.samples[j + 1];
+                const dx = b.x - a.x, dz = b.z - a.z;
+                const length2 = dx * dx + dz * dz;
+                if (length2 < .01) continue;
+                const t = clamp(((sample.x - a.x) * dx +
+                  (sample.z - a.z) * dz) / length2, 0, 1);
+                const distance = Math.hypot(sample.x - a.x - dx * t,
+                  sample.z - a.z - dz * t);
+                if (distance > halfWidth) continue;
+                const otherY = a.sourceY + (b.sourceY - a.sourceY) * t;
+                const gap = otherY - sample.sourceY;
+                if (gap < .5 || gap > 2.5) continue;
+                required[i] = Math.max(required[i], gap + .04);
+              }
+            }
+          }
+          if (!required.some(value => value > 0)) continue;
+          // A max envelope spreads each correction along the route at no
+          // more than 18% added grade, preserving the two native lane mouths.
+          const correction = required.map((_, i) => {
+            let value = 0;
+            for (let j = 1; j < required.length - 1; j++) if (required[j] > 0)
+              value = Math.max(value, required[j] - .18 * Math.abs(route[i] - route[j]));
+            return Math.max(0, Math.min(value, route[i] * .18,
+              (route.at(-1) - route[i]) * .18));
+          });
+          let tooSteep = false;
+          for (let i = 1; i < correction.length; i++) {
+            const distance = route[i] - route[i - 1];
+            if (distance < .05) continue;
+            const rise = lower.samples[i].sourceY + correction[i] -
+              lower.samples[i - 1].sourceY - correction[i - 1];
+            if (Math.abs(rise) / distance > .45) { tooSteep = true; break; }
+          }
+          if (!tooSteep) proposals.set(lower, correction);
+        }
+        for (const [connector, correction] of proposals)
+          for (let i = 0; i < correction.length; i++) if (correction[i] > .001) {
+            const sample = connector.samples[i];
+            sample.sourceY += correction[i];
+            sample.y = Math.max(sample.sourceY + .08,
+              terrainHeight(sample.x, sample.z) + .095);
+          }
+      }
+      function elevatedMergeSites(raw, connectors, highways, ix, iz) {
+        const features = new Map((raw.features || []).filter((feature) =>
+          feature?.type === 'road' && isElevated(feature.mode) &&
+          Array.isArray(feature.points) && feature.points.length >= 2)
+          .map((feature) => [String(feature.id), feature]));
+        const groups = new Map();
+        for (const connector of connectors) {
+          if (connector.forbidden || connector.path_methods_bits != null &&
+              !(Number(connector.path_methods_bits) & 2)) continue;
+          const id = String(connector.node_id);
+          if (!groups.has(id)) groups.set(id, { from: new Set(), to: new Set(), connectors: [] });
+          const group = groups.get(id);
+          group.from.add(String(connector.from_edge_id));
+          group.to.add(String(connector.to_edge_id));
+          group.connectors.push(connector);
+        }
+        const sites = [];
+        for (const [nodeId, group] of groups) {
+          const ids = [...new Set([...group.from, ...group.to])];
+          const branching = ids.length >= 3 &&
+            (group.from.size >= 2 || group.to.size >= 2);
+          const continuation = group.from.size === 1 && group.to.size === 1 && ids.length === 2;
+          if ((!branching && !continuation) || ids.some((id) => !features.has(id))) continue;
+          const endpoints = (id) => {
+            const points = features.get(id).points;
+            return [point(points[0]), point(points[points.length - 1])];
+          };
+          const common = endpoints(ids[0]).find((candidate) => ids.slice(1).every((id) =>
+            endpoints(id).some((other) =>
+              Math.hypot(candidate[0] - other[0], candidate[2] - other[2]) < 1.8 &&
+              Math.abs(candidate[1] - other[1]) < 2.5)));
+          if (!common || Math.floor(common[0] / tileSize) !== ix ||
+              Math.floor(common[2] / tileSize) !== iz) continue;
+          if (continuation) {
+            const [first, second] = ids.map((id) => features.get(id));
+            const away = (feature) => {
+              const p = feature.points, first = point(p[0]), last = point(p[p.length - 1]);
+              const nearStart = Math.hypot(first[0] - common[0], first[2] - common[2]) < 1.8;
+              const beside = point(p[nearStart ? 1 : p.length - 2]);
+              const dx = beside[0] - common[0], dz = beside[2] - common[2];
+              const length = Math.hypot(dx, dz) || 1;
+              return [dx / length, dz / length];
+            };
+            const a = away(first), b = away(second);
+            const sharp = a[0] * b[0] + a[1] * b[1] > -.6;
+            if (!sharp && Math.abs(finite(first.width) - finite(second.width)) < .7) continue;
+          }
+          const radii = {};
+          for (const id of ids) {
+            const mouths = group.connectors.flatMap((connector) => {
+              const matches = [];
+              if (String(connector.from_edge_id) === id) matches.push(connector.curve[0]);
+              if (String(connector.to_edge_id) === id) matches.push(connector.curve[3]);
+              return matches;
+            });
+            radii[id] = clamp(Math.max(7, ...mouths.map((mouth) =>
+              Math.hypot(mouth[0] - common[0], mouth[2] - common[2]) + 4)), 7, 48);
+          }
+          sites.push({ nodeId, x: common[0], y: common[1], z: common[2], radii });
+        }
+        for (const road of highways) {
+          const cuts = sites.filter((site) => site.radii[String(road.id)] != null);
+          if (!cuts.length) continue;
+          let visible = [[0, 1]];
+          for (const site of cuts) {
+            const keep = outsideCircleIntervals(road, site.x, site.z,
+              site.radii[String(road.id)]);
+            visible = visible.flatMap(([a, b]) => keep.map(([c, d]) =>
+              [Math.max(a, c), Math.min(b, d)]).filter(([start, end]) =>
+                end - start > .00001));
+          }
+          road.visibleIntervals = visible;
+        }
+        return sites;
+      }
+      function groundGradeConflictSites(raw, connectors, roads, edgeLanes, ix, iz) {
+        // A few ordinary intersections have road centerlines above their
+        // exported car lanes. The broad centerline approach can then form a
+        // visible step across the legal turn. Cut it only where a complete
+        // native graph covers a conventional shared-endpoint junction.
+        const features = new Map((raw.features || []).filter(feature =>
+          feature?.type === 'road' && !isElevated(feature.mode) &&
+          !isTunnel(feature.mode) && Array.isArray(feature.points) &&
+          feature.points.length >= 2).map(feature => [String(feature.id), feature]));
+        const roadsById = new Map(), groups = new Map();
+        for (const road of roads) {
+          const id = String(road.id);
+          if (!roadsById.has(id)) roadsById.set(id, []);
+          roadsById.get(id).push(road);
+        }
+        for (const connector of connectors) {
+          if (connector.forbidden || connector.path_methods_bits != null &&
+              !(Number(connector.path_methods_bits) & 2)) continue;
+          const id = String(connector.node_id);
+          if (!groups.has(id)) groups.set(id, { ids: new Set(), connectors: [] });
+          const group = groups.get(id);
+          group.ids.add(String(connector.from_edge_id));
+          group.ids.add(String(connector.to_edge_id));
+          group.connectors.push(connector);
+        }
+        const sites = [];
+        for (const [nodeId, group] of groups) {
+          const ids = [...group.ids];
+          if (ids.length < 3 || ids.some(id => !features.has(id))) continue;
+          const endpoints = id => {
+            const points = features.get(id).points;
+            return [point(points[0]), point(points.at(-1))];
+          };
+          const common = endpoints(ids[0]).find(candidate => ids.slice(1).every(id =>
+            endpoints(id).some(other =>
+              Math.hypot(candidate[0] - other[0], candidate[2] - other[2]) < 1.8 &&
+              Math.abs(candidate[1] - other[1]) < 2.5)));
+          if (!common || Math.floor(common[0] / tileSize) !== ix ||
+              Math.floor(common[2] / tileSize) !== iz) continue;
+          // The renderer can replace a complete junction, but must not cut
+          // one arm of a larger node that the exported graph omits.
+          if ([...features].some(([id]) => !group.ids.has(id) &&
+            endpoints(id).some(other =>
+              Math.hypot(common[0] - other[0], common[2] - other[2]) < 1.8 &&
+              Math.abs(common[1] - other[1]) < 2.5))) continue;
+          let mismatch = 0;
+          for (const connector of group.connectors) for (const [id, mouth] of [
+            [String(connector.from_edge_id), connector.curve[0]],
+            [String(connector.to_edge_id), connector.curve[3]]
+          ]) {
+            const deck = roadDeckAt(roadsById.get(id), mouth[0], mouth[2]);
+            if (deck !== null && deck - terrainHeight(mouth[0], mouth[2]) > .8)
+              mismatch = Math.max(mismatch, deck - mouth[1]);
+          }
+          if (mismatch < 1.2) continue;
+          // The low asphalt underlay is safe only when terrain already
+          // supports the legal lanes. Some source edges are tagged GROUND
+          // despite carrying traffic several metres above the terrain.
+          if (group.connectors.some(connector =>
+            (connector.samples || sampleLaneConnector(connector, terrainHeight))
+              .some(sample => sample.y - terrainHeight(sample.x, sample.z) > .85)))
+            continue;
+          const radii = {};
+          for (const id of ids) {
+            const mouths = group.connectors.flatMap(connector => {
+              const matches = [];
+              if (String(connector.from_edge_id) === id) matches.push(connector.curve[0]);
+              if (String(connector.to_edge_id) === id) matches.push(connector.curve[3]);
+              return matches;
+            });
+            radii[id] = clamp(Math.max(7, ...mouths.map(mouth =>
+              Math.hypot(mouth[0] - common[0], mouth[2] - common[2]) + 4)), 7, 48);
+          }
+          if (ids.some(id => !edgeLanes.some(lane => String(lane.edge_id) === id &&
+              (String(lane.edge_start_node_id) === nodeId ||
+                String(lane.edge_end_node_id) === nodeId) &&
+              Math.min(...[lane.curve[0], lane.curve[3]].map(mouth =>
+                Math.hypot(mouth[0] - common[0], mouth[2] - common[2]))) <
+                radii[id] + 12))) continue;
+          sites.push({ nodeId, x: common[0], y: common[1], z: common[2],
+            radii, mismatch });
+        }
+        for (const road of roads) {
+          const cuts = sites.filter(site => site.radii[String(road.id)] != null);
+          if (!cuts.length) continue;
+          let visible = [[0, 1]];
+          for (const site of cuts) {
+            const keep = outsideCircleIntervals(road, site.x, site.z,
+              site.radii[String(road.id)]);
+            visible = visible.flatMap(([a, b]) => keep.map(([c, d]) =>
+              [Math.max(a, c), Math.min(b, d)]).filter(([start, end]) =>
+                end - start > .00001));
+          }
+          road.visibleIntervals = visible;
+        }
+        return sites;
+      }
+      function elevatedLaneApproaches(sites, edgeLanes, highways) {
+        if (!sites.length) return [];
+        const roadsById = new Map();
+        for (const road of highways) {
+          const id = String(road.id);
+          if (!roadsById.has(id)) roadsById.set(id, []);
+          roadsById.get(id).push(road);
+        }
+        const approaches = [];
+        for (const lane of edgeLanes) {
+          const relevant = sites.filter((site) => {
+            const radius = site.radii[String(lane.edge_id)];
+            if (radius == null || String(lane.edge_start_node_id) !== site.nodeId &&
+                String(lane.edge_end_node_id) !== site.nodeId) return false;
+            const a = lane.curve[0], b = lane.curve[3];
+            return Math.min(Math.hypot(a[0] - site.x, a[2] - site.z),
+              Math.hypot(b[0] - site.x, b[2] - site.z)) <= radius + 4;
+          });
+          if (!relevant.length) continue;
+          const samples = sampleLaneConnector(lane, terrainHeight);
+          if (samples.length < 2) continue;
+          const malformed = malformedLaneGrade(lane.curve);
+          for (const sample of samples) {
+            // A neighboring tile may contain only the far end of this road.
+            // Projecting a lane 15 m past that clipped segment's endpoint
+            // creates a duplicate approach slab above its actual lane mouth.
+            const deck = roadDeckAt(roadsById.get(String(lane.edge_id)),
+              sample.x, sample.z, 4);
+            if (deck === null) continue;
+            // Keep the native grade at the connector mouth. Blend the outer
+            // approach into the source road deck where its full-width mesh
+            // resumes. Malformed near-vertical native lanes use the deck all
+            // the way through instead.
+            let blend = malformed ? 1 : 0;
+            if (!malformed) for (const site of relevant) {
+              // Every edge-lane segment on this road must use the same fade.
+              // Its own split endpoint may be several metres before the
+              // connector mouth; individual fades made a vertical seam there.
+              const mouthDistance = Math.max(0,
+                site.radii[String(lane.edge_id)] - 4);
+              const distance = Math.hypot(sample.x - site.x, sample.z - site.z);
+              blend = Math.max(blend, clamp((distance - mouthDistance) /
+                Math.max(2, site.radii[String(lane.edge_id)] - mouthDistance), 0, 1));
+            }
+            if (blend <= 0) continue;
+            sample.sourceY += (deck - sample.sourceY) * blend;
+            sample.y = Math.max(sample.sourceY + .08,
+              terrainHeight(sample.x, sample.z) + .095);
+          }
+          lane.approachSamples = samples;
+          let first = -1;
+          const pushRun = (end) => {
+            if (first < 0 || end <= first) return;
+            const run = samples.slice(first, end + 1), reach =
+              clamp(finite(lane.width_m, 3), 1.5, 9) / 2 + 2;
+            approaches.push({ entity_id: lane.entity_id, edge_id: lane.edge_id,
+              width_m: lane.width_m, samples: run,
+              bounds: {
+                minX: Math.min(...run.map(p => p.x)) - reach,
+                maxX: Math.max(...run.map(p => p.x)) + reach,
+                minZ: Math.min(...run.map(p => p.z)) - reach,
+                maxZ: Math.max(...run.map(p => p.z)) + reach
+              } });
+          };
+          for (let i = 0; i < samples.length - 1; i++) {
+            const x = (samples[i].x + samples[i + 1].x) / 2;
+            const z = (samples[i].z + samples[i + 1].z) / 2;
+            const included = relevant.some((site) => Math.hypot(x - site.x, z - site.z) <=
+              site.radii[String(lane.edge_id)] + 4);
+            if (included && first < 0) first = i;
+            if (!included && first >= 0) { pushRun(i); first = -1; }
+          }
+          if (first >= 0) pushRun(samples.length - 1);
+        }
+        return approaches;
+      }
+      function clipGuardrailIntrusions(rails, roads, connectors, approaches) {
+        if (!rails.length) return { rails, removedMeters: 0, splitCount: 0 };
+        const surfaces = spatialIndex(40);
+        for (const road of roads) {
+          const reach = road.width / 2 + 1;
+          surfaces.add({ type: 'road', road }, {
+            minX: Math.min(road.x1, road.x2) - reach,
+            maxX: Math.max(road.x1, road.x2) + reach,
+            minZ: Math.min(road.z1, road.z2) - reach,
+            maxZ: Math.max(road.z1, road.z2) + reach
+          });
+        }
+        const addLaneSegments = (lane) => {
+          const samples = lane.samples || sampleLaneConnector(lane, terrainHeight);
+          const width = clamp(finite(lane.width_m, 3), 1.5, 9);
+          for (let i = 0; i < samples.length - 1; i++) {
+            const a = samples[i], b = samples[i + 1];
+            const segment = { type: 'lane', x1: a.x, y1: a.y, z1: a.z,
+              x2: b.x, y2: b.y, z2: b.z, width };
+            const reach = width / 2 + 1.3;
+            surfaces.add(segment, {
+              minX: Math.min(a.x, b.x) - reach, maxX: Math.max(a.x, b.x) + reach,
+              minZ: Math.min(a.z, b.z) - reach, maxZ: Math.max(a.z, b.z) + reach
+            });
+          }
+        };
+        for (const connector of connectors) {
+          if (connector.forbidden || connector.path_methods_bits != null &&
+              !(Number(connector.path_methods_bits) & 2)) continue;
+          addLaneSegments(connector);
+        }
+        for (const approach of approaches) addLaneSegments(approach);
+        const kept = [];
+        let removedMeters = 0, splitCount = 0;
+        for (const rail of rails) {
+          const count = Math.max(1, Math.ceil(rail.length / 1.5));
+          const horizontal = Math.cos(rail.pitch || 0);
+          const station = (t) => {
+            const along = (t - .5) * rail.length;
+            return {
+              x: rail.x + Math.sin(rail.yaw || 0) * horizontal * along,
+              y: rail.y - Math.sin(rail.pitch || 0) * along,
+              z: rail.z + Math.cos(rail.yaw || 0) * horizontal * along
+            };
+          };
+          const intrudes = (t) => {
+            const p = station(t), baseY = p.y - rail.height / 2;
+            for (const surface of surfaces.query(p.x, p.z, 2)) {
+              if (surface.type === 'road') {
+                const road = surface.road;
+                if (String(road.id) === String(rail.roadId)) continue;
+                const hit = segmentDistance(p.x, p.z, road);
+                if (hit.distance > road.width / 2 + .3) continue;
+                const deckY = road.y1 + (road.y2 - road.y1) * hit.t;
+                if (Math.abs(baseY - deckY) < 2) return true;
+              } else {
+                const hit = segmentDistance(p.x, p.z, surface);
+                if (hit.distance > surface.width / 2 + 1.25) continue;
+                const deckY = surface.y1 + (surface.y2 - surface.y1) * hit.t;
+                if (Math.abs(baseY - deckY) < 2) return true;
+              }
+            }
+            return false;
+          };
+          let first = -1, railRuns = 0;
+          const pushRun = (end) => {
+            if (first < 0) return;
+            const length = (end - first) / count * rail.length;
+            if (length < 1.5) { removedMeters += length; return; }
+            const mid = (first + end) / (2 * count), center = station(mid);
+            kept.push({ ...rail, x: center.x, y: center.y, z: center.z, length });
+            railRuns++;
+          };
+          for (let i = 0; i < count; i++) {
+            const blocked = intrudes((i + .5) / count);
+            if (!blocked && first < 0) first = i;
+            if (blocked) {
+              removedMeters += rail.length / count;
+              if (first >= 0) { pushRun(i); first = -1; }
+            }
+          }
+          if (first >= 0) pushRun(count);
+          if (railRuns > 1) splitCount += railRuns - 1;
+        }
+        return { rails: kept, removedMeters, splitCount };
       }
       const endpointCells = new Map();
       for (const feature of overview.roads || []) {
@@ -594,6 +1075,39 @@
         return { minX: Math.min(road.x1, road.x2) - road.width, maxX: Math.max(road.x1, road.x2) + road.width,
           minZ: Math.min(road.z1, road.z2) - road.width, maxZ: Math.max(road.z1, road.z2) + road.width };
       }
+      function supportBlocksRoute(support, localRoads, connectors, approaches) {
+        const low = support.y - support.height / 2;
+        const high = support.y + support.height / 2;
+        const blocks = (segment, padding = .8) => {
+          const hit = segmentDistance(support.x, support.z, segment);
+          if (hit.distance > segment.width / 2 + padding) return false;
+          const x = segment.x1 + (segment.x2 - segment.x1) * hit.t;
+          const z = segment.z1 + (segment.z2 - segment.z1) * hit.t;
+          const deckY = Math.max(segment.y1 + (segment.y2 - segment.y1) * hit.t,
+            terrainHeight(x, z));
+          // A column may pass below another deck. Only remove it when a car
+          // on that deck would meet the column between its base and top.
+          return deckY >= low - .5 && deckY <= high - 1.7;
+        };
+        // The overview is indexed for the entire city, including unloaded
+        // neighboring tiles. A local-only check leaves walls at tile edges.
+        for (const road of roadIndex.query(support.x, support.z, 3))
+          if (blocks(road)) return true;
+        // Detail-only service roads can be absent from the city overview.
+        for (const road of localRoads) if (blocks(road)) return true;
+        for (const lane of [...connectors, ...approaches]) {
+          if (lane.forbidden || lane.path_methods_bits != null &&
+              !(Number(lane.path_methods_bits) & 2)) continue;
+          const samples = lane.samples || [];
+          const width = clamp(finite(lane.width_m, 3), 1.5, 9);
+          for (let i = 1; i < samples.length; i++) {
+            const a = samples[i - 1], b = samples[i];
+            if (blocks({ x1: a.x, y1: a.y, z1: a.z,
+              x2: b.x, y2: b.y, z2: b.z, width })) return true;
+          }
+        }
+        return false;
+      }
       function generateBridgeParts(road) {
         const dx = road.x2 - road.x1, dz = road.z2 - road.z1, dy = road.y2 - road.y1;
         const horizontal = Math.hypot(dx, dz), slopeLength = Math.hypot(horizontal, dy);
@@ -626,19 +1140,23 @@
         road.railStart = railStart;
         road.railEnd = railEnd;
         const rails = [];
-        if ((railEnd - railStart) * horizontal > 2) {
-          const mid = (railStart + railEnd) / 2, centerY = road.y1 + dy * mid;
+        const visible = road.visibleIntervals || [[0, 1]];
+        for (const [start, end] of visible) {
+          const from = Math.max(start, railStart), to = Math.min(end, railEnd);
+          if ((to - from) * horizontal <= 2) continue;
+          const mid = (from + to) / 2, centerY = road.y1 + dy * mid;
           for (const side of [-1, 1]) rails.push({
             roadId: road.id,
             x: road.x1 + dx * mid + side * Math.cos(yaw) * (road.width / 2 - .22),
             y: centerY + .55 / Math.cos(pitch),
             z: road.z1 + dz * mid - side * Math.sin(yaw) * (road.width / 2 - .22),
-            width: .24, height: 1.1, length: slopeLength * (railEnd - railStart), yaw, pitch
+            width: .24, height: 1.1, length: slopeLength * (to - from), yaw, pitch
           });
         }
         const supports = [];
         const clearance = (road.y1 + road.y2) / 2 - terrainHeight(centerX, centerZ);
-        if (horizontal >= 25 && clearance >= 3) for (const side of [-1, 1]) {
+        if (horizontal >= 25 && clearance >= 3 &&
+            visible.some(([start, end]) => start <= .5 && end >= .5)) for (const side of [-1, 1]) {
           const x = centerX + side * Math.cos(yaw) * Math.max(2, road.width / 2 - 1.5);
           const z = centerZ - side * Math.sin(yaw) * Math.max(2, road.width / 2 - 1.5);
           const groundY = terrainHeight(x, z), topY = (road.y1 + road.y2) / 2 - .5 / Math.cos(pitch);
@@ -657,6 +1175,10 @@
         for (const connector of data.ownedConnectors || []) {
           laneConnectorIndex.remove(connector);
           map.laneConnectors.splice(map.laneConnectors.indexOf(connector), 1);
+        }
+        for (const approach of data.laneApproaches || []) {
+          laneApproachIndex.remove(approach);
+          map.laneApproaches.splice(map.laneApproaches.indexOf(approach), 1);
         }
         for (const road of data.roads) { detailRoadIndex.remove(road); roadIndex.remove(road); map.roadSegments.splice(map.roadSegments.indexOf(road), 1); }
         for (const road of data.highways) { highwayIndex.remove(road); roadIndex.remove(road); map.highwaySegments.splice(map.highwaySegments.indexOf(road), 1); }
@@ -703,8 +1225,6 @@
                   if (isElevated(road.mode)) {
                     const slab = { ...road, topStart: road.y1, topEnd: road.y2 };
                     tileHighways.push(slab);
-                    const parts = generateBridgeParts(slab);
-                    tileRails.push(...parts.rails); tileSupports.push(...parts.supports);
                   } else tileRoads.push(road);
                 }
                 if (feature.type === 'building') {
@@ -715,15 +1235,44 @@
                   }
                 }
               }
-              gradeMergeConnectors(tileConnectors, ownedConnectors, [...tileRoads, ...tileHighways]);
+              gradeMergeConnectors(tileConnectors, ownedConnectors,
+                [...tileRoads, ...tileHighways], tileEdgeLanes);
+              reconcileOverlappingConnectors(tileConnectors, ownedConnectors,
+                [...tileRoads, ...tileHighways]);
+              const elevatedMerges = elevatedMergeSites(raw, tileConnectors,
+                tileHighways, descriptor.ix, descriptor.iz);
+              const groundGradeConflicts = groundGradeConflictSites(raw,
+                tileConnectors, tileRoads, tileEdgeLanes,
+                descriptor.ix, descriptor.iz);
+              const laneApproaches = elevatedLaneApproaches(
+                [...elevatedMerges, ...groundGradeConflicts], tileEdgeLanes,
+                [...tileRoads, ...tileHighways]);
+              for (const slab of tileHighways) {
+                const parts = generateBridgeParts(slab);
+                tileRails.push(...parts.rails); tileSupports.push(...parts.supports);
+              }
+              for (let i = tileSupports.length - 1; i >= 0; i--)
+                if (supportBlocksRoute(tileSupports[i],
+                  [...tileRoads, ...tileHighways], tileConnectors, laneApproaches))
+                  tileSupports.splice(i, 1);
+              const railClip = clipGuardrailIntrusions(tileRails,
+                [...tileRoads, ...tileHighways], tileConnectors, laneApproaches);
+              tileRails.splice(0, tileRails.length, ...railClip.rails);
               job.entry.data = { ix: job.entry.descriptor.ix, iz: job.entry.descriptor.iz,
                 roads: tileRoads, highways: tileHighways, buildings: tileBuildings,
                 guardrails: tileRails, supports: tileSupports,
-                edgeLanes: tileEdgeLanes, connectors: tileConnectors, ownedConnectors };
+                edgeLanes: tileEdgeLanes, connectors: tileConnectors, ownedConnectors,
+                elevatedMerges, groundGradeConflicts, laneApproaches,
+                guardrailClipStats: { removedMeters: railClip.removedMeters,
+                  splitCount: railClip.splitCount } };
               job.entry.state = 'loaded';
               for (const connector of ownedConnectors) {
                 map.laneConnectors.push(connector);
                 laneConnectorIndex.add(connector, connector.bounds);
+              }
+              for (const approach of laneApproaches) {
+                map.laneApproaches.push(approach);
+                laneApproachIndex.add(approach, approach.bounds);
               }
               for (const road of tileRoads) {
                 map.roadSegments.push(road);
@@ -1048,7 +1597,8 @@
       for (const point of [a, b, c, a, c, d]) out.push(point[0] / 5, point[2] / 5);
     }
     function roadStrip(out, road, halfWidth, yOffset, uvs, followTerrain = false,
-      centerOffset = 0, start = 0, end = 1, maxStep = 10, worldUV = false) {
+      centerOffset = 0, start = 0, end = 1, maxStep = 10, worldUV = false,
+      terrainUnderlay = false) {
       const dx = road.x2 - road.x1, dz = road.z2 - road.z1, length = Math.hypot(dx, dz);
       if (length < .1 || end - start < .00001) return;
       const nx = dz / length, nz = -dx / length;
@@ -1098,7 +1648,8 @@
         const sourceY = road.y1 + (road.y2 - road.y1) * t;
         // Coarse terrain samples can bury the source centerline. Sample both
         // road edges and subdivide long spans so asphalt remains visible.
-        const surfaceY = followTerrain ? Math.max(sourceY, map.terrainHeight(x, z)) : sourceY;
+        const surfaceY = terrainUnderlay ? map.terrainHeight(x, z) :
+          followTerrain ? Math.max(sourceY, map.terrainHeight(x, z)) : sourceY;
         const roadY = yOffset >= .09 && yOffset < .14 ? carriageSurface(t, offset, x, z) : -Infinity;
         return [x, Math.max(surfaceY + yOffset, roadY + .045), z];
       }
@@ -1632,56 +2183,60 @@
       // The same mitered edge coordinates as the road markings are used for
       // every piece of deck. Subdivision follows the heightfield at low ramps;
       // a full-width box per curve sample left seams and hard slab ends.
-      const steps = Math.max(1, Math.ceil(length / 8));
       const half = road.width / 2;
       const columns = Math.max(1, Math.ceil(road.width / 4));
-      for (let i = 0; i < steps; i++) {
-        const t0 = i / steps, t1 = (i + 1) / steps;
-        for (let column = 0; column < columns; column++) {
-          const offset0 = -half + road.width * column / columns;
-          const offset1 = -half + road.width * (column + 1) / columns;
-          const left0 = elevatedPoint(road, t0, offset0);
-          const right0 = elevatedPoint(road, t0, offset1);
-          const right1 = elevatedPoint(road, t1, offset1);
-          const left1 = elevatedPoint(road, t1, offset0);
-          const a = elevatedVertex(left0), b = elevatedVertex(right0);
-          const c = elevatedVertex(right1), d = elevatedVertex(left1);
-          quad(out, a, b, c, d);
-          worldUvQuad(uvs, a, b, c, d);
+      for (const [start, end] of road.visibleIntervals || [[0, 1]]) {
+        const steps = Math.max(1, Math.ceil(length * (end - start) / 8));
+        for (let i = 0; i < steps; i++) {
+          const t0 = start + (end - start) * i / steps;
+          const t1 = start + (end - start) * (i + 1) / steps;
+          for (let column = 0; column < columns; column++) {
+            const offset0 = -half + road.width * column / columns;
+            const offset1 = -half + road.width * (column + 1) / columns;
+            const left0 = elevatedPoint(road, t0, offset0);
+            const right0 = elevatedPoint(road, t0, offset1);
+            const right1 = elevatedPoint(road, t1, offset1);
+            const left1 = elevatedPoint(road, t1, offset0);
+            const a = elevatedVertex(left0), b = elevatedVertex(right0);
+            const c = elevatedVertex(right1), d = elevatedVertex(left1);
+            quad(out, a, b, c, d);
+            worldUvQuad(uvs, a, b, c, d);
+          }
+          const a = elevatedPoint(road, t0, -half), b = elevatedPoint(road, t0, half);
+          const c = elevatedPoint(road, t1, half), d = elevatedPoint(road, t1, -half);
+          const under = (p) => elevatedVertex(p, -Math.min(.5, p.clearance));
+          if (Math.max(a.clearance, b.clearance, c.clearance, d.clearance) < .08) continue;
+          quad(out, under(d), under(c), under(b), under(a));
+          uvQuad(uvs, 0, length * t0 / 5, road.width / 5, length * t1 / 5);
+          quad(out, elevatedVertex(a), elevatedVertex(d), under(d), under(a));
+          uvQuad(uvs, 0, length * t0 / 5, .5 / 5, length * t1 / 5);
+          quad(out, elevatedVertex(c), elevatedVertex(b), under(b), under(c));
+          uvQuad(uvs, 0, length * t0 / 5, .5 / 5, length * t1 / 5);
         }
-        const a = elevatedPoint(road, t0, -half), b = elevatedPoint(road, t0, half);
-        const c = elevatedPoint(road, t1, half), d = elevatedPoint(road, t1, -half);
-        const under = (p) => elevatedVertex(p, -Math.min(.5, p.clearance));
-        if (Math.max(a.clearance, b.clearance, c.clearance, d.clearance) < .08) continue;
-        quad(out, under(d), under(c), under(b), under(a));
-        uvQuad(uvs, 0, length * t0 / 5, road.width / 5, length * t1 / 5);
-        quad(out, elevatedVertex(a), elevatedVertex(d), under(d), under(a));
-        uvQuad(uvs, 0, length * t0 / 5, .5 / 5, length * t1 / 5);
-        quad(out, elevatedVertex(c), elevatedVertex(b), under(b), under(c));
-        uvQuad(uvs, 0, length * t0 / 5, .5 / 5, length * t1 / 5);
       }
     }
-    function bridgeRail(out, road) {
-      const from = road.railStart ?? 0, to = road.railEnd ?? 1;
-      if (to - from < .001) return;
-      const length = Math.hypot(road.x2 - road.x1, road.z2 - road.z1);
-      if (length * (to - from) <= 2) return;
-      const half = road.width / 2;
-      const steps = Math.max(1, Math.ceil(length * (to - from) / 8));
-      for (const side of [-1, 1]) for (let i = 0; i < steps; i++) {
-        const t0 = from + (to - from) * i / steps, t1 = from + (to - from) * (i + 1) / steps;
-        const inner0 = elevatedPoint(road, t0, side * (half - .40));
-        const outer0 = elevatedPoint(road, t0, side * (half - .10));
-        const inner1 = elevatedPoint(road, t1, side * (half - .40));
-        const outer1 = elevatedPoint(road, t1, side * (half - .10));
-        const b0 = elevatedVertex(inner0, .08), b1 = elevatedVertex(inner1, .08);
-        const b2 = elevatedVertex(outer1, .08), b3 = elevatedVertex(outer0, .08);
-        const t0v = elevatedVertex(inner0, 1.12), t1v = elevatedVertex(inner1, 1.12);
-        const t2v = elevatedVertex(outer1, 1.12), t3v = elevatedVertex(outer0, 1.12);
-        quad(out, b0, b1, t1v, t0v);
-        quad(out, b3, t3v, t2v, b2);
-        quad(out, t0v, t1v, t2v, t3v);
-      }
+    function bridgeRailRecord(out, rail) {
+      const yaw = rail.yaw || 0, pitch = rail.pitch || 0;
+      const side = [Math.cos(yaw), 0, -Math.sin(yaw)];
+      const up = [Math.sin(yaw) * Math.sin(pitch), Math.cos(pitch),
+        Math.cos(yaw) * Math.sin(pitch)];
+      const forward = [Math.sin(yaw) * Math.cos(pitch), -Math.sin(pitch),
+        Math.cos(yaw) * Math.cos(pitch)];
+      const at = (x, y, z) => [
+        rail.x + side[0] * x + up[0] * y + forward[0] * z,
+        rail.y + side[1] * x + up[1] * y + forward[1] * z,
+        rail.z + side[2] * x + up[2] * y + forward[2] * z
+      ];
+      const w = rail.width / 2, h = rail.height / 2, l = rail.length / 2;
+      const a = at(-w, -h, -l), b = at(w, -h, -l);
+      const c = at(w, -h, l), d = at(-w, -h, l);
+      const e = at(-w, h, -l), f = at(w, h, -l);
+      const g = at(w, h, l), q = at(-w, h, l);
+      quad(out, e, f, g, q);
+      quad(out, a, e, q, d);
+      quad(out, f, b, c, g);
+      quad(out, a, b, f, e);
+      quad(out, d, q, g, c);
     }
     function buildingStyle(building) {
       const role = String(building.role || '').toLowerCase();
@@ -2611,6 +3166,10 @@
       const alignedB = [normalB[0] * relation, normalB[1] * relation];
       const cosine = normalA[0] * alignedB[0] + normalA[1] * alignedB[1];
       if (cosine < -.72) return false;
+      // A sharp raised bend needs its curved lane connectors. Mitering both
+      // full-width decks creates a broad triangular overhang at the apex.
+      if (isElevated(a.road.mode) && isElevated(b.road.mode) && cosine < .55)
+        return false;
       const vector = [(normalA[0] + alignedB[0]) / (1 + cosine),
         (normalA[1] + alignedB[1]) / (1 + cosine)];
       if (Math.hypot(...vector) > 2.7) return false;
@@ -2658,7 +3217,20 @@
       if (!junctionsByTile.has(owner)) junctionsByTile.set(owner, []);
       junctionsByTile.get(owner).push(node);
     }
-    for (const node of elevatedEndpointNodes) if (node.arms.length === 2) smoothJoin(node);
+    for (const node of elevatedEndpointNodes) {
+      if (node.arms.length < 2) continue;
+      if (node.arms.length === 2 && smoothJoin(node)) continue;
+      node.elevated = true;
+      node.arms.sort((a, b) => Math.atan2(a.uz, a.ux) - Math.atan2(b.uz, b.ux));
+      const owner = tileOwner(node);
+      if (!owner) continue;
+      // Source elevated edges can double back inside a graph merge. The
+      // individual sampled segment at their shared endpoint may be only a
+      // few centimetres long, so do not derive the graph cut from that piece.
+      for (const arm of node.arms) arm.cut = 48;
+      if (!junctionsByTile.has(owner)) junctionsByTile.set(owner, []);
+      junctionsByTile.get(owner).push(node);
+    }
     map.junctionStats = {
       nodes: [...junctionsByTile.values()].reduce((sum, nodes) => sum + nodes.length, 0),
       intersections: [...junctionsByTile.values()].reduce((sum, nodes) =>
@@ -2789,9 +3361,30 @@
       }
       return outline;
     }
-    function addJunction(out, uvs, node) {
-      const outline = junctionOutline(node);
+    function addJunction(out, uvs, node, terrainUnderlay = false) {
+      let outline = junctionOutline(node);
       if (outline.length < 3) return;
+      if (terrainUnderlay) {
+        // The ordinary concave junction outline deliberately leaves sidewalk
+        // corners open. A cut road has no broad approach mesh beneath those
+        // corners, so use the mouth-point hull as a low asphalt underlay.
+        const sorted = outline.slice().sort((a, b) => a.x - b.x || a.z - b.z);
+        const cross = (a, b, c) => (b.x - a.x) * (c.z - a.z) -
+          (b.z - a.z) * (c.x - a.x);
+        const lower = [], upper = [];
+        for (const p of sorted) {
+          while (lower.length > 1 && cross(lower.at(-2), lower.at(-1), p) <= 0)
+            lower.pop();
+          lower.push(p);
+        }
+        for (const p of sorted.slice().reverse()) {
+          while (upper.length > 1 && cross(upper.at(-2), upper.at(-1), p) <= 0)
+            upper.pop();
+          upper.push(p);
+        }
+        outline = [...lower.slice(0, -1), ...upper.slice(0, -1)];
+        for (const p of outline) p.y = map.terrainHeight(p.x, p.z) + .075;
+      }
       const faces = THREE.ShapeUtils.triangulateShape(outline.map((p) => new THREE.Vector2(p.x, p.z)), []);
       const vertices = [], triangleIndices = [], byPosition = new Map();
       const vertexIndex = (p) => {
@@ -2813,8 +3406,9 @@
           const wa = 1 - (i + j) / steps, wb = i / steps, wc = j / steps;
           const x = a.x * wa + b.x * wb + c.x * wc;
           const z = a.z * wa + b.z * wb + c.z * wc;
-          return [x, Math.max(a.y * wa + b.y * wb + c.y * wc,
-            map.terrainHeight(x, z) + .075), z];
+          return [x, terrainUnderlay ? map.terrainHeight(x, z) + .075 :
+            Math.max(a.y * wa + b.y * wb + c.y * wc,
+              map.terrainHeight(x, z) + .075), z];
         };
         const grid = [];
         for (let i = 0; i <= steps; i++) {
@@ -2927,8 +3521,8 @@
           if (!lanes.length) { complete = false; break; }
           arm.graphLanes = lanes;
           arm.graphSegments = roadsById.get(String(arm.road.id)) || [];
-          arm.renderCut = Math.min(arm.cut,
-            Math.max(7, ...lanes.map(entry => entry.distance + 4)));
+          arm.renderCut = (node.elevatedSite || node.gradeConflictSite)?.radii[String(arm.road.id)] ??
+            Math.min(arm.cut, Math.max(7, ...lanes.map(entry => entry.distance + 4)));
         }
         if (!complete) {
           graphNodes.delete(node);
@@ -2954,9 +3548,9 @@
           (b.terminal[0] - node.x) * nx - (b.terminal[2] - node.z) * nz);
         for (let i = 0; i < lanes.length; i++) {
           const { lane, distance } = lanes[i];
-          const samples = sampleLaneConnector(lane, map.terrainHeight);
+          const samples = lane.approachSamples || sampleLaneConnector(lane, map.terrainHeight);
           const reach = arm.renderCut + 4;
-          for (const sample of samples) {
+          if (!node.elevated && !node.gradeConflictSite) for (const sample of samples) {
             if (Math.hypot(sample.x - node.x, sample.z - node.z) > reach + 7) continue;
             const deck = roadDeckAt(arm.graphSegments, sample.x, sample.z);
             if (deck === null) continue;
@@ -3075,10 +3669,21 @@
       const graphNodes = new Map();
       for (const node of ownerJunctions) {
         const graphId = graphJunctionId(node, tile);
-        if (graphId !== null) graphNodes.set(node, graphId);
+        if (graphId === null) continue;
+        if (node.elevated) {
+          node.elevatedSite = (tile.elevatedMerges || []).find((site) =>
+            site.nodeId === graphId &&
+            Math.hypot(site.x - node.x, site.z - node.z) < 2);
+          if (!node.elevatedSite) continue;
+        } else {
+          node.gradeConflictSite = (tile.groundGradeConflicts || []).find(site =>
+            site.nodeId === graphId &&
+            Math.hypot(site.x - node.x, site.z - node.z) < 2);
+        }
+        graphNodes.set(node, graphId);
       }
       const taperNodes = new Map([...graphNodes].filter(([node, nodeId]) =>
-        graphMergeOrSplit(node, nodeId, tile)));
+        node.elevated || node.gradeConflictSite || graphMergeOrSplit(node, nodeId, tile)));
       prepareGraphArms(tile, taperNodes);
       for (const road of tile.roads) {
         applySmoothJoins(road);
@@ -3102,7 +3707,12 @@
             const arm = node.arms.find(candidate => String(candidate.road.id) === String(road.id));
             if (!arm?.graphLanes?.length) continue;
             if (Math.hypot(x - node.x, z - node.z) <=
-                arm.renderCut + 1) return;
+                arm.renderCut + 1) {
+              if (node.gradeConflictSite)
+                roadStrip(approachPositions, road, carriageHalf, .075,
+                  approachUVs, true, carriageCenter, start, end, 2, true, true);
+              return;
+            }
           }
           roadStrip(approachPositions, road, carriageHalf, .065,
             approachUVs, true, carriageCenter, start, end, 2, true);
@@ -3168,8 +3778,11 @@
           speedSignRecords, speedSignSites, entry.road, entry.layout, entry.intervals);
       }
       for (const node of ownerJunctions) {
+        if (node.elevated) continue;
         prepareJunction(node);
-        if (!graphNodes.has(node)) addJunction(junctionPositions, junctionUVs, node);
+        if (!graphNodes.has(node) || node.gradeConflictSite)
+          addJunction(junctionPositions, junctionUVs, node,
+            !!node.gradeConflictSite);
         addCornerSidewalks(junctionSidewalks, junctionSidewalkUVs, junctionCurbs, node);
         addCrosswalks(crosswalkPositions, node);
       }
@@ -3179,13 +3792,13 @@
       for (const road of tile.highways) {
         applySmoothJoins(road);
         bridgeBox(bridgePositions, bridgeUVs, road);
-        bridgeRail(bridgeRailPositions, road);
-        const layout = roadLayout(road), intervals = [[0, 1]];
-        markRoad(whiteLines, yellowLines, road, layout, true);
+        const layout = roadLayout(road), intervals = road.visibleIntervals || [[0, 1]];
+        markRoad(whiteLines, yellowLines, road, layout, true, intervals);
         arrowEntries.push({ road, layout, intervals });
         addSpeedSigns(speedSignPositions, speedSignUVs, speedPostPositions,
           speedSignRecords, speedSignSites, road, layout, intervals);
       }
+      for (const rail of tile.guardrails) bridgeRailRecord(bridgeRailPositions, rail);
       addDirectionArrows(arrowPositions, arrowRecords, arrowEntries);
       addLaneGraphPaint(tile, turnArrowPositions, mergeGuidePositions,
         stopLinePositions, turnArrowRecords);

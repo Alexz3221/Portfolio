@@ -127,9 +127,31 @@
     }
     if (course) box(ramp.x,ramp.y,ramp.z,ramp.halfWidth,.18,ramp.halfLength,ramp.angle);
     const streamingCity=isCity && cityMap!==City && typeof cityMap.nearbyBuildings==='function';
-    const activeCity={buildings:new Map(),roads:new Map(),highways:new Map(),connectors:new Map(),guardrails:new Map(),supports:new Map()};
+    const activeCity={buildings:new Map(),roads:new Map(),highways:new Map(),connectors:new Map(),approaches:new Map(),guardrails:new Map(),supports:new Map()};
     let lastCityX=Infinity,lastCityZ=Infinity;
     function roadBox(segment) {
+      // The visual road mesh cuts bridge decks back at graph-covered merges.
+      // Use those same intervals for collision so a removed deck cannot remain
+      // as an invisible slab across the native lane connectors underneath.
+      if(Array.isArray(segment.visibleIntervals)) {
+        const intervals=segment.visibleIntervals.filter(([a,b])=>Number.isFinite(a)&&Number.isFinite(b)&&b-a>1e-5);
+        if(!intervals.length)return null;
+        if(intervals.length!==1||intervals[0][0]>1e-5||intervals[0][1]<1-1e-5) {
+          const x1=segment.x1??segment.x,z1=segment.z1??segment.z-segment.length/2;
+          const x2=segment.x2??segment.x,z2=segment.z2??segment.z+segment.length/2;
+          const y1=segment.topStart??segment.y1??0,y2=segment.topEnd??segment.y2??0;
+          const dx=x2-x1,dz=z2-z1,length=Math.hypot(dx,dz)||1;
+          const normal=[dz/length,-dx/length];
+          const pieces=intervals.map(([a,b])=>roadBox({
+            ...segment,visibleIntervals:null,
+            x1:x1+dx*a,z1:z1+dz*a,x2:x1+dx*b,z2:z1+dz*b,
+            topStart:y1+(y2-y1)*a,topEnd:y1+(y2-y1)*b,
+            startMiter:a>1e-5?normal:segment.startMiter,
+            endMiter:b<1-1e-5?normal:segment.endMiter
+          })).filter(Boolean);
+          return pieces.length===1?pieces[0]:pieces;
+        }
+      }
       const x1=segment.x1??segment.x, x2=segment.x2??segment.x;
       const z1=segment.z1??segment.z-segment.length/2, z2=segment.z2??segment.z+segment.length/2;
       const topStart=segment.topStart??segment.y1??0,topEnd=segment.topEnd??segment.y2??0;
@@ -200,7 +222,68 @@
       }
       if(!body.shapes.length)return null;
       world.addBody(body);
+      // cannon.js computes compound AABBs by rotating each shape offset by
+      // that shape's own orientation. The offset actually lives in body space.
+      // On a curved lane this can exclude the tail boxes from broadphase and
+      // raycasts, leaving physical holes even though every box exists. These
+      // city road bodies are static, so calculate their true union once.
+      const lower=new C.Vec3(Infinity,Infinity,Infinity);
+      const upper=new C.Vec3(-Infinity,-Infinity,-Infinity);
+      const shapeLower=new C.Vec3(),shapeUpper=new C.Vec3();
+      for(let i=0;i<body.shapes.length;i++) {
+        const offset=body.quaternion.vmult(body.shapeOffsets[i],new C.Vec3());
+        offset.vadd(body.position,offset);
+        const orientation=body.quaternion.mult(body.shapeOrientations[i],new C.Quaternion());
+        body.shapes[i].calculateWorldAABB(offset,orientation,shapeLower,shapeUpper);
+        lower.x=Math.min(lower.x,shapeLower.x);lower.y=Math.min(lower.y,shapeLower.y);lower.z=Math.min(lower.z,shapeLower.z);
+        upper.x=Math.max(upper.x,shapeUpper.x);upper.y=Math.max(upper.y,shapeUpper.y);upper.z=Math.max(upper.z,shapeUpper.z);
+      }
+      body.aabb.lowerBound.copy(lower);body.aabb.upperBound.copy(upper);
+      body.aabbNeedsUpdate=false;
       return body;
+    }
+    function approachBody(approach) {
+      const samples=approach.samples;
+      if(approach.edge_id==null||!Array.isArray(samples)||samples.length<3)
+        return connectorBody(approach);
+      const touchesVisibleRoad=(sample)=>{
+        if(!Number.isFinite(sample.sourceY)||Math.abs(sample.y-sample.sourceY-.08)>.03)return false;
+        const roads=[
+          ...(cityMap.nearbyRoads?.(sample.x,sample.z,8)||[]),
+          ...(cityMap.nearbyHighways?.(sample.x,sample.z,8)||[])
+        ];
+        return roads.some(road=>{
+          if(String(road.id)!==String(approach.edge_id))return false;
+          const dx=road.x2-road.x1,dz=road.z2-road.z1,len2=dx*dx+dz*dz;
+          if(len2<.01)return false;
+          const t=Math.max(0,Math.min(1,((sample.x-road.x1)*dx+(sample.z-road.z1)*dz)/len2));
+          if(!(road.visibleIntervals||[[0,1]]).some(([a,b])=>t>=a-.001&&t<=b+.001))return false;
+          const lateral=Math.hypot(sample.x-road.x1-dx*t,sample.z-road.z1-dz*t);
+          if(lateral>road.width/2+.3)return false;
+          const deck=road.y1+(road.y2-road.y1)*t;
+          return deck-height(sample.x,sample.z)>.2&&Math.abs(deck-sample.sourceY)<.2;
+        });
+      };
+      const correction=new Array(samples.length).fill(0);
+      for(let i=0;i<samples.length;i++)if(touchesVisibleRoad(samples[i])) {
+        const sample=samples[i];let contact=-Infinity;
+        world.raycastAll(new C.Vec3(sample.x,sample.y+.5,sample.z),
+          new C.Vec3(sample.x,sample.y-.5,sample.z),{},hit=>{
+            if((hit.body?.citySource?.kind==='road'||
+                hit.body?.citySource?.kind==='highway')&&
+                String(hit.body.citySource.id)===String(approach.edge_id))
+              contact=Math.max(contact,hit.hitPointWorld.y);
+          });
+        const delta=sample.y-contact;
+        if(Number.isFinite(delta)&&delta>0&&delta<.25)correction[i]=delta;
+      }
+      if(!correction.some(Boolean))return connectorBody(approach);
+      // Match the physical ribbon to the existing road collider only where
+      // they overlap. The renderer lifts lane paint above asphalt, and a
+      // graded mitered deck can sit slightly below its source centerline.
+      // Leaving both full-height colliders creates a short tire-contact step.
+      return connectorBody({...approach,samples:samples.map((sample,i)=>
+        correction[i]?{...sample,y:sample.y-correction[i]}:sample)});
     }
     function buildingBody(building) {
       // A mesh-backed special building has a broad lot/parent record and a
@@ -237,12 +320,19 @@
       world.addBody(body);
       return body;
     }
-    function updateLocalColliders(active,nearby,createBody) {
+    function updateLocalColliders(active,nearby,createBody,kind) {
       const wanted=new Set(nearby);
-      for(const [item,body] of active) if(!wanted.has(item)) {world.removeBody(body);active.delete(item);}
+      for(const [item,body] of active) if(!wanted.has(item)) {
+        for(const part of Array.isArray(body)?body:[body])world.removeBody(part);
+        active.delete(item);
+      }
       for(const item of wanted) if(!active.has(item)) {
         const body=createBody(item);
-        if(body)active.set(item,body);
+        if(body) {
+          for(const part of Array.isArray(body)?body:[body])
+            part.citySource={kind,id:item.entity_id??item.id??item.roadId??null};
+          active.set(item,body);
+        }
       }
     }
     function nearbyItems(query,items,x,z,radius) {
@@ -260,20 +350,22 @@
         const pending=cityMap.ensureNear?.(x,z,Math.max(280,cityMap.tileSize*1.05||0));
         pending?.catch?.(error=>console.warn('City tile could not load:',error));
       }
-      updateLocalColliders(activeCity.buildings,cityMap.nearbyBuildings(x,z,radius),buildingBody);
-      updateLocalColliders(activeCity.highways,nearbyItems(cityMap.nearbyHighways?.bind(cityMap),cityMap.highwaySegments,x,z,radius),roadBox);
+      updateLocalColliders(activeCity.buildings,cityMap.nearbyBuildings(x,z,radius),buildingBody,'building');
+      updateLocalColliders(activeCity.highways,nearbyItems(cityMap.nearbyHighways?.bind(cityMap),cityMap.highwaySegments,x,z,radius),roadBox,'highway');
       if(typeof cityMap.nearbyLaneConnectors==='function')
-        updateLocalColliders(activeCity.connectors,cityMap.nearbyLaneConnectors(x,z,radius),connectorBody);
+        updateLocalColliders(activeCity.connectors,cityMap.nearbyLaneConnectors(x,z,radius),connectorBody,'connector');
+      if(typeof cityMap.nearbyLaneApproaches==='function')
+        updateLocalColliders(activeCity.approaches,cityMap.nearbyLaneApproaches(x,z,radius),approachBody,'approach');
       if(cityTerrain && typeof cityMap.nearbyRoads==='function') {
         const raised=cityMap.nearbyRoads(x,z,radius).filter(s=>
           !/tunnel|underground/i.test(String(s.mode||''))&&
           Math.max((s.y1||0)-height(s.x1,s.z1),(s.y2||0)-height(s.x2,s.z2))>.15);
-        updateLocalColliders(activeCity.roads,raised,roadBox);
+        updateLocalColliders(activeCity.roads,raised,roadBox,'road');
       }
       updateLocalColliders(activeCity.guardrails,nearbyItems(cityMap.nearbyGuardrails?.bind(cityMap),cityMap.guardrails||[],x,z,radius),r=>
-        box(r.x,r.y,r.z,r.width/2,r.height/2,r.length/2,r.pitch||0,r.yaw||0));
+        box(r.x,r.y,r.z,r.width/2,r.height/2,r.length/2,r.pitch||0,r.yaw||0),'guardrail');
       updateLocalColliders(activeCity.supports,nearbyItems(cityMap.nearbySupports?.bind(cityMap),cityMap.supports||[],x,z,radius),s=>
-        box(s.x,s.y,s.z,s.width/2,s.height/2,s.depth/2));
+        box(s.x,s.y,s.z,s.width/2,s.height/2,s.depth/2),'support');
     }
     if (isCity && !streamingCity) {
       for (const building of cityMap.buildings) box(building.x,(building.baseY||0)+building.height/2,building.z,building.width/2,building.height/2,building.depth/2);
