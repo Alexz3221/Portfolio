@@ -24,7 +24,7 @@ test('imported collision remaps GLB indices above the signed 16-bit CANNON limit
     'the former wrapped-index triangle is a physical surface');
 });
 
-test('Race Game native asphalt supports driving from the grid and a finish runout', async () => {
+test('Race Game native asphalt supports the full loop, underpass and bridge', async () => {
   const fakeThree = {...ThreeBase};
   fakeThree.TextureLoader = class {
     setCrossOrigin(){return this;}
@@ -44,8 +44,8 @@ test('Race Game native asphalt supports driving from the grid and a finish runou
   const loaded = await imported.load('racegame');
   assert.ok(loaded.collisionMeshes.length>=10,'the reachable model mesh chunks are included');
   const triangles=loaded.collisionMeshes.reduce((sum,mesh)=>sum+mesh.indices.length/3,0);
-  assert.ok(triangles>80000&&triangles<120000,
-    `native collision keeps the course surfaces while dropping distant detail (${triangles})`);
+  assert.ok(triangles>150000&&triangles<230000,
+    `native collision keeps full road, bridge and terrain tops without all decoration (${triangles})`);
   assert.equal(sim.addCourseCollisionMeshes(loaded.collisionMeshes),true);
   function nativeRoadAt(x,z) {
     const hits=[];
@@ -54,43 +54,74 @@ test('Race Game native asphalt supports driving from the grid and a finish runou
     });
     return hits.some(y=>Math.abs(y-.87)<.2);
   }
-  for (const [x,z] of [[56,-3],[56,-13],[56,-35],[53,-38],[-50,-13],[-50,-5]])
+  for (const [x,z] of [[55,-27],[55,-19.4],[55,0],[45,20],[-45,25],
+    [-32,44],[-5,20],[-5,0],[10,-26],[35,-7],[-50,-13],[10,-45]])
     assert.ok(nativeRoadAt(x,z),`visible asphalt at (${x}, ${z}) has native physics triangles`);
+  function nativeSurfaceAt(x,z,y,tolerance=.25) {
+    const hits=[];
+    sim.world.raycastAll(new Cannon.Vec3(x,12,z),new Cannon.Vec3(x,-6,z),{},hit=>{
+      if(hit.shape.type===Cannon.Shape.types.TRIMESH)hits.push(hit.hitPointWorld.y);
+    });
+    return hits.some(top=>Math.abs(top-y)<tolerance);
+  }
+  for(const [x,z,y] of [[-5,0,.83],[30,-4,.94],[20,-4,1.31],
+    [10,-4,5.15],[0,-4,6.91],[-20,-4,6.01],[-30,-4,2.02]])
+    assert.ok(nativeSurfaceAt(x,z,y),
+      `the underpass or central bridge at (${x}, ${z}) has a collider at ${y} m`);
+  const unsupported=[];
+  for(let index=0;index<course.route.length;index+=2) {
+    const point=course.route[index];
+    if(point.kind==='gap')continue;
+    if(!nativeSurfaceAt(point.x,point.z,point.y,.45))
+      unsupported.push({index,x:point.x,z:point.z,y:point.y});
+  }
+  assert.deepEqual(unsupported,[],
+    'every sampled section of the full lap follows the model at the correct height');
+  const gapHits=[];
+  sim.world.raycastAll(new Cannon.Vec3(-5,10,20),new Cannon.Vec3(-5,2,20),{},
+    hit=>gapHits.push(hit.hitPointWorld.y));
+  assert.deepEqual(gapHits,[],
+    'the modeled jump remains open above the central underpass');
+  for(const [x,z,y] of [[-5,0,.83],[10,-4,5.15],[0,-4,6.91],[-30,-4,2.02]]) {
+    sim.reset();
+    sim.body.position.set(x,y+1.1,z);
+    sim.body.velocity.setZero();
+    for(let frame=0;frame<180;frame++)sim.step(1/120);
+    assert.ok(sim.body.position.y>y+.45 && sim.car.wheelInfos.filter(w=>w.isInContact).length>=3,
+      `the car rests on the model's ${y>1?'bridge':'underpass'} instead of sinking`);
+  }
   sim.reset();
   for(let frame=0;frame<320;frame++)sim.step(1/120,{throttle:1});
-  assert.ok(sim.body.position.z < -30 && sim.body.position.y > 1.2,
-    'the car drives from the grid through the first straight without sinking');
-  for(const [x,z,heading] of [[53,-38,-2.29],[45,-45,-Math.PI/2],[0,-45,-Math.PI/2],[-50,-37,0]]) {
+  assert.ok(sim.body.position.z > -20 && sim.body.position.y > 1.2,
+    'the car crosses the native checkerboard stripe in the course direction');
+  for(const [x,z,heading] of [[55,0,0],[45,20,-Math.PI/2],
+    [-47,30,0],[-5,20,Math.PI],[10,-26,Math.PI/2],
+    [-50,-25,Math.PI],[0,-45,Math.PI/2]]) {
     sim.reset(x,z,heading);
     for(let frame=0;frame<180;frame++)sim.step(1/120);
     assert.ok(sim.body.position.y>1.1 && sim.car.wheelInfos.filter(w=>w.isInContact).length>=3,
-      `the physical car settles on the visible outer road at (${x}, ${z})`);
+      `the physical car settles on the native route at (${x}, ${z})`);
   }
-  sim.reset(-50,-13,0);
+  sim.reset(55,-19.4,0);
   for(let frame=0;frame<180;frame++)sim.step(1/120);
   assert.ok(sim.car.wheelInfos.every(wheel=>wheel.isInContact),
-    'the finish gate sits on solid asphalt with runout beyond it');
-  // Follow the authored bend at a speed the actual road geometry can hold.
-  // A straight 43 mph launch leaves this sharp curve and strikes its curb.
-  sim.reset();
-  for(let frame=0;frame<750;frame++) {
-    const pos=sim.body.position;
-    let nearest=0,least=Infinity;
-    course.route.forEach((point,index)=>{
-      const distance=Math.hypot(pos.x-point.x,pos.z-point.z);
-      if(distance<least){least=distance;nearest=index;}
-    });
-    const target=course.route[Math.min(course.route.length-1,nearest+4)];
-    const forward=sim.body.quaternion.vmult(new Cannon.Vec3(0,0,1));
-    const heading=Math.atan2(forward.x,forward.z);
-    const targetHeading=Math.atan2(target.x-pos.x,target.z-pos.z);
-    const error=Math.atan2(Math.sin(targetHeading-heading),Math.cos(targetHeading-heading));
-    const speed=sim.body.velocity.length();
-    sim.step(1/120,{throttle:speed<9?1:0,brake:speed>10,
-      steer:Math.max(-1,Math.min(1,error*2.4))});
+    'the native start and finish stripe sits on solid asphalt');
+  for(const car of ['hypercar','rally']) {
+    const driver=car==='hypercar'?sim:physics.create({map:'racetrack',courseId:'racegame',course,car});
+    if(driver!==sim)assert.equal(driver.addCourseCollisionMeshes(loaded.collisionMeshes),true);
+    driver.reset(45,20,-Math.PI/2);
+    let jumped=false;
+    for(let frame=0;frame<950;frame++) {
+      const speed=driver.body.velocity.length();
+      driver.step(1/120,{throttle:speed<12.5,brake:speed>13.5});
+      const position=driver.body.position;
+      if(position.x<-2.5&&position.x>-12.5&&position.y>5&&
+        driver.car.wheelInfos.every(wheel=>!wheel.isInContact))jumped=true;
+    }
+    const position=driver.body.position;
+    assert.ok(jumped,`${car} actually flies over the native opening`);
+    assert.ok(position.x<-25&&Math.abs(position.z-20)<2.5&&position.y>1.2&&
+      driver.car.wheelInfos.filter(wheel=>wheel.isInContact).length>=3,
+    `${car} lands on the west road at about 28 mph and keeps driving`);
   }
-  assert.ok(sim.body.position.x<40 && sim.body.position.z<-40 && sim.body.position.y>1.2,
-    'a controlled turn drives across the first outer bend on the physical road');
-  assert.ok(sim.car.wheelInfos.filter(wheel=>wheel.isInContact).length>=3,
-    'the car stays grounded after the first bend');
 });

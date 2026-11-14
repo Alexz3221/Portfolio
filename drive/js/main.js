@@ -37,9 +37,9 @@
   let selectedMap = 'city';
   const raceCourses = {
     racetrack: {name: 'Stunt course', caption: maps.racetrack.caption},
-    rainbowroad: {name: 'Rainbow Sprint', caption: 'Rainbow Sprint · reach the finish without falling', loop: false, revision: 2},
-    racegame: {name: 'Race Game Outer Run', caption: 'Race Game Outer Run · painted asphalt', loop: false, revision: 2},
-    bangkok: {name: 'Bangkok Street Sprint', caption: 'Bangkok Street Sprint · follow the city road to the finish', loop: false, revision: 2}
+    rainbowroad: {name: 'Rainbow Road', caption: 'Rainbow Road · full native course', loop: true, revision: 3},
+    racegame: {name: 'Race Game Circuit', caption: 'Race Game Circuit · full native lap', loop: true, revision: 3},
+    bangkok: {name: 'Bangkok Rush', caption: 'Bangkok Rush · full native street run', loop: false, revision: 3}
   };
   let selectedCourse = 'racetrack';
   const coursePicker = document.querySelector('#coursePicker');
@@ -232,7 +232,7 @@
         ground.geometry.computeVertexNormals();
       }
       ground.rotation.x = -Math.PI / 2;
-      ground.position.y = imported ? physics.terrainHeight(0, 0) : 0;
+      ground.position.y = imported ? physics.terrainHeight(0, 0) + (importedCourse.groundVisualOffset || 0) : 0;
       ground.name = 'terrain';
       ground.receiveShadow = true;
       world.add(ground);
@@ -358,7 +358,26 @@
       // It also keeps this time trial usable if a local asset is unavailable.
       const fallback = new THREE.Group();
       fallback.name = 'imported-course-fallback';
-      const route = importedCourse.route, count = route.length - (importedCourse.loop === false ? 1 : 0);
+      const route = importedCourse.route;
+      const last = route.at(-1),runout = importedCourse.finishRunout || 0;
+      const renderRoute = importedCourse.loop === false && runout > 0
+        ? [...route,{...last,x:last.x+last.tx*runout,z:last.z+last.tz*runout}]
+        : route;
+      const count = renderRoute.length - (importedCourse.loop === false ? 1 : 0);
+      const nearestRouteIndex = point => {
+        let at=0, distance=Infinity;
+        for(let index=0;index<route.length;index++) {
+          const sample=route[index];
+          const delta=Math.hypot(sample.x-point.x,sample.y-point.y,sample.z-point.z);
+          if(delta<distance){distance=delta;at=index;}
+        }
+        return at;
+      };
+      const transferGaps=(importedCourse.transfers||[]).map(link=>({
+        from:nearestRouteIndex(link.from),to:nearestRouteIndex(link.to)
+      }));
+      const gapAt=index=>route[index]?.kind==='gap'||
+        transferGaps.some(gap=>index>=gap.from&&index<gap.to);
       const rainbow = selectedCourse === 'rainbowroad';
       const colors = rainbow ? [0xff4646,0xff9a38,0xffed4b,0x57d872,0x4dbaf8,0x6f74f7,0xbc6ff7] : [0x45535a];
       for (let stripe = 0; stripe < colors.length; stripe++) {
@@ -366,13 +385,13 @@
         const sideA = -importedCourse.width / 2 + importedCourse.width * stripe / colors.length;
         const sideB = -importedCourse.width / 2 + importedCourse.width * (stripe + 1) / colors.length;
         for (let index = 0; index <= count; index++) {
-          const p = route[index % route.length], tangent = new THREE.Vector3(p.tx,0,p.tz);
+          const p = renderRoute[index % renderRoute.length], tangent = new THREE.Vector3(p.tx,0,p.tz);
           const normal = new THREE.Vector3(-tangent.z,0,tangent.x);
           for (const side of [sideA,sideB]) {
             const point = new THREE.Vector3(p.x,p.y+.035,p.z).addScaledVector(normal,side);
             vertices.push(point.x,point.y,point.z);
           }
-          if (index < count) {
+          if (index < count && !gapAt(index)) {
             const at = index * 2;
             indices.push(at,at+1,at+2,at+1,at+3,at+2);
           }
@@ -890,9 +909,10 @@
     let nearest = Infinity, next = ghost.progress;
     const advance = selectedCourse === 'racetrack' ? 12
       : Math.max(3, Math.ceil(body.velocity.length() * delta / 2) + 2);
+    const routeHeightWeight = activeCourse()?.routeHeightWeight ?? .3;
     for (let index = Math.max(0, ghost.progress - 2); index <= Math.min(loop ? count : count - 1, ghost.progress + advance); index++) {
       const point = route[loop ? index % count : index];
-      const distance = Math.hypot(point.x - pos.x, point.z - pos.z, (point.y + 1 - pos.y) * .3);
+      const distance = Math.hypot(point.x - pos.x, point.z - pos.z, (point.y + 1 - pos.y) * routeHeightWeight);
       if (distance < nearest) { nearest = distance; next = index; }
     }
     const routeTolerance = selectedCourse === 'racetrack' ? 10
@@ -977,7 +997,13 @@
     const pointToPoint = isRaceCourse() && activeCourse()?.loop === false;
     const start = pointToPoint ? activeRoute()[0] : null;
     const back = activeCourse()?.spawnBack ?? 8;
-    const spawn = pointToPoint ? {
+    const authoredSpawn = isRaceCourse() && selectedCourse !== 'racetrack'
+      ? activeCourse()?.spawn : null;
+    const spawnHeading = authoredSpawn?.heading ?? Math.atan2(activeRoute()[0].tx,activeRoute()[0].tz);
+    const spawn = authoredSpawn ? {
+      point: new THREE.Vector3(authoredSpawn.x,authoredSpawn.y,authoredSpawn.z),
+      tangent: new THREE.Vector3(Math.sin(spawnHeading),0,Math.cos(spawnHeading))
+    } : pointToPoint ? {
       point: new THREE.Vector3(start.x - start.tx * back, start.y, start.z - start.tz * back),
       tangent: new THREE.Vector3(start.tx, 0, start.tz)
     } : isRaceCourse() ? samples[samples.length - 2] : samples[0];
@@ -1001,6 +1027,7 @@
     if (!physics) return;
     const body = physics.body;
     const x = body.position.x, z = body.position.z, previousY = body.position.y;
+    const assist = physics.getAssistState?.();
     const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(body.quaternion);
     const heading = Math.hypot(forward.x, forward.z) > .12
       ? Math.atan2(forward.x, forward.z) : motion.heading;
@@ -1010,6 +1037,7 @@
     // Preserve an elevated deck or an airborne recovery instead of dropping
     // the car to the terrain underneath its current position.
     body.position.y = Math.max(body.position.y, previousY + .45);
+    physics.restoreAssistState?.(assist);
     physics.syncRenderState();
     motion.speed = 0;
     motion.heading = heading;
@@ -1115,6 +1143,7 @@
     const changed = type !== selectedCar;
     if (changed) cancelGhostRun('Car changed. Start a new ghost run when ready.');
     if (type !== selectedCar && physics) {
+      const assist=physics.getAssistState?.();
       const previous=physics.body;
       selectedCar=type;
       buildWorld();
@@ -1123,6 +1152,7 @@
       physics.body.position.copy(previous.position);
       physics.body.position.y+=.2;
       physics.body.quaternion.copy(previous.quaternion);
+      physics.restoreAssistState?.(assist);
       physics.syncRenderState();
       releaseControls();motion.speed=0;
       document.querySelectorAll('[data-key]').forEach(button=>button.classList.remove('pressed'));
@@ -1321,14 +1351,17 @@
       else model.rearLamp.color.setHex(braking?0xff8090:0xff354e);
       document.querySelector('#speedValue').textContent=String(Math.round(physics.body.velocity.length()*2.236936));
       const up=new THREE.Vector3(0,1,0).applyQuaternion(vehicle.quaternion);
+      const importedLowRoad = isRaceCourse() && selectedCourse !== 'racetrack'
+        ? Math.min(...activeRoute().map(point => point.y)) : null;
       const courseFallHeight = isRaceCourse()
-        ? selectedCourse === 'racetrack' ? -2 : activeRoute()[0].y - 8 : -Infinity;
+        ? selectedCourse === 'racetrack' ? -2 : importedLowRoad - 8 : -Infinity;
       document.querySelector('#surfaceValue').textContent=isRaceCourse()&&physics.body.position.y<courseFallHeight
-        ?'Fell off course · Press R / Reset':up.y<.1?'Overturned? Press F / flip in place'
+        ?'Fell off course · Press R / Reset':state.guided?'ANTI-GRAVITY · FOLLOWING TRACK'
+        :state.gliding?'GLIDING TO NEXT ROAD':up.y<.1?'Overturned? Press F / flip in place'
         :state.grounded?state.grounded+' wheels grounded':'AIRBORNE · ↑↓ pitch / ←→ roll';
       const fallLimit=selectedMap==='city' && city.terrain
         ? physics.terrainHeight(physics.body.position.x,physics.body.position.z)-30
-        : isRaceCourse() && selectedCourse !== 'racetrack' ? activeRoute()[0].y - 30 : -30;
+        : importedLowRoad !== null ? importedLowRoad - 30 : -30;
       if(physics.body.position.y < fallLimit) resetVehicle();
       return;
     }

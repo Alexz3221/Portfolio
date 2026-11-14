@@ -57,6 +57,12 @@ function memoryStorage() {
     setItem: (key, value) => values.set(key, value), values
   };
 }
+function fallbackHasSegment(world,index) {
+  const road=world.getObjectByName('imported-course-road');
+  assert.ok(road,'the loading road is visible before the model arrives');
+  return Array.from(road.geometry.index.array).some((vertex,position)=>
+    position%6===0&&vertex===index*2);
+}
 
 test('ghost car and pace are independent of the player car, and playback has no collider', () => {
   const {sim, document} = context.makeGhostHarness();
@@ -178,7 +184,7 @@ test('point-to-point timing requires forward start and finish crossings and keep
   place(finish, 1, 4);
   assert.equal(sim.ghost.running, false);
   assert.equal(sim.ghost.progress, importedRoute.length);
-  assert.ok(storage.values.get(PersonalBest.KEY + ':rainbowroad:v2'));
+  assert.ok(storage.values.get(PersonalBest.KEY + ':rainbowroad:v3'));
   assert.equal(storage.values.get(PersonalBest.KEY), undefined, 'original stunt best is isolated');
   select.value = 'racetrack';
   select.listeners.change({target: select});
@@ -188,7 +194,7 @@ test('point-to-point timing requires forward start and finish crossings and keep
   assert.notEqual(document.querySelector('#ghostBestValue').textContent, '—');
 });
 
-test('Race Game finishes after the ordered outer run and saves a best', () => {
+test('Race Game completes a full native lap at its checker and saves a best', () => {
   const storage = memoryStorage();
   const {sim, document} = context.makeGhostHarness(storage);
   sim.chooseMap('racetrack');
@@ -197,6 +203,12 @@ test('Race Game finishes after the ordered outer run and saves a best', () => {
   select.value = 'racegame';
   select.listeners.change({target:select});
   const route = ImportedCourses.getCourse('racegame').route;
+  const jump=route.findIndex(point=>point.kind==='gap');
+  assert.ok(jump>0);
+  assert.equal(fallbackHasSegment(sim.world,jump),false,
+    'the loading road leaves the native stunt jump visually open');
+  assert.equal(fallbackHasSegment(sim.world,jump-1),true,
+    'the loading road still shows the launch ramp');
   const body = sim.physics().body;
   const start = route[0];
   function place(point, along = 0) {
@@ -208,10 +220,72 @@ test('Race Game finishes after the ordered outer run and saves a best', () => {
   place(start, -1);
   place(start, 1);
   assert.equal(sim.ghost.running, true);
+  place(start, -1);
+  place(start, 1);
+  assert.equal(sim.ghost.running, true, 'an early checker recross does not finish the lap');
   for (let index = 1; index < route.length && sim.ghost.running; index++) place(route[index]);
-  assert.equal(sim.ghost.running, false, 'the visible finish ends the ordered run');
-  assert.match(document.querySelector('#ghostStatus').textContent, /personal best|Finish reached/);
-  assert.ok(storage.values.get(PersonalBest.KEY + ':racegame:v2'));
+  place(start, -1);
+  place(start, 1);
+  assert.equal(sim.ghost.running, false, 'the checker ends the complete ordered lap');
+  assert.match(document.querySelector('#ghostStatus').textContent, /personal best|Lap complete/);
+  assert.ok(storage.values.get(PersonalBest.KEY + ':racegame:v3'));
+});
+
+test('Race Game course ghost slows for the modelled jump', () => {
+  const course = ImportedCourses.getCourse('racegame');
+  const zone = course.ghostSpeedZones[0];
+  const nearest = point => course.route.reduce((best,sample,index) => {
+    const distance = Math.hypot(sample.x-point.x,sample.y-point.y,sample.z-point.z);
+    return distance < best.distance ? {index,distance} : best;
+  },{index:-1,distance:Infinity}).index;
+  const from = nearest(zone.from), to = nearest(zone.to);
+  const trace = course.ghostTraces.comet;
+  const at = progress => trace.frames.findIndex(frame => frame[7] >= progress) * trace.dt;
+  let distance = 0;
+  for(let index = from; index < to; index++) {
+    const a = course.route[index],b = course.route[index+1];
+    distance += Math.hypot(a.x-b.x,a.y-b.y,a.z-b.z);
+  }
+  const speed = distance/(at(to)-at(from));
+  assert.ok(speed > 11 && speed < 14,`ghost jump speed is ${speed.toFixed(1)} m/s`);
+});
+
+test('Rainbow Road does not reset the car on its lower native sections', () => {
+  const nativeImportedCourses = {getCourse:ImportedCourses.getCourse,
+    load:() => new Promise(() => {})};
+  const nativeContext = vm.createContext({require,__dirname,console,ghostTraces,
+    PersonalBest,importedCourses:nativeImportedCourses});
+  vm.runInContext(configuredSource + ';globalThis.makeGhostHarness=harness;',nativeContext);
+  const {sim,document} = nativeContext.makeGhostHarness();
+  sim.chooseMap('racetrack');
+  const select = document.querySelector('#courseSelect');
+  select.blur = () => {};
+  select.value = 'rainbowroad';
+  select.listeners.change({target:select});
+  const rainbow = ImportedCourses.getCourse('rainbowroad');
+  for(const link of rainbow.transfers) {
+    const from=rainbow.route.findIndex(point=>Math.hypot(point.x-link.from.x,
+      point.y-link.from.y,point.z-link.from.z)<.01);
+    const to=rainbow.route.findIndex(point=>Math.hypot(point.x-link.to.x,
+      point.y-link.to.y,point.z-link.to.z)<.01);
+    assert.ok(from>0&&to>from);
+    assert.equal(fallbackHasSegment(sim.world,from),false,
+      'the loading ribbon shows open air at the guided flight');
+    assert.equal(fallbackHasSegment(sim.world,to),true,
+      'the loading ribbon resumes on the landing road');
+  }
+  sim.resetVehicle();
+  assert.ok(Math.hypot(sim.physics().body.position.x-rainbow.spawn.x,
+    sim.physics().body.position.z-rainbow.spawn.z)<.01,
+  'reset honors the imported loop start behind its native checker');
+  const lower = rainbow.route.reduce((lowest,point) =>
+    point.y < lowest.y ? point : lowest);
+  const body = sim.physics().body;
+  body.position.set(lower.x,lower.y+1.1,lower.z);
+  body.velocity.setZero();
+  sim.updateVehicle(1/60);
+  assert.ok(body.position.y < 35,'the lower modeled road does not trigger reset to the upper grid');
+  assert.doesNotMatch(document.querySelector('#surfaceValue').textContent,/Fell off course/);
 });
 
 test('a late car model upgrades the ghost without changing the player asset', () => {
