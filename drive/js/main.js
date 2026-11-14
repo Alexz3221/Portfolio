@@ -524,13 +524,7 @@
     return {group, wheels, rearLamp};
   }
 
-  Object.entries(carSpecs).forEach(([type, spec]) => {
-    if (type === 'u9xtreme' && typeof DriveU9XtremeModel !== 'undefined') {
-      carModels[type] = DriveU9XtremeModel.build(THREE, spec);
-      carModels[type].group.visible = false;
-      vehicle.add(carModels[type].group);
-    } else carModels[type] = buildCar(type, spec);
-  });
+  Object.entries(carSpecs).forEach(([type, spec]) => { carModels[type] = buildCar(type, spec); });
   function modelStatus(type) {
     if (type === 'u9xtreme') return carModels[type].assetState === 'ready' ? 'Ddiaz Design · CC BY-NC-SA'
       : carModels[type].assetState === 'failed' ? 'U9 Xtreme model unavailable · fallback visual' : 'Loading U9 Xtreme model…';
