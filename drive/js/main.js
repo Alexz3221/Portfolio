@@ -10,6 +10,7 @@
   const clock = new THREE.Clock();
   const keys = new Set();
   const keyboardKeys = new Set(), touchPointers = new Map();
+  let driveFocused = true;
   const vehicle = new THREE.Group();
   const vehicleFrame = new THREE.Group();
   vehicleFrame.add(vehicle);
@@ -41,6 +42,27 @@
   let portfolio = null;
   const carModels = {};
   let selectedCar = 'comet';
+  const ghostUI = {
+    panel: document.querySelector('#ghostPanel'),
+    enabled: document.querySelector('#ghostEnabled'),
+    car: document.querySelector('#ghostCar'),
+    pace: document.querySelector('#ghostPace'),
+    start: document.querySelector('#ghostStartButton'),
+    status: document.querySelector('#ghostStatus'),
+    hud: document.querySelector('#ghostHud'),
+    time: document.querySelector('#ghostTimeValue'),
+    gap: document.querySelector('#ghostGapValue')
+  };
+  const ghostFrame = new THREE.Group(), ghostVehicle = new THREE.Group();
+  ghostFrame.name = 'ghost-racer';
+  ghostFrame.add(ghostVehicle);
+  ghostFrame.visible = false;
+  scene.add(ghostFrame);
+  const ghost = {
+    model: null, car: null, running: false, elapsed: 0, progress: 0,
+    rate: 1, trace: null, wheelRotation: 0, lastPosition: new THREE.Vector3()
+  };
+  let ghostTraceLoad = null;
   let cameraMode = 0;
   const orbit = {yaw: 0, pitch: 0, idle: 4, pointer: null, x: 0, y: 0};
   function resetOrbit() { orbit.yaw = 0; orbit.pitch = 0; orbit.idle = 4; orbit.pointer = null; }
@@ -141,6 +163,7 @@
     cityVisual = null;
     world.scale.z = mirroredCityView() ? -1 : 1;
     vehicleFrame.scale.z = world.scale.z;
+    ghostFrame.scale.z = world.scale.z;
     geometries.forEach(geometry => geometry.dispose());
     materials.forEach(material => material.dispose());
     textures.forEach(texture => texture.dispose());
@@ -425,7 +448,7 @@
     return mesh;
   }
 
-  function buildCar(type, spec) {
+  function buildCar(type, spec, parent = vehicle) {
     const group = new THREE.Group();
     const paint = new THREE.MeshStandardMaterial({color: spec.color, metalness: .68, roughness: .28});
     const trim = new THREE.MeshStandardMaterial({color: 0x172126, metalness: .25, roughness: .65});
@@ -520,11 +543,175 @@
     glow.position.y = .04;
     group.add(glow);
     group.visible = false;
-    vehicle.add(group);
+    parent.add(group);
     return {group, wheels, rearLamp};
   }
 
   Object.entries(carSpecs).forEach(([type, spec]) => { carModels[type] = buildCar(type, spec); });
+  function formatGhostTime(seconds) {
+    const tenths = Math.floor(Math.max(0, seconds) * 10);
+    return Math.floor(tenths / 600) + ':' + String(Math.floor(tenths / 10) % 60).padStart(2, '0') + '.' + tenths % 10;
+  }
+  function ghostCar() { return ghostUI.car.value === 'match' ? selectedCar : ghostUI.car.value; }
+  function ghostRate() { return {relaxed:.88, standard:1, quick:1.12}[ghostUI.pace.value] || 1; }
+  function disposeGhostModel() {
+    if (!ghost.model) return;
+    const geometries = new Set(), materials = new Set();
+    ghost.model.group.traverse(object => {
+      if (object.geometry) geometries.add(object.geometry);
+      if (object.material) [].concat(object.material).forEach(material => materials.add(material));
+    });
+    ghostVehicle.remove(ghost.model.group);
+    geometries.forEach(geometry => geometry.dispose());
+    materials.forEach(material => material.dispose());
+    ghost.model = null;
+  }
+  function buildGhostModel(type) {
+    disposeGhostModel();
+    ghost.model = buildCar(type, carSpecs[type], ghostVehicle);
+    ghost.model.group.visible = true;
+    const materials = new Set();
+    ghost.model.group.traverse(object => {
+      if (!object.isMesh) return;
+      object.castShadow = object.receiveShadow = false;
+      object.renderOrder = 1;
+      [].concat(object.material).forEach(material => materials.add(material));
+    });
+    const tint = new THREE.Color(0xbaf9ff);
+    materials.forEach(material => {
+      material.color?.lerp(tint, .3);
+      material.transparent = true;
+      material.opacity = material.opacity < .2 ? .16 : .48;
+      material.depthWrite = false;
+      if (material.emissive) { material.emissive.setHex(0x275c67); material.emissiveIntensity = .35; }
+    });
+    ghost.car = type;
+    ghost.wheelRotation = 0;
+  }
+  const ghostPosition = new THREE.Vector3(), ghostQuaternion = new THREE.Quaternion();
+  const ghostNextQuaternion = new THREE.Quaternion(), ghostOffset = new THREE.Vector3();
+  function setGhostPose(time) {
+    if (!ghost.trace || !ghost.model) return;
+    const {frames, dt} = ghost.trace;
+    const index = Math.min(frames.length - 2, Math.max(0, Math.floor(time / dt)));
+    const blend = THREE.MathUtils.clamp(time / dt - index, 0, 1);
+    const a = frames[index], b = frames[index + 1];
+    ghostPosition.set(a[0], a[1], a[2]).lerp(ghostOffset.set(b[0], b[1], b[2]), blend);
+    // Give the non-colliding ghost its own start lane, then merge onto its recorded line.
+    const start = DrivePhysics.stuntRoute[0], merge = Math.max(0, 1 - time / 5) ** 2;
+    ghostPosition.x += (start.tx * 1.5 - start.tz * 1.7) * merge;
+    ghostPosition.z += (start.tz * 1.5 + start.tx * 1.7) * merge;
+    ghostQuaternion.set(a[3], a[4], a[5], a[6]);
+    ghostNextQuaternion.set(b[3], b[4], b[5], b[6]);
+    ghostQuaternion.slerp(ghostNextQuaternion, blend).normalize();
+    if (time > 0) ghost.wheelRotation += ghostPosition.distanceTo(ghost.lastPosition) / carSpecs[ghost.car].radius;
+    ghost.lastPosition.copy(ghostPosition);
+    ghostVehicle.quaternion.copy(ghostQuaternion);
+    ghostVehicle.position.copy(ghostPosition).add(ghostOffset.set(0, -1.05, 0).applyQuaternion(ghostQuaternion));
+    ghost.model.wheels.forEach(({wheel}) => { wheel.rotation.x = -ghost.wheelRotation; });
+  }
+  function cancelGhostRun(message) {
+    ghost.running = false;
+    ghost.elapsed = 0;
+    ghost.progress = 0;
+    ghost.wheelRotation = 0;
+    ghostUI.hud.hidden = true;
+    ghostUI.start.textContent = 'START GHOST RUN';
+    if (message) ghostUI.status.textContent = message;
+    if (ghost.trace && ghost.model) setGhostPose(0);
+  }
+  function refreshGhostSetup() {
+    const onTrack = selectedMap === 'racetrack';
+    ghostUI.panel.hidden = !onTrack;
+    if (!onTrack) { ghostFrame.visible = false; ghostUI.hud.hidden = true; return; }
+    const enabled = !!ghostUI.enabled.checked;
+    ghostUI.car.disabled = ghostUI.pace.disabled = !enabled;
+    const type = ghostCar(), trace = globalThis.DriveGhostTraces?.[type];
+    ghostUI.start.disabled = !enabled || !trace;
+    if (!enabled) { ghostFrame.visible = false; ghostUI.status.textContent = 'Ghost off. Free drive is still available.'; return; }
+    if (!trace) { ghostFrame.visible = false; ghostUI.status.textContent = 'Loading ghost laps…'; return; }
+    if (ghost.car !== type) buildGhostModel(type);
+    ghost.trace = trace;
+    ghost.rate = ghostRate();
+    ghostFrame.visible = true;
+    setGhostPose(0);
+    ghostUI.status.textContent = carSpecs[type].name + ' replay · target ' + formatGhostTime(trace.lapTime / ghost.rate) + '. No collisions. Start a run.';
+  }
+  function loadGhostTraces() {
+    if (globalThis.DriveGhostTraces) return Promise.resolve(globalThis.DriveGhostTraces);
+    if (ghostTraceLoad) return ghostTraceLoad;
+    if (!document.createElement || !document.head?.appendChild) return Promise.resolve(null);
+    ghostTraceLoad = new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = 'js/ghost-traces.js?v=1';
+      script.onload = () => resolve(globalThis.DriveGhostTraces || null);
+      script.onerror = () => reject(new Error('Ghost lap data could not load'));
+      document.head.appendChild(script);
+    }).catch(error => { ghostTraceLoad = null; console.warn(error); return null; });
+    return ghostTraceLoad;
+  }
+  function startGhostRun() {
+    if (selectedMap !== 'racetrack' || !ghostUI.enabled.checked) return;
+    refreshGhostSetup();
+    if (!ghost.trace || !ghost.model) return;
+    resetVehicle();
+    ghost.running = true;
+    ghost.done = false;
+    ghost.elapsed = 0;
+    ghost.progress = 0;
+    ghost.wheelRotation = 0;
+    setGhostPose(0);
+    ghostUI.hud.hidden = false;
+    ghostUI.time.textContent = '0:00.0';
+    ghostUI.gap.textContent = 'EVEN';
+    ghostUI.start.textContent = 'RESTART GHOST RUN';
+    ghostUI.status.textContent = 'Go! Beat the ' + carSpecs[ghost.car].name + ' ghost.';
+    canvas.focus?.({preventScroll:true});
+  }
+  function ghostTimeAtProgress(progress) {
+    const frames = ghost.trace.frames;
+    let low = 0, high = frames.length - 1;
+    while (low < high) {
+      const mid = (low + high) >> 1;
+      if (frames[mid][7] < progress) low = mid + 1;
+      else high = mid;
+    }
+    return low * ghost.trace.dt / ghost.rate;
+  }
+  function updateGhostRun(delta) {
+    if (!ghost.running || !delta) return;
+    const body = physics.body;
+    ghost.elapsed += delta;
+    setGhostPose(Math.min(ghost.elapsed * ghost.rate, ghost.trace.duration));
+    ghostUI.time.textContent = formatGhostTime(ghost.elapsed);
+    if (body.position.y < -2) {
+      ghost.running = false;
+      ghostUI.start.textContent = 'TRY AGAIN';
+      ghostUI.status.textContent = 'Run ended: fell off the course. Start again to retry.';
+      return;
+    }
+    const route = DrivePhysics.stuntRoute, count = route.length, pos = body.position;
+    let nearest = Infinity, next = ghost.progress;
+    for (let index = Math.max(0, ghost.progress - 2); index <= Math.min(count, ghost.progress + 12); index++) {
+      const point = route[index % count];
+      const distance = Math.hypot(point.x - pos.x, point.z - pos.z, (point.y + 1 - pos.y) * .3);
+      if (distance < nearest) { nearest = distance; next = index; }
+    }
+    if (nearest < 10) ghost.progress = Math.max(ghost.progress, next);
+    const gap = ghost.elapsed - ghostTimeAtProgress(ghost.progress);
+    ghostUI.gap.textContent = Math.abs(gap) < .15 ? 'EVEN' :
+      Math.abs(gap).toFixed(1) + 's ' + (gap > 0 ? 'behind' : 'ahead');
+    if (ghost.progress >= count) {
+      ghost.running = false;
+      const difference = ghost.trace.lapTime / ghost.rate - ghost.elapsed;
+      ghostUI.start.textContent = 'RACE AGAIN';
+      ghostUI.status.textContent = 'Finished in ' + formatGhostTime(ghost.elapsed) + ' · ' +
+        (difference >= 0 ? 'beat' : 'behind') + ' the ghost by ' + Math.abs(difference).toFixed(1) + 's.';
+    } else if (!ghost.done && ghost.elapsed >= ghost.trace.lapTime / ghost.rate) {
+      ghost.done = true;
+      ghostUI.status.textContent = 'Ghost finished in ' + formatGhostTime(ghost.trace.lapTime / ghost.rate) + '. Keep going!';
+    }
+  }
   function modelStatus(type) {
     if (type === 'u9xtreme') return carModels[type].assetState === 'ready' ? 'Ddiaz Design · CC BY-NC-SA'
       : carModels[type].assetState === 'failed' ? 'U9 Xtreme model unavailable · fallback visual' : 'Loading U9 Xtreme model…';
@@ -568,6 +755,7 @@
   }
   scene.add(vehicleFrame);
   function resetVehicle() {
+    if (ghost.running) cancelGhostRun('Run reset. Start a new ghost run when ready.');
     resetOrbit();
     const spawn = samples[0];
     if (physics) physics.reset(spawn.point.x,spawn.point.z,Math.atan2(spawn.tangent.x,spawn.tangent.z));
@@ -628,6 +816,7 @@
   }
   function chooseMap(type) {
     if (!maps[type]) return;
+    cancelGhostRun();
     selectedMap = type;
     buildWorld();
     document.querySelector('.garage').style.display = '';
@@ -636,11 +825,19 @@
     document.querySelector('#resetButton').textContent = '↺ BACK TO ROAD';
     chooseCar(selectedCar);
     document.querySelector('#mapSelect').value = type;
+    refreshGhostSetup();
+    if (type === 'racetrack') loadGhostTraces().then(traces => {
+      if (selectedMap !== 'racetrack') return;
+      refreshGhostSetup();
+      if (!traces) ghostUI.status.textContent = 'Ghost laps unavailable. Free drive still works.';
+    });
   }
   chooseMap('city');
 
   function chooseCar(type) {
     if (!carModels[type]) return;
+    const changed = type !== selectedCar;
+    if (changed) cancelGhostRun('Car changed. Start a new ghost run when ready.');
     if (type !== selectedCar && physics) {
       const previous=physics.body;
       selectedCar=type;
@@ -664,6 +861,7 @@
     });
     document.querySelector('#topSpeedValue').textContent = Math.round(carSpecs[type].maxSpeed * 2.236936) + ' mph target top speed'
       + (carSpecs[type].powerPS ? ' · ' + carSpecs[type].powerPS.toLocaleString('en-US') + ' PS' : '');
+    if (changed && selectedMap === 'racetrack') refreshGhostSetup();
   }
   chooseCar('comet');
 
@@ -716,6 +914,10 @@
     canvas.focus?.({preventScroll:true});
   });
   document.querySelector('#resetButton').addEventListener('click', event => { resetVehicle(); returnToDrivingAfterPointer(event); });
+  ghostUI.enabled.addEventListener('change', () => { cancelGhostRun(); refreshGhostSetup(); });
+  ghostUI.car.addEventListener('change', () => { cancelGhostRun(); refreshGhostSetup(); });
+  ghostUI.pace.addEventListener('change', () => { cancelGhostRun(); refreshGhostSetup(); });
+  ghostUI.start.addEventListener('click', startGhostRun);
 
   const drivingKeys = new Set(['w', 'a', 's', 'd', 'arrowup', 'arrowleft', 'arrowdown', 'arrowright', ' ']);
   function syncInputKey(key) {
@@ -740,7 +942,8 @@
     keyboardKeys.clear(); touchPointers.clear(); keys.clear();
     document.querySelectorAll('[data-key]').forEach(button => button.classList.remove('pressed'));
   }
-  window.addEventListener('blur', releaseControls);
+  window.addEventListener('blur', () => { driveFocused = false; releaseControls(); });
+  window.addEventListener('focus', () => { driveFocused = true; });
   document.addEventListener('visibilitychange', () => { if (document.hidden) releaseControls(); });
   const preventSelection = event => event.preventDefault();
   document.querySelectorAll('[data-key]').forEach(button => {
@@ -867,7 +1070,9 @@
   let firstFrame = true;
   function animate() {
     const delta = Math.min(clock.getDelta(), .05);
-    updateVehicle(portfolio?.isOpen() ? 0 : delta);
+    const driveDelta = document.hidden || !driveFocused || portfolio?.isOpen() ? 0 : delta;
+    updateVehicle(driveDelta);
+    updateGhostRun(driveDelta);
     updateCamera(delta);
     cityVisual?.update?.(mirroredCityView()
       ? {position:{x:camera.position.x,y:camera.position.y,z:-camera.position.z}} : camera, delta);
