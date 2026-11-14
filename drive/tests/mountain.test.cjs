@@ -15,7 +15,7 @@ test('mountain shelf has a real 55 m inside wall and 60 m outside cliff',()=>{
     for(const side of [-4,4]) assert.ok(Math.abs(p.terrainHeight(x*(r+side)/r,z*(r+side)/r)-center)<.15,'usable narrow shelf');
   }
 });
-test('all four cars drive a complete narrow mountain lap without teleportation',()=>{
+test('all cars drive a complete narrow mountain lap without teleportation',()=>{
   for(const car of Object.keys(P.vehicles)){
     const p=P.create({map:'mountain',car});
     const route=Array.from({length:480},(_,i)=>{const point=path.getPointAt(i/480);point.y=p.terrainHeight(point.x,point.z);return point;});

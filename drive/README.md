@@ -4,7 +4,7 @@ Static Three.js driving playground and interactive portfolio. Serve the reposito
 
 ## Cars and maps
 
-Four cars share a 120 Hz rigid-body, four-wheel raycast suspension engine: Comet (141 mph target), Rally (115 mph), Pickup (99 mph), and Hypercar (205 mph). Actual speed depends on drag and terrain. The HUD uses mph; physics uses metres, seconds, and kilograms.
+Five cars share a 120 Hz rigid-body, four-wheel raycast suspension engine: Comet (141 mph target), Rally (115 mph), Pickup (99 mph), Hypercar (205 mph), and the hidden Yangwang U9 Xtreme (313 mph target). Actual speed depends on drag and terrain. The HUD uses mph; physics uses metres, seconds, and kilograms.
 
 The selector offers three routes:
 
@@ -28,13 +28,15 @@ The six City stops are About / The Workshop, Projects / Project Arcade, Experien
 
 ## Controls and mobile
 
-WASD or arrows drive, Space brakes, E opens a nearby City stop when moving slowly, M toggles the City map, 1–4 select cars, C cycles chase/wide/hood cameras, F rights the car in place, and R returns to the route start. Drag or swipe the scene to look around; the view recenters four seconds after release. In the air, up/down apply pitch torque and left/right apply roll torque. Touch pedals support independent fingers. Blur or hiding the tab releases held controls. Committing a route releases selector focus so keyboard driving resumes.
+WASD or arrows drive, Space brakes, E opens a nearby City stop when moving slowly, M toggles the City map, 1–4 select garage cars, and 6 selects the hidden Yangwang U9 Xtreme. C cycles chase/wide/hood cameras, F rights the car in place, and R returns to the route start. Drag or swipe the scene to look around; the view recenters four seconds after release. In the air, up/down apply pitch torque and left/right apply roll torque. Touch pedals support independent fingers. Blur or hiding the tab releases held controls. Committing a route releases selector focus so keyboard driving resumes.
 
 The Full Screen button uses the browser API where supported. On iPhone, the help panel explains Add to Home Screen / Open as Web App. The manifest does not add offline support. Touch targets and safe-area spacing support phone portrait and landscape layouts.
 
 ## Vehicle assets and credits
 
 The garage uses **Generic passenger car pack** by **Comrade1280**, under **CC BY 4.0**: Coupe (Comet), Hatchback (Rally), Pickup, and Sport (Hypercar). See [visible credits](credits.html), [license](assets/vehicles/passenger/LICENSE.txt), and [conversion provenance](assets/vehicles/passenger/SOURCE.md). Only the selected GLB loads; later selections are cached. Procedural cars remain playable fallbacks if a model fails.
+
+The hidden U9 Xtreme lazily loads a user-supplied [2024 Yangwang U9 model](assets/vehicles/u9-xtreme/SOURCE.md), adapted with separate animated wheels and Xtreme-inspired aero. It is still an interpretation of the Xtreme, not an exact Xtreme mesh. A lightweight original procedural visual remains as a loading and failure fallback. The downloaded mesh is marked **CC BY-NC-SA 4.0**, and its uploader states that it derives from a *Need for Speed Mobile* model; review the [provenance and license notes](assets/vehicles/u9-xtreme/SOURCE.md) before public redistribution. Physics dimensions, mass, and top-speed target follow [BYD's published specifications](https://media.byd.com/focus-technique-de-la-yangwang-u9-a-la-yangwang-u9-xtreme-detentrice-du-record-mondial-de-vitesse/?lang=fra) and [503.17 km/h speed record](https://media.byd.com/the-fastest-gets-faster-yangwang-u9-xtreme-tops-500kmh-to-set-new-global-speed-record-in-abu-dhabi/?lang=eng). Engine force and grip are game tuning; this is not a validated vehicle dynamics model.
 
 ## Verification
 

@@ -19,7 +19,8 @@
     comet: {name:'Comet',color:0x4e83df},
     rally: {name:'Rally',color:0xe3d57b},
     hypercar: {name:'Hypercar',color:0xe14839},
-    pickup: {name:'Pickup',color:0x25975b}
+    pickup: {name:'Pickup',color:0x25975b},
+    u9xtreme: {name:'Yangwang U9 Xtreme',color:0x252a31}
   }).map(([type,style]) => [type,{...DrivePhysics.vehicles[type],...style,wheelRadius:DrivePhysics.vehicles[type].radius}]));
   let city = DrivePhysics.city;
   const maps = {
@@ -435,7 +436,7 @@
     const radius = spec.wheelRadius;
     part(group, new THREE.BoxGeometry(spec.width, .52, spec.length), paint, 0, 1.05, 0);
     part(group, new THREE.BoxGeometry(spec.width + .12, .18, spec.length - .35), trim, 0, .73, 0);
-    if ((type === 'comet' || type === 'hypercar')) {
+    if ((type === 'comet' || type === 'hypercar' || type === 'u9xtreme')) {
       const nose = part(group, new THREE.BoxGeometry(spec.width * .96, .35, 1.6), paint, 0, 1.27, 1.63);
       nose.rotation.x = -.1;
       const cabin = part(group, new THREE.BoxGeometry(spec.width * .72, .66, 2.12), glass, 0, 1.62, -.45);
@@ -468,8 +469,8 @@
     part(group, new THREE.BoxGeometry(.48, .16, .04), chrome, 0, .93, -front - .07);
     [-1, 1].forEach(side => {
       const cabinZ = type === 'pickup' ? .68 : -.32;
-      const cabinTop = (type === 'comet' || type === 'hypercar') ? 1.97 : 2.27;
-      const pillarX = spec.width * ((type === 'comet' || type === 'hypercar') ? .36 : .425);
+      const cabinTop = (type === 'comet' || type === 'hypercar' || type === 'u9xtreme') ? 1.97 : 2.27;
+      const pillarX = spec.width * ((type === 'comet' || type === 'hypercar' || type === 'u9xtreme') ? .36 : .425);
       [-.78, .65].forEach(z => part(group, new THREE.BoxGeometry(.1, cabinTop - 1.35, .12), paint, side * pillarX, (cabinTop + 1.35) / 2, cabinZ + z));
       part(group, new THREE.BoxGeometry(.36, .18, .32), paint, side * (spec.width / 2 + .18), 1.64, .65);
       part(group, new THREE.BoxGeometry(.3, .11, .03), chrome, side * (spec.width / 2 + .18), 1.65, .48);
@@ -478,7 +479,7 @@
       const exhaust = part(group, new THREE.CylinderGeometry(.09, .09, .3, 12), chrome, side * .7, .7, -front);
       exhaust.rotation.x = Math.PI / 2;
     });
-    if ((type === 'comet' || type === 'hypercar')) {
+    if ((type === 'comet' || type === 'hypercar' || type === 'u9xtreme')) {
       part(group, new THREE.BoxGeometry(spec.width * .7, .09, 1.1), paint, 0, 1.99, -.5);
       [-.65, .65].forEach(x => part(group, new THREE.BoxGeometry(.08, .37, .14), trim, x, 1.7, -2.15));
       [-.35, .35].forEach(x => part(group, new THREE.BoxGeometry(.15, .025, 1.3), trim, x, 1.46, 1.5));
@@ -523,14 +524,28 @@
     return {group, wheels, rearLamp};
   }
 
-  Object.entries(carSpecs).forEach(([type, spec]) => { carModels[type] = buildCar(type, spec); });
+  Object.entries(carSpecs).forEach(([type, spec]) => {
+    if (type === 'u9xtreme' && typeof DriveU9XtremeModel !== 'undefined') {
+      carModels[type] = DriveU9XtremeModel.build(THREE, spec);
+      carModels[type].group.visible = false;
+      vehicle.add(carModels[type].group);
+    } else carModels[type] = buildCar(type, spec);
+  });
+  function modelStatus(type) {
+    if (type === 'u9xtreme') return carModels[type].assetState === 'ready' ? 'Ddiaz Design · CC BY-NC-SA'
+      : carModels[type].assetState === 'failed' ? 'U9 Xtreme model unavailable · fallback visual' : 'Loading U9 Xtreme model…';
+    return carModels[type].assetState === 'ready' ? 'Comrade1280 · CC BY 4.0 model'
+      : carModels[type].assetState === 'failed' ? 'Model unavailable · fallback car' : 'Loading car model…';
+  }
   // Load only the selected car. Keep a playable fallback if an asset fails.
   function loadCarAsset(type) {
     const model = carModels[type];
     if (model.assetState) return;
-    if (typeof DriveVehicleAssets === 'undefined') { model.assetState = 'failed'; return; }
+    if (type === 'u9xtreme' ? typeof DriveU9XtremeAsset === 'undefined' : typeof DriveVehicleAssets === 'undefined') {
+      model.assetState = 'failed'; return;
+    }
     model.assetState = 'loading';
-    DriveVehicleAssets.load(type, carSpecs[type], imported => {
+    const onSuccess = imported => {
       const pivots = new Set(model.wheels.map(w => w.pivot));
       const oldGeometry = new Set(), oldMaterials = new Set();
       model.group.traverse(mesh => { if(mesh.geometry) oldGeometry.add(mesh.geometry); if(mesh.material) oldMaterials.add(mesh.material); });
@@ -547,12 +562,15 @@
       model.rearLamp = imported.rearLamp || new THREE.MeshBasicMaterial({color:0xff354e});
       model.brakeMaterials = imported.brakeMaterials || [];
       model.assetState = 'ready';
-      if(selectedCar === type) document.querySelector('#modelStatus').textContent = 'Comrade1280 · CC BY 4.0 model';
-    }, error => {
+      if(selectedCar === type) document.querySelector('#modelStatus').textContent = modelStatus(type);
+    };
+    const onFailure = error => {
       model.assetState = 'failed';
       console.warn('Vehicle asset could not load:', type, error);
-      if(selectedCar === type) document.querySelector('#modelStatus').textContent = 'Model unavailable · fallback car';
-    });
+      if(selectedCar === type) document.querySelector('#modelStatus').textContent = modelStatus(type);
+    };
+    if (type === 'u9xtreme') DriveU9XtremeAsset.load(carSpecs[type], onSuccess, onFailure);
+    else DriveVehicleAssets.load(type, carSpecs[type], onSuccess, onFailure);
   }
   scene.add(vehicleFrame);
   function resetVehicle() {
@@ -643,14 +661,15 @@
     }
     selectedCar = type;
     loadCarAsset(type);
-    document.querySelector('#modelStatus').textContent = carModels[type].assetState === 'ready' ? 'Comrade1280 · CC BY 4.0 model' : carModels[type].assetState === 'failed' ? 'Model unavailable · fallback car' : 'Loading car model…';
+    document.querySelector('#modelStatus').textContent = modelStatus(type);
     Object.entries(carModels).forEach(([name, model]) => { model.group.visible = name === type; });
     motion.speed = THREE.MathUtils.clamp(motion.speed, -carSpecs[type].maxSpeed * .45, carSpecs[type].maxSpeed);
     document.querySelectorAll('[data-car]').forEach(button => {
       button.classList.toggle('active', button.dataset.car === type);
       button.setAttribute('aria-pressed', String(button.dataset.car === type));
     });
-    document.querySelector('#topSpeedValue').textContent = Math.round(carSpecs[type].maxSpeed * 2.236936) + ' mph target top speed';
+    document.querySelector('#topSpeedValue').textContent = Math.round(carSpecs[type].maxSpeed * 2.236936) + ' mph target top speed'
+      + (carSpecs[type].powerPS ? ' · ' + carSpecs[type].powerPS.toLocaleString('en-US') + ' PS' : '');
   }
   chooseCar('comet');
 
@@ -714,6 +733,7 @@
     const key = event.key.toLowerCase();
     if (drivingKeys.has(key)) { event.preventDefault(); keyboardKeys.add(key); syncInputKey(key); }
     if (!event.repeat && ['1', '2', '3', '4'].includes(key)) chooseCar(['comet', 'rally', 'pickup', 'hypercar'][Number(key) - 1]);
+    if (!event.repeat && key === '6') chooseCar('u9xtreme');
     if (!event.repeat && key === 'c') setCameraMode();
     if (!event.repeat && key === 'r') resetVehicle();
     if (!event.repeat && key === 'f') recoverVehicleInPlace();
@@ -827,7 +847,7 @@
     const lookHeading = motion.heading + orbit.yaw;
     if (cameraMode === 2) {
       const hoodOffset = carSpecs[selectedCar].length * .4;
-      const eyeHeight = selectedCar === 'comet' || selectedCar === 'hypercar' ? 1.9 : 2.3;
+      const eyeHeight = selectedCar === 'comet' || selectedCar === 'hypercar' || selectedCar === 'u9xtreme' ? 1.9 : 2.3;
       desired.set(0,eyeHeight,hoodOffset).applyQuaternion(vehicle.quaternion).add(vehicle.position);
       target.set(Math.sin(orbit.yaw)*22,eyeHeight-Math.sin(orbit.pitch)*22,Math.cos(orbit.yaw)*22).applyQuaternion(vehicle.quaternion).add(vehicle.position);
     } else {

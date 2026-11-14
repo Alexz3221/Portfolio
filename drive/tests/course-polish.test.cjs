@@ -31,7 +31,7 @@ test('stunt renderer has one exact collision-matched road, markings and real sla
  for(let i=0;i<3;i++){sim.chooseMap('racetrack');sim.resetVehicle();assert.equal(sim.physics().world.bodies.length,count);assert.ok(sim.physics().body.position.y>0);sim.chooseMap('mountain');}
 });
 
-test('all four cars complete the actual mandatory stunts and slalom in a continuous lap',()=>{
+test('all cars complete the actual mandatory stunts and slalom in a continuous lap',()=>{
  const {sim}=context.makeHarness();const route=P.stuntRoute,N=route.length;
  for(const car of Object.keys(P.vehicles)){
   sim.chooseMap('racetrack');sim.chooseCar(car);sim.resetVehicle();const p=sim.physics();

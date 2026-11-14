@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const THREE = require('three');
 
-function harness(assetLoader, importer) {
+function harness(assetLoader, importer, u9Asset) {
   class Element {
     constructor(dataset = {}) { this.style = {}; this.dataset = dataset; this.listeners = {}; this.classes = new Set(); this.attributes = {}; this.textContent = ''; this.value = ''; this.classList = {add: x => this.classes.add(x), remove: x => this.classes.delete(x), toggle: (x, on) => on ? this.classes.add(x) : this.classes.delete(x)}; }
     addEventListener(name, fn) { this.listeners[name] = fn; }
@@ -22,7 +22,7 @@ function harness(assetLoader, importer) {
   };
   const window = {THREE, DriveImportedCity: importer, devicePixelRatio: 1, innerWidth: 1280, innerHeight: 800, addEventListener: (name, fn) => { window[name] = fn; }};
   const fakeThree = {...THREE, WebGLRenderer: class {constructor(){this.shadowMap={};} setPixelRatio(){} setSize(){} render(){} }};
-  const context = vm.createContext({window, document, THREE: fakeThree, DriveVehicleAssets: assetLoader, DrivePhysics: require('../js/physics.js'), requestAnimationFrame() {}, console});
+  const context = vm.createContext({window, document, THREE: fakeThree, DriveVehicleAssets: assetLoader, DriveU9XtremeAsset: u9Asset, DrivePhysics: require('../js/physics.js'), requestAnimationFrame() {}, console});
   const source = fs.readFileSync(require.resolve('../js/main.js'), 'utf8');
   vm.runInContext(source.replace(/\}\)\(\);\s*$/, 'globalThis.sim = {physics: () => physics, maps, samples: () => samples, world, vehicle, vehicleFrame, motion, carSpecs, carModels, keys, chooseMap, chooseCar, resetVehicle, recoverVehicleInPlace, jumpToStop, updateVehicle, distanceToRoad, camera, updateCamera, setCameraMode, renderer, sky, animate};})();'), context);
   context.sim.chooseMap('city');
@@ -236,6 +236,40 @@ test('fourth garage option selects Hypercar using button and key 4',()=>{
   assert.equal(document.querySelector('#topSpeedValue').textContent,'205 mph target top speed');
   sim.chooseCar('comet');window.keydown({key:'4',target:{matches:()=>false},repeat:false});
   assert.equal(sim.physics().body.mass,1450);assert.equal(cars[3].attributes['aria-pressed'],'true');
+});
+
+test('key 6 selects the U9 Xtreme without adding a garage option',()=>{
+  const {sim,window,cars,document}=harness();
+  window.keydown({key:'6',target:{matches:()=>false},repeat:false});
+  assert.equal(sim.physics().spec,require('../js/physics').vehicles.u9xtreme);
+  assert.equal(sim.carModels.u9xtreme.group.visible,true);
+  assert.equal(sim.physics().body.mass,2480);
+  assert.equal(document.querySelector('#topSpeedValue').textContent,'313 mph target top speed · 3,019 PS');
+  assert.match(document.querySelector('#modelStatus').textContent,/U9 Xtreme/);
+  assert.equal(cars.length,4);
+  assert.ok(cars.every(button=>button.dataset.car!=='u9xtreme'));
+  assert.doesNotMatch(fs.readFileSync(require.resolve('../index.html'),'utf8'),/data-car="u9xtreme"/);
+  window.keydown({key:'1',target:{matches:()=>false},repeat:false});
+  assert.equal(sim.carModels.u9xtreme.group.visible,false);
+});
+
+test('key 6 loads the supplied U9 GLB once and swaps out the fallback visual',()=>{
+  let pending, calls=0;
+  const asset={load(spec,success,failure){calls++;pending={spec,success,failure};}};
+  const {sim,window,document}=harness(undefined,undefined,asset);
+  window.keydown({key:'6',target:{matches:()=>false},repeat:false});
+  assert.equal(calls,1);
+  assert.equal(pending.spec,sim.carSpecs.u9xtreme);
+  assert.equal(sim.carModels.u9xtreme.assetState,'loading');
+  assert.match(document.querySelector('#modelStatus').textContent,/Loading U9 Xtreme/);
+  const imported={body:new THREE.Group(),wheels:Array.from({length:4},()=>new THREE.Group()),rearLamp:new THREE.MeshBasicMaterial({color:0xff354e})};
+  pending.success(imported);
+  assert.equal(sim.carModels.u9xtreme.assetState,'ready');
+  assert.ok(sim.carModels.u9xtreme.group.children.includes(imported.body));
+  assert.equal(sim.carModels.u9xtreme.wheels[0].wheel.children[0],imported.wheels[0]);
+  assert.match(document.querySelector('#modelStatus').textContent,/Ddiaz Design/);
+  sim.chooseCar('comet');sim.chooseCar('u9xtreme');
+  assert.equal(calls,1);
 });
 
 

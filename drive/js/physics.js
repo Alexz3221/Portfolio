@@ -69,6 +69,13 @@
   });
   const ramp = {x:0,y:2.02,z:26,halfWidth:4,halfLength:10,angle:-.22};
   const vehicles = {
+    // BYD U9 Xtreme: 2,480 kg, 4,991 x 2,029 mm with carbon aero, 2,900 mm
+    // wheelbase and 325/35ZR20 tires. BYD publishes peak power (2,220 kW),
+    // not a wheel-force curve; launch force and grip remain game tuning.
+    u9xtreme: {mass:2480,width:2.029,length:4.991,wheelX:0.83575,wheelZ:1.45,radius:0.36775,maxSpeed:503.17/3.6,powerKW:2220,powerPS:3019,engine:8500,grip:4.1,height:1.351,wheelLayout:[
+      {x:-0.838,y:0,z:-1.45,radius:0.36775},{x:-0.8345,y:0,z:1.45,radius:0.36775},
+      {x:0.838,y:0,z:-1.45,radius:0.36775},{x:0.8345,y:0,z:1.45,radius:0.36775}
+    ]},
     hypercar: {mass:1450,width:2.25995204,length:5.0,wheelX:0.87605771,wheelZ:1.56672884,radius:0.3937529,maxSpeed:329.6/3.6,engine:3465,grip:3.5,height:1.328707,wheelLayout:[{"x":-0.86507881,"y":0.01215544,"z":-1.56672923,"radius":0.40465421},{"x":-0.88703661,"y":-0.01215544,"z":1.56672833,"radius":0.38285158},{"x":0.86507944,"y":0.01215544,"z":-1.56672844,"radius":0.40465421},{"x":0.88703598,"y":-0.01215544,"z":1.56672935,"radius":0.38285158}]},
     comet: {mass:1200,width:2.31127653,length:5.2,wheelX:0.8130705,wheelZ:1.4797948,radius:0.36840471,maxSpeed:226.6/3.6,engine:2205,grip:3.2,height:1.56735953,wheelLayout:[{"x":-0.81307043,"y":7e-08,"z":-1.47979502,"radius":0.36840471},{"x":-0.81307057,"y":-7e-08,"z":1.47979505,"radius":0.36840471},{"x":0.81307029,"y":7e-08,"z":-1.47979458,"radius":0.36840471},{"x":0.81307072,"y":-7e-08,"z":1.47979455,"radius":0.36840471}]},
     rally: {mass:1350,width:2.13494821,length:4.85,wheelX:0.8529574,wheelZ:1.47341964,radius:0.36773579,maxSpeed:185.4/3.6,engine:2362.5,grip:3.6,height:1.65786409,wheelLayout:[{"x":-0.85295744,"y":1.1e-07,"z":-1.47341981,"radius":0.3677358},{"x":-0.85295736,"y":-1.2e-07,"z":1.47341924,"radius":0.3677358},{"x":0.85295703,"y":7e-08,"z":-1.47341947,"radius":0.36773579},{"x":0.85295776,"y":-6e-08,"z":1.47342004,"radius":0.36773579}]},
@@ -595,7 +602,12 @@
         const offroad=!course && options.distanceToRoad && options.distanceToRoad(body.position.x,body.position.z)>(options.roadHalfWidth || 6.2)+1.1;
         const surface=offroad?(selectedCar==='rally'?.78:.6):1;
         const limit=throttle<0?12:spec.maxSpeed*surface;
-        const engine=!input.brake&&!opposing ? -throttle*spec.engine*Math.max(0,1-(Math.abs(speed)/limit)**2):0;
+        // The U9's four motors share its published total peak-power budget.
+        // A short taper near the speed target keeps the drive force finite.
+        const force=spec.powerKW ? Math.min(spec.engine,spec.powerKW*1000/(4*Math.max(Math.abs(speed),1))) : spec.engine;
+        const fade=spec.powerKW ? Math.max(0,Math.min(1,(limit-Math.abs(speed))/(limit*.02)))
+          : Math.max(0,1-(Math.abs(speed)/limit)**2);
+        const engine=!input.brake&&!opposing ? -throttle*force*fade:0;
         const brakeForce=input.brake?spec.mass*.028:opposing?spec.mass*.02:0;
         car.wheelInfos.forEach((w,i)=>{w.frictionSlip=spec.grip*(offroad?.75:1);car.setSteeringValue(w.chassisConnectionPointLocal.z>0?steer:0,i);car.applyEngineForce(engine,i);car.setBrake(brakeForce,i);});
         // Keep light rolling resistance separate from wheel braking so coasting wheels keep turning.
