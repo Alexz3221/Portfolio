@@ -37,9 +37,9 @@
   let selectedMap = 'city';
   const raceCourses = {
     racetrack: {name: 'Stunt course', caption: maps.racetrack.caption},
-    rainbowroad: {name: 'Rainbow Sprint', caption: 'Rainbow Sprint · reach the finish without falling', loop: false},
-    racegame: {name: 'Race Game Outer Run', caption: 'Race Game Outer Run · painted asphalt', loop: false},
-    bangkok: {name: 'Bangkok Skyway', caption: 'Bangkok Skyway · elevated stunt loop'}
+    rainbowroad: {name: 'Rainbow Sprint', caption: 'Rainbow Sprint · reach the finish without falling', loop: false, revision: 2},
+    racegame: {name: 'Race Game Outer Run', caption: 'Race Game Outer Run · painted asphalt', loop: false, revision: 2},
+    bangkok: {name: 'Bangkok Street Sprint', caption: 'Bangkok Street Sprint · follow the city road to the finish', loop: false, revision: 2}
   };
   let selectedCourse = 'racetrack';
   const coursePicker = document.querySelector('#coursePicker');
@@ -85,7 +85,7 @@
     if (!personalBests.has(courseId)) personalBests.set(courseId, typeof DrivePersonalBest === 'undefined'
       ? {best:null, start(){}, record(){}, finish(){return {improved:false,best:null};}, cancel(){}}
       : DrivePersonalBest.create({storage:bestStorage, key:courseId === 'racetrack'
-        ? DrivePersonalBest.KEY : DrivePersonalBest.KEY + ':' + courseId}));
+        ? DrivePersonalBest.KEY : DrivePersonalBest.KEY + ':' + courseId + ':v' + (raceCourses[courseId].revision || 1)}));
     return personalBests.get(courseId);
   }
   let personalBest = bestForCourse(selectedCourse);
@@ -821,6 +821,17 @@
     const offset = activeCourse()?.finishOffset || 0;
     return (position.x - finish.x) * finish.tx + (position.z - finish.z) * finish.tz - offset;
   }
+  function finishProgressThreshold(route) {
+    const offset = activeCourse()?.finishOffset || 0;
+    const window = Math.max(4, Math.abs(offset) + 4);
+    let index = route.length - 1, remaining = 0;
+    while (index > 0 && remaining < window) {
+      const a = route[index - 1], b = route[index];
+      remaining += Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z);
+      index--;
+    }
+    return index;
+  }
   function crossedCourseLine(body, previous, current, gate) {
     if (previous === null || previous >= 0 || current < 0) return false;
     const pos = body.position;
@@ -902,7 +913,8 @@
       ghostUI.gap.textContent = Math.abs(gap) < .15 ? 'EVEN' :
         Math.abs(gap).toFixed(1) + 's ' + (gap > 0 ? 'behind' : 'ahead');
     }
-    if ((loop ? crossed : crossedFinish) && ghost.progress >= count - 4) {
+    const minFinishProgress = loop ? count - 4 : finishProgressThreshold(route);
+    if ((loop ? crossed : crossedFinish) && ghost.progress >= minFinishProgress) {
       ghost.progress = count;
       personalBest.record(ghost.elapsed, body.position, body.quaternion, count);
       finishTimedLap();

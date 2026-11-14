@@ -47,15 +47,20 @@ test('each imported course has a physical road, a stable grid, and a fast course
   }
 });
 
-test('Rainbow collision import retains the support ribbon across its narrow start stripe', () => {
+test('Rainbow switches from its loading road to the scaled source road collision', () => {
   const course = imported.getCourse('rainbowroad');
+  assert.equal(course.scale,2.5);
+  assert.equal(course.overlayRoad,false,'the pastel fallback hides after the scaled source arrives');
+  assert.equal(course.proxyRoad,false,'source mesh replaces the temporary full-course ribbon');
   const sim = physics.create({map:'racetrack',courseId:'rainbowroad',course,car:'u9xtreme'});
-  const before = sim.courseSlabs.length;
-  const y = course.route[0].y;
-  const loaded = sim.addCourseCollisionMeshes([{vertices:[74,y,-11,76,y,-11,76,y,-9,74,y,-9],indices:[0,1,2,0,2,3]}]);
+  assert.ok(sim.courseSlabs.length > 20,'the route is driveable while the scene loads');
+  const {x,y,z} = course.route[0], back = course.spawn.z;
+  const loaded = sim.addCourseCollisionMeshes([{vertices:[
+    x-3,y,back-3, x-3,y,z+3, x+3,y,z+3, x+3,y,back-3
+  ],indices:[0,1,2,0,2,3]}]);
   assert.equal(loaded,true);
-  assert.equal(sim.courseSlabs.length,before,'the wider support ribbon remains after source mesh collision loads');
-  sim.reset(75,-12,0);
+  assert.equal(sim.courseSlabs.length,0,'the temporary full-course ribbon is removed');
+  sim.reset();
   for(let frame=0;frame<240;frame++)sim.step(1/120);
   assert.ok(sim.car.wheelInfos.every(wheel=>wheel.isInContact),'wide U9 also stays on the grid');
 });

@@ -6,6 +6,7 @@ const C = require('cannon');
 const P = require('../js/physics');
 const THREE = require('three');
 const PersonalBest = require('../js/personal-best');
+const ImportedCourses = require('../js/imported-courses');
 
 const traceContext = vm.createContext({});
 vm.runInContext(fs.readFileSync(require.resolve('../js/ghost-traces.js'), 'utf8'), traceContext);
@@ -14,8 +15,9 @@ const importedRoute = P.stuntRoute.slice(0, 40).map(point => ({...point}));
 const importedCourses = {load() { return new Promise(() => {}); }, getCourse(id) {
   return id === 'rainbowroad' ? {
     id, name: 'Rainbow Road', caption: 'Rainbow Road test course', loop: false,
-    route: importedRoute, edge: 200, floor: -20, proxyRoad: true, spawnBack: 8
-  } : null;
+    route: importedRoute, edge: 200, floor: -20, proxyRoad: true, spawnBack: 8,
+    finishOffset: -8
+  } : id === 'racegame' ? ImportedCourses.getCourse(id) : null;
 }};
 
 // Reuse the browserless WebGL harness, with the actual generated ghost laps and
@@ -138,16 +140,20 @@ test('the racetrack course selector preserves its choice and returns keyboard fo
 
 test('point-to-point timing requires forward start and finish crossings and keeps its own best', () => {
   const storage = memoryStorage();
+  storage.values.set(PersonalBest.KEY + ':rainbowroad', JSON.stringify(ghostTraces.comet));
   const {sim, document} = context.makeGhostHarness(storage);
   sim.chooseMap('racetrack');
   const select = document.querySelector('#courseSelect');
   select.blur = () => {};
   select.value = 'rainbowroad';
   select.listeners.change({target: select});
+  assert.equal(document.querySelector('#ghostBestValue').textContent, '—',
+    'a best from the previous route geometry cannot block a new record');
   const physics = sim.physics();
   physics.courseRoute = importedRoute;
   sim.resetVehicle();
-  const start = importedRoute[0], finish = importedRoute.at(-1), body = physics.body;
+  const start = importedRoute[0], end = importedRoute.at(-1), body = physics.body;
+  const finish = {...end, x:end.x - end.tx * 8, z:end.z - end.tz * 8};
   assert.ok((body.position.x - start.x) * start.tx + (body.position.z - start.z) * start.tz < 0,
     'reset places the car behind the start gate');
   function place(gate, along, speed) {
@@ -172,7 +178,7 @@ test('point-to-point timing requires forward start and finish crossings and keep
   place(finish, 1, 4);
   assert.equal(sim.ghost.running, false);
   assert.equal(sim.ghost.progress, importedRoute.length);
-  assert.ok(storage.values.get(PersonalBest.KEY + ':rainbowroad'));
+  assert.ok(storage.values.get(PersonalBest.KEY + ':rainbowroad:v2'));
   assert.equal(storage.values.get(PersonalBest.KEY), undefined, 'original stunt best is isolated');
   select.value = 'racetrack';
   select.listeners.change({target: select});
@@ -180,6 +186,32 @@ test('point-to-point timing requires forward start and finish crossings and keep
   select.value = 'rainbowroad';
   select.listeners.change({target: select});
   assert.notEqual(document.querySelector('#ghostBestValue').textContent, '—');
+});
+
+test('Race Game finishes after the ordered outer run and saves a best', () => {
+  const storage = memoryStorage();
+  const {sim, document} = context.makeGhostHarness(storage);
+  sim.chooseMap('racetrack');
+  const select = document.querySelector('#courseSelect');
+  select.blur = () => {};
+  select.value = 'racegame';
+  select.listeners.change({target:select});
+  const route = ImportedCourses.getCourse('racegame').route;
+  const body = sim.physics().body;
+  const start = route[0];
+  function place(point, along = 0) {
+    body.position.set(point.x + point.tx * along, point.y + 1,
+      point.z + point.tz * along);
+    body.velocity.set(point.tx * 8, 0, point.tz * 8);
+    sim.updateGhostRun(.05);
+  }
+  place(start, -1);
+  place(start, 1);
+  assert.equal(sim.ghost.running, true);
+  for (let index = 1; index < route.length && sim.ghost.running; index++) place(route[index]);
+  assert.equal(sim.ghost.running, false, 'the visible finish ends the ordered run');
+  assert.match(document.querySelector('#ghostStatus').textContent, /personal best|Finish reached/);
+  assert.ok(storage.values.get(PersonalBest.KEY + ':racegame:v2'));
 });
 
 test('a late car model upgrades the ghost without changing the player asset', () => {

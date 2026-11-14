@@ -33,12 +33,16 @@
     return route;
   }
 
+  // The source is a miniature display model. 2.5 world units per source unit
+  // make its narrow SFC ribbon wide enough for the garage cars. Keep controls
+  // in source coordinates so the path remains easy to compare with the mesh.
+  const rainbowScale = 2.5;
   const rainbowControls = [
-    [75,27.583,-10.36],[75,27.583,-7],[75,27.583,-3],[75,27.583,2],
+    [75,27.583,-10.36],[75,27.583,-6],[75,27.583,0],[75,27.583,2.7],
     [72,27.583,3],[68,27.583,3],[63,27.583,3],[58,27.583,3],
-    [54,27.583,2],[53.5,27.583,-2],[53.5,27.583,-6],
-    [57,27.583,-8],[61,27.583,-8],[66,27.583,-8],
-    [67,27.583,-11],[67,27.583,-14],[65.5,27.583,-15.5]
+    [54,27.583,2.7],[53.5,27.583,-2],[53.5,27.583,-6],[53.5,27.583,-7.9],
+    [57,27.583,-8.4],[61,27.583,-8.4],[65,27.583,-8.4],
+    [66.5,27.583,-9],[67,27.583,-11],[67,27.583,-14],[66,27.583,-15.5]
   ];
   // The clean outer arc follows painted asphalt and ends before the model's
   // rock-filled central shortcuts. Road elevations are near y=0.87 m.
@@ -52,14 +56,17 @@
     rainbowroad: {
       id:'rainbowroad', name:'Rainbow Sprint',
       caption:'Rainbow Sprint · short, flat road section · stay out of space',
-      asset:'assets/courses/rainbow-road.glb', loop:false, width:4.2,
-      route:routeFrom(rainbowControls, false, 4.2, 2.2),
-      // Extend a small start pad behind the source stripe so all four wheels
-      // are supported before the timed crossing.
-      spawn:{x:75,y:27.583,z:-15,heading:0}, spawnBack:1.64,
-      proxyRoad:true, overlayRoad:true,
-      edge:390, floor:-25, roadSearchWidth:10,
-      // The 97-triangle horizontal SFC section is used for exact road contact.
+      asset:'assets/courses/rainbow-road.glb', scale:rainbowScale,
+      loop:false, width:4.6,
+      route:routeFrom(rainbowControls.map(point => point.map(value => value * rainbowScale)), false, 4.6, 2.2),
+      // The grid is on the visible ribbon, with room for the rear wheels.
+      spawn:{x:75*rainbowScale,y:27.583*rainbowScale,z:-12*rainbowScale,heading:0},
+      spawnBack:(12-10.36)*rainbowScale, spawnPadBack:2,
+      // Use the source mesh for both road visuals and road collision. A tiny
+      // underside patch supports the model's missing start-stripe triangles.
+      proxyRoad:false, overlayRoad:false,
+      edge:650, floor:-50, roadSearchWidth:12,
+      // The 97-triangle horizontal SFC section is used for road contact.
       collisionPattern:/mesh_mdl_SFCroad1_mdl_SFCroad1_0/i,
       ground:0x0d1230, skyLow:0x18265d, skyHigh:0x020415, fog:0x101536,
       ghostSpeed:23
@@ -69,23 +76,37 @@
       caption:'Race Game Outer Run · painted asphalt · point-to-point',
       asset:'assets/courses/race-game-environment.glb', loop:false, width:8,
       route:routeFrom(raceGameControls, false, 8, 3),
-      spawn:{x:56,y:.87,z:-3,heading:Math.PI}, spawnBack:8,
-      edge:240, floor:-20, roadSearchWidth:20,
+      spawn:{x:56,y:.87,z:-3,heading:Math.PI}, spawnBack:8, spawnPadBack:4,
+      finishOffset:-8,
+      // The visual model is partitioned into 15 arbitrary mesh chunks. Keep
+      // its reachable road, curb and obstacle triangles as collision; the
+      // distant decoration and Object_20 background plane stay visual only.
+      collisionPattern:/^Object_(?:[4-9]|1[0-8])$/,
+      collisionFilter:'reachable', maxCollisionTriangles:120000,
+      proxyRoad:true, proxyOffset:-.15,
+      edge:240, floor:0, roadSearchWidth:20,
       ground:0x54883b, skyLow:0x9ec5dd, skyHigh:0x6b9fc4, fog:0x99b9ce,
       ghostSpeed:23
     },
     bangkok: {
-      id:'bangkok', name:'Bangkok Skyway',
-      caption:'Bangkok Skyway · elevated stunt loop above the market',
-      asset:'assets/courses/bangkok-rush.glb', scale:.01, loop:true, width:8,
-      // The downloaded city has no clean, collision-ready circuit. Keep the
-      // existing scene intact and place an authored elevated stunt route over it.
+      id:'bangkok', name:'Bangkok Street Sprint',
+      caption:'Bangkok Street Sprint · follow the city road to the finish',
+      asset:'assets/courses/bangkok-rush.glb', scale:.01, loop:false, width:7,
+      // Object_33 is the source map's long paved road, roughly 8–13 m wide
+      // after scaling. The centerline stays within its road mesh, including
+      // the tight bend by the city buildings. Keep a loading proxy beneath
+      // the source triangles in case a wheel crosses a tiny mesh seam.
       route:routeFrom([
-        [80,35,25],[80,35,-55],[65,35,-85],[40,35,-100],
-        [-35,35,-100],[-60,35,-80],[-65,35,-50],[-65,35,40],
-        [-45,35,65],[-15,35,70],[50,35,70],[75,35,50]
-      ], true, 8, 3),
-      overlayRoad:true,
+        [-15.5,3.63,-62],[-20,3.63,-55],[-24,3.63,-45],
+        [-25,3.63,-35],[-25.5,3.63,-25],[-25.5,3.63,-15],
+        [-25,3.63,-5],[-22.5,3.63,0],[-19.5,3.63,5],
+        [-15.5,3.63,10],[-11,3.63,15],[-3,3.63,20],
+        [9,3.63,24],[24,3.63,29],[33,3.63,35],
+        [36.2,3.63,42]
+      ], false, 7, 2.5),
+      spawn:{x:-9.5,y:3.63,z:-69,heading:-.75}, spawnBack:8,
+      collisionPattern:/^Object_33(?:$|_)/i,
+      proxyRoad:true, proxyOffset:-.08, overlayRoad:false,
       edge:210, floor:-20, roadSearchWidth:18,
       ground:0x355d42, skyLow:0xcad6c7, skyHigh:0x85a6a2, fog:0x9ab3a6,
       ghostSpeed:25
@@ -150,10 +171,21 @@
       else { bucket.push(object); buckets.set(key,bucket); }
     });
   }
-  function extractCollision(scene, pattern) {
+  function extractCollision(scene, course) {
+    const pattern = course.collisionPattern;
     if (!pattern) return [];
     scene.updateMatrixWorld(true);
     const meshes = [];
+    const distanceToRoute = (x,z) => {
+      let nearest = Infinity;
+      for(let index=0;index<course.route.length-1;index++) {
+        const a=course.route[index],b=course.route[index+1];
+        const dx=b.x-a.x,dz=b.z-a.z;
+        const t=Math.max(0,Math.min(1,((x-a.x)*dx+(z-a.z)*dz)/(dx*dx+dz*dz||1)));
+        nearest=Math.min(nearest,Math.hypot(x-a.x-dx*t,z-a.z-dz*t));
+      }
+      return nearest;
+    };
     scene.traverse(object => {
       if (!object.isMesh || !pattern.test(object.name)) return;
       const positions = object.geometry.attributes.position;
@@ -162,11 +194,45 @@
         point.fromBufferAttribute(positions, index).applyMatrix4(object.matrixWorld);
         vertices.push(point.x, point.y, point.z);
       }
-      const indices = object.geometry.index ? Array.from(object.geometry.index.array)
+      let indices = object.geometry.index ? Array.from(object.geometry.index.array)
         : Array.from({length:positions.count}, (_, index) => index);
-      meshes.push({vertices, indices});
+      if(course.collisionFilter==='reachable') {
+        const filtered=[];
+        for(let index=0;index<indices.length;index+=3) {
+          const ia=indices[index]*3,ib=indices[index+1]*3,ic=indices[index+2]*3;
+          const ax=vertices[ia],ay=vertices[ia+1],az=vertices[ia+2];
+          const bx=vertices[ib],by=vertices[ib+1],bz=vertices[ib+2];
+          const cx=vertices[ic],cy=vertices[ic+1],cz=vertices[ic+2];
+          const y=(ay+by+cy)/3;
+          const abx=bx-ax,aby=by-ay,abz=bz-az;
+          const acx=cx-ax,acy=cy-ay,acz=cz-az;
+          const nx=aby*acz-abz*acy,ny=abz*acx-abx*acz,nz=abx*acy-aby*acx;
+          const up=ny/(Math.hypot(nx,ny,nz)||1);
+          // Some painted road strips in this GLB are wound downward even
+          // though their visible material is double-sided. Flip those faces
+          // upward for CANNON's one-sided vehicle tire contact.
+          const flippedRoad=up<-.8&&y>.6&&y<1.1;
+          const surface=y>.25&&y<6&&(up>.3||flippedRoad);
+          const solidSide=y>-.5&&y<4&&Math.abs(up)<=.5;
+          if(!surface&&!solidSide)continue;
+          const distance=distanceToRoute((ax+bx+cx)/3,(az+bz+cz)/3);
+          if(distance<(surface?15:7))filtered.push(indices[index],
+            surface&&flippedRoad?indices[index+2]:indices[index+1],
+            surface&&flippedRoad?indices[index+1]:indices[index+2]);
+        }
+        indices=filtered;
+      }
+      if(indices.length)meshes.push({vertices, indices});
     });
     return meshes;
+  }
+  function rainbowStripePatch(course) {
+    const start = course.route[0], half = course.width / 2;
+    const y = start.y - .12, zMin = start.z - 1.1, zMax = start.z + .9;
+    return {vertices:[
+      start.x-half,y,zMin, start.x-half,y,zMax,
+      start.x+half,y,zMax, start.x+half,y,zMin
+    ],indices:[0,1,2,0,2,3]};
   }
   function load(id) {
     const course = courses[id];
@@ -184,7 +250,9 @@
           object.receiveShadow = true;
         });
         if (id === 'bangkok') deduplicateBangkok(scene);
-        resolve({scene, collisionMeshes:extractCollision(scene, course.collisionPattern)});
+        const collisionMeshes = extractCollision(scene, course);
+        if (id === 'rainbowroad') collisionMeshes.push(rainbowStripePatch(course));
+        resolve({scene, collisionMeshes});
       }, undefined, reject);
     }).catch(error => { sceneCache.delete(id); throw error; });
     sceneCache.set(id, loading);

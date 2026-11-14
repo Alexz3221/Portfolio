@@ -530,8 +530,10 @@
       // The samples also drive the timing gates, so rendering and physics can
       // share one centerline instead of relying on decorative GLB triangles.
       const first=courseRoute[0],spawn=importedCourse.spawn;
+      const spawnPadBack=Math.max(0,importedCourse.spawnPadBack||0);
       const approach=!courseLoops&&spawn&&Number.isFinite(spawn.x)&&Number.isFinite(spawn.z)
-        ? {x:spawn.x,z:spawn.z,y:spawn.y??first.y,width:first.width,tx:first.tx,tz:first.tz} : null;
+        ? {x:spawn.x-first.tx*spawnPadBack,z:spawn.z-first.tz*spawnPadBack,
+            y:spawn.y??first.y,width:first.width,tx:first.tx,tz:first.tz} : null;
       for(let i=approach?-1:0;i<courseRoute.length-(courseLoops?0:1);i++) {
         const a=i<0?approach:courseRoute[i],b=courseRoute[(i+1+courseRoute.length)%courseRoute.length];
         const dx=b.x-a.x,dz=b.z-a.z,length=Math.hypot(dx,dz);
@@ -569,11 +571,33 @@
           triangles+=surface.indices.length/3;
           // Large scenic models use the authored route proxy instead of
           // putting hundreds of thousands of decorative faces in CANNON.
-          if(triangles>30000)throw new RangeError('course collision mesh is too dense');
-          // A selected GLB road may provide its transformed triangles. The
-          // junction helper also repairs the CANNON 0.6.2 octree issue.
-          const body=junctionBody({vertices:surface.vertices,indices:surface.indices,x:0,z:0});
-          if(body)added.push(body);
+          if(triangles>(importedCourse.maxCollisionTriangles||30000))
+            throw new RangeError('course collision mesh is too dense');
+          // CANNON 0.6.2 stores Trimesh indices in signed Int16Array. GLB
+          // chunks can contain 65,535 vertices, silently wrapping every index
+          // above 32,767 and deleting road triangles from physics. Remap each
+          // triangle into smaller independent meshes before building colliders.
+          let localVertices=[],localIndices=[],remap=new Map();
+          const flush=()=>{
+            if(!localIndices.length)return;
+            const body=junctionBody({vertices:localVertices,indices:localIndices,x:0,z:0});
+            if(body)added.push(body);
+            localVertices=[];localIndices=[];remap=new Map();
+          };
+          for(let index=0;index<surface.indices.length;index+=3) {
+            const triangle=[surface.indices[index],surface.indices[index+1],surface.indices[index+2]];
+            const unseen=new Set(triangle.filter(vertex=>!remap.has(vertex))).size;
+            if(remap.size+unseen>32768)flush();
+            for(const vertex of triangle) {
+              let local=remap.get(vertex);
+              if(local===undefined) {
+                local=remap.size;remap.set(vertex,local);
+                localVertices.push(surface.vertices[vertex*3],surface.vertices[vertex*3+1],surface.vertices[vertex*3+2]);
+              }
+              localIndices.push(local);
+            }
+          }
+          flush();
         }
       } catch (_) {
         for(const body of added)world.removeBody(body);
@@ -587,6 +611,12 @@
       if(!importedCourse.proxyRoad) {
         for(const slab of courseSlabs){world.removeBody(slab.body);importedRoadBodies.delete(slab.body);}
         courseSlabs.length=0;
+      } else if(courseSlabs.length) {
+        // Keep a slightly lower safety ribbon beneath imported road triangles.
+        // Rebuild after the mesh arrives so the two surfaces do not coincide.
+        for(const slab of courseSlabs){world.removeBody(slab.body);importedRoadBodies.delete(slab.body);}
+        courseSlabs.length=0;
+        buildCourseSlabs();
       }
       return true;
     }
