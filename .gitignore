@@ -5,7 +5,3 @@
 *.cmm.gz
 private-exports/
 raw-exports/
-
-# Local Mario Kart-derived course references; public redistribution is unresolved.
-drive/assets/courses/rainbow-road.glb
-drive/assets/courses/bangkok-rush.glb
