@@ -73,7 +73,7 @@
     // wheelbase and 325/35ZR20 tires. BYD publishes peak power (2,220 kW),
     // not a wheel-force curve; launch force and grip remain game tuning.
     // The extra roll recovery offsets its high mass when a curb lifts a tire.
-    u9xtreme: {mass:2480,width:2.029,length:4.991,wheelX:0.83575,wheelZ:1.45,radius:0.36775,maxSpeed:503.17/3.6,powerKW:2220,powerPS:3019,engine:8500,grip:4.1,height:1.351,rollStability:2.5,angularDamping:.55,wheelLayout:[
+    u9xtreme: {mass:2480,width:2.029,length:4.991,wheelX:0.83575,wheelZ:1.45,radius:0.36775,maxSpeed:503.17/3.6,powerKW:2220,powerPS:3019,engine:8500,grip:4.1,height:1.351,centerOfMassDrop:.2,rollStability:2.5,angularDamping:.55,wheelLayout:[
       {x:-0.838,y:0,z:-1.45,radius:0.36775},{x:-0.8345,y:0,z:1.45,radius:0.36775},
       {x:0.838,y:0,z:-1.45,radius:0.36775},{x:0.8345,y:0,z:1.45,radius:0.36775}
     ]},
@@ -552,12 +552,35 @@
       if(importedCourse.proxyMesh){
         // A single top surface per uninterrupted stretch has no convex end
         // walls to catch the chassis on Rainbow Road's steep mesh seams.
-        // Keep the source road collider above this narrow safety underlay.
+        // The authored centerline is only an approximation of the source's
+        // banked surface. Sample the loaded native road at each proxy vertex
+        // so this safety underlay never sticks through a visible bend.
         let vertices=[],indices=[],first=-1,last=-1;
-        const edge=(point,side)=>[point.x-point.tz*side*(point.width||importedCourse.width)/2,
-          point.y+offset,point.z+point.tx*side*(point.width||importedCourse.width)/2];
+        const nativeBodies=new Set(importedMeshBodies);
+        const nativeHeight=(x,y,z)=>{
+          if(!nativeBodies.size)return null;
+          let nearest=Infinity,road=null;
+          world.raycastAll(new C.Vec3(x,y+12,z),new C.Vec3(x,y-12,z),{},hit=>{
+            if(!nativeBodies.has(hit.body))return;
+            const difference=Math.abs(hit.hitPointWorld.y-y);
+            if(difference<nearest){nearest=difference;road=hit.hitPointWorld.y;}
+          });
+          return nearest<8?road:null;
+        };
+        const edge=(point,side,centerHeight)=>{
+          // Once the source arrives, cover only a narrow seam around the
+          // centerline. Full-width native curves are left to their own mesh.
+          const width=Math.min(point.width||importedCourse.width,
+            nativeBodies.size?4:Infinity)/2;
+          const x=point.x-point.tz*side*width,z=point.z+point.tx*side*width;
+          const sourceY=nativeHeight(x,point.y,z)??centerHeight;
+          return [x,sourceY===null?point.y+offset:sourceY-.35,z];
+        };
         const append=point=>{
-          vertices.push(...edge(point,-1),...edge(point,1));
+          const centerHeight=nativeHeight(point.x,point.y,point.z);
+          vertices.push(...edge(point,-1,centerHeight),
+            point.x,centerHeight===null?point.y+offset:centerHeight-.35,point.z,
+            ...edge(point,1,centerHeight));
         };
         const flush=()=>{
           if(indices.length){
@@ -570,10 +593,23 @@
         for(let i=0;i<courseRoute.length-(courseLoops?0:1);i++){
           const a=courseRoute[i],b=courseRoute[(i+1)%courseRoute.length];
           if(a.kind==='gap'||gapAt(i)){flush();continue;}
+          if(nativeBodies.size){
+            const guided=guidedSections.some(section=>i>=section.link.fromIndex &&
+              i<section.link.toIndex);
+            const mid={x:(a.x+b.x)/2,y:(a.y+b.y)/2,z:(a.z+b.z)/2};
+            if(guided || (nativeHeight(a.x,a.y,a.z)!==null &&
+                nativeHeight(mid.x,mid.y,mid.z)!==null &&
+                nativeHeight(b.x,b.y,b.z)!==null)){
+              flush();continue;
+            }
+          }
           if(first<0){first=i;append(a);}
           append(b);
-          const at=vertices.length/3-4;
-          indices.push(at,at+1,at+2,at+1,at+3,at+2);
+          const at=vertices.length/3-6;
+          for(let strip=0;strip<2;strip++){
+            const left=at+strip,right=at+3+strip;
+            indices.push(left,left+1,right,left+1,right+1,right);
+          }
           last=i;
         }
         flush();
@@ -596,13 +632,16 @@
         // gives CANNON an invalid convex polyhedron.
         const tx=dx/length,tz=dz/length,
           cap=Math.min(importedCourse.proxyCap??.9,length*.25);
-        const wa=(a.width||10)/2,wb=(b.width||10)/2;
+        const wa=(a.proxyWidth||a.width||10)/2;
+        const wb=(b.proxyWidth||b.width||10)/2;
+        const waLeft=a.proxyLeft??wa,waRight=a.proxyRight??wa;
+        const wbLeft=b.proxyLeft??wb,wbRight=b.proxyRight??wb;
         const ax=a.x-tx*cap,az=a.z-tz*cap,bx=b.x+tx*cap,bz=b.z+tz*cap;
         const top=[
-          new C.Vec3(ax+tz*wa,a.y+offset,az-tx*wa),
-          new C.Vec3(bx+tz*wb,b.y+offset,bz-tx*wb),
-          new C.Vec3(bx-tz*wb,b.y+offset,bz+tx*wb),
-          new C.Vec3(ax-tz*wa,a.y+offset,az+tx*wa)
+          new C.Vec3(ax+tz*waLeft,a.y+offset,az-tx*waLeft),
+          new C.Vec3(bx+tz*wbLeft,b.y+offset,bz-tx*wbLeft),
+          new C.Vec3(bx-tz*wbRight,b.y+offset,bz+tx*wbRight),
+          new C.Vec3(ax-tz*waRight,a.y+offset,az+tx*waRight)
         ];
         const vertices=[...top.map(v=>new C.Vec3(v.x,v.y-.6,v.z)),...top];
         const faces=[[0,1,2,3],[7,6,5,4],[4,5,1,0],[5,6,2,1],[6,7,3,2],[7,4,0,3]];
@@ -772,9 +811,16 @@
     }
     // Reverse to outward winding (bottom faces down, top faces up).
     faces.forEach(face=>face.reverse());
-    body.addShape(new C.ConvexPolyhedron(vertices,faces)); world.addBody(body);
+    // Place the U9 hull and suspension above its body origin so the center of
+    // mass sits closer to the road. Both must move together to keep the same
+    // chassis clearance and wheel travel.
+    const centerOfMassDrop=spec.centerOfMassDrop||0;
+    const centerOfMassOffset=new C.Vec3(0,centerOfMassDrop,0);
+    const centerOfMassWorld=new C.Vec3();
+    body.addShape(new C.ConvexPolyhedron(vertices,faces),
+      centerOfMassOffset); world.addBody(body);
     const car=new C.RaycastVehicle({chassisBody:body,indexRightAxis:0,indexUpAxis:1,indexForwardAxis:2});
-    spec.wheelLayout.forEach(wheel=>car.addWheel({radius:wheel.radius,directionLocal:new C.Vec3(0,-1,0),axleLocal:new C.Vec3(-1,0,0),chassisConnectionPointLocal:new C.Vec3(wheel.x,-.15+wheel.y,wheel.z),suspensionStiffness:32,suspensionRestLength:.42,frictionSlip:spec.grip,dampingRelaxation:3.5,dampingCompression:4.5,maxSuspensionForce:45000,rollInfluence:.15,maxSuspensionTravel:.3,customSlidingRotationalSpeed:30,useCustomSlidingRotationalSpeed:true}));
+    spec.wheelLayout.forEach(wheel=>car.addWheel({radius:wheel.radius,directionLocal:new C.Vec3(0,-1,0),axleLocal:new C.Vec3(-1,0,0),chassisConnectionPointLocal:new C.Vec3(wheel.x,-.15+wheel.y+centerOfMassDrop,wheel.z),suspensionStiffness:32,suspensionRestLength:.42,frictionSlip:spec.grip,dampingRelaxation:3.5,dampingCompression:4.5,maxSuspensionForce:45000,rollInfluence:.15,maxSuspensionTravel:.3,customSlidingRotationalSpeed:30,useCustomSlidingRotationalSpeed:true}));
     car.addToWorld(world);
     let accumulator=0,steer=0,grounded=0,airTime=0;
     const previousPosition=new C.Vec3(), previousQuaternion=new C.Quaternion();
@@ -802,7 +848,7 @@
     const initialZ=importedCourse?.spawn?.z??(start?start.z-Math.cos(startDirection)*spawnBack:citySpawn?.z??-28);
     const initialHeading=importedCourse?.spawn?.heading??(start?startDirection:citySpawn?Math.atan2(citySpawn.tx,citySpawn.tz):0);
     let courseTransfer=null,transferCooldown=0,courseGuide=null,guideCooldown=0;
-    function reset(x=initialX,z=initialZ,heading=initialHeading){refreshCityColliders(x,z,true);body.position.set(x,roadHeight(x,z)+spec.radius+.6,z);body.quaternion.setFromEuler(0,heading,0);body.velocity.setZero();body.angularVelocity.setZero();body.force.setZero();body.torque.setZero();body.wakeUp();accumulator=0;steer=0;grounded=0;airTime=0;courseTransfer=null;transferCooldown=0;courseGuide=null;guideCooldown=0;car.wheelInfos.forEach(w=>{w.rotation=0;w.deltaRotation=0;w.suspensionLength=w.suspensionRestLength;w.steering=0;});syncRenderState();}
+    function reset(x=initialX,z=initialZ,heading=initialHeading){refreshCityColliders(x,z,true);body.position.set(x,roadHeight(x,z)+spec.radius+.6-centerOfMassDrop,z);body.quaternion.setFromEuler(0,heading,0);body.velocity.setZero();body.angularVelocity.setZero();body.force.setZero();body.torque.setZero();body.wakeUp();accumulator=0;steer=0;grounded=0;airTime=0;courseTransfer=null;transferCooldown=0;courseGuide=null;guideCooldown=0;car.wheelInfos.forEach(w=>{w.rotation=0;w.deltaRotation=0;w.suspensionLength=w.suspensionRestLength;w.steering=0;});syncRenderState();}
     function step(dt,input={}) {
       accumulator+=Math.min(Math.max(dt,0),.1);
       while(accumulator>=1/120){
@@ -823,16 +869,20 @@
           const length=section.distances[guide.segment+1]-section.distances[guide.segment]||1;
           const t=(guide.distance-section.distances[guide.segment])/length;
           guide.lateral=Math.max(-.65,Math.min(.65,
-            guide.lateral+(input.steer||0)*1.8/120));
+            guide.lateral-(input.steer||0)*1.8/120));
           const segmentX=(b.x-a.x)/length,segmentZ=(b.z-a.z)/length;
           body.position.set(a.x+(b.x-a.x)*t-segmentZ*guide.lateral,
             a.y+(b.y-a.y)*t+1.1,
             a.z+(b.z-a.z)*t+segmentX*guide.lateral);
-          body.aabbNeedsUpdate=true;
           const dx=b.x-a.x,dy=b.y-a.y,dz=b.z-a.z,horizontal=Math.hypot(dx,dz)||1;
           const yaw=Math.atan2(dx,dz)/2,pitch=-Math.atan2(dy,horizontal)/2;
           const sy=Math.sin(yaw),cy=Math.cos(yaw),sp=Math.sin(pitch),cp=Math.cos(pitch);
           body.quaternion.set(cy*sp,sy*cp,-sy*sp,cy*cp);
+          if(centerOfMassDrop){
+            body.quaternion.vmult(centerOfMassOffset,centerOfMassWorld);
+            body.position.vsub(centerOfMassWorld,body.position);
+          }
+          body.aabbNeedsUpdate=true;
           body.velocity.set(dx/length*pace,dy/length*pace,dz/length*pace);
           body.angularVelocity.setZero();body.force.setZero();body.torque.setZero();
           car.wheelInfos.forEach(w=>{w.isInContact=false;w.steering=(input.steer||0)*.2;
@@ -840,7 +890,7 @@
           grounded=0;airTime=0;
           if(guide.distance>=section.distances.at(-1)){
             const end=section.points.at(-1),speed=section.link.landingSpeed??12;
-            body.position.set(end.x-end.tz*guide.lateral,end.y+1.1,
+            body.position.set(end.x-end.tz*guide.lateral,end.y+1.1-centerOfMassDrop,
               end.z+end.tx*guide.lateral);
             body.quaternion.setFromEuler(0,Math.atan2(end.tx,end.tz),0);
             body.velocity.set(end.tx*speed,0,end.tz*speed);
@@ -858,11 +908,12 @@
           const t=flight.elapsed/link.duration,arc=link.arc||0;
           const x=flight.from.x+(link.to.x-flight.from.x)*t;
           const z=flight.from.z+(link.to.z-flight.from.z)*t;
-          const y=flight.from.y+(link.to.y-flight.from.y)*t+Math.sin(Math.PI*t)*arc+flight.clearance;
+          const y=flight.from.y+(link.to.y-centerOfMassDrop-flight.from.y)*t+
+            Math.sin(Math.PI*t)*arc+flight.clearance;
           body.position.set(x,y,z);
           body.aabbNeedsUpdate=true;
           body.velocity.set((link.to.x-flight.from.x)/link.duration,
-            ((link.to.y-flight.from.y)+Math.PI*arc*Math.cos(Math.PI*t))/link.duration,
+            ((link.to.y-centerOfMassDrop-flight.from.y)+Math.PI*arc*Math.cos(Math.PI*t))/link.duration,
             (link.to.z-flight.from.z)/link.duration);
           const landingHeading=link.landingHeading??Math.atan2(link.to.x-flight.from.x,link.to.z-flight.from.z);
           const difference=Math.atan2(Math.sin(landingHeading-flight.heading),Math.cos(landingHeading-flight.heading));
@@ -872,7 +923,7 @@
           grounded=0;airTime+=1/120;
           if(t>=1){
             const speed=link.landingSpeed??Math.min(15,Math.max(10,flight.entrySpeed*.7));
-            body.position.set(link.to.x,link.to.y+flight.clearance,link.to.z);
+            body.position.set(link.to.x,link.to.y+flight.clearance-centerOfMassDrop,link.to.z);
             body.velocity.set(Math.sin(landingHeading)*speed,0,Math.cos(landingHeading)*speed);
             body.quaternion.setFromEuler(0,landingHeading,0);
             courseTransfer=null;transferCooldown=2;
@@ -917,14 +968,17 @@
               support=Math.max(.15,1-airTime/.8);
           }
           else if(isCity && airTime<.22 && body.position.y-height(body.position.x,body.position.z)<spec.radius+1.7) support=.4;
-          if(support && up.y>(spec.rollStability>1?-.25:.25)) {
+          if(support && up.y>.25) {
             const inverse=body.quaternion.conjugate();
             const localUp=inverse.vmult(new C.Vec3(0,1,0));
             const localRate=inverse.vmult(body.angularVelocity);
             const pace=Math.min(1.4,Math.max(.65,horizontalSpeed/20));
             const authority=spec.rollStability||1;
+            // Tire stability resists the start of a tip. Once a heavy car is
+            // on its side, stop righting it around its center like a bar.
+            const upright=authority>1?Math.min(1,(up.y-.25)/.45):1;
             const rollTorque=Math.max(-14000*authority,Math.min(14000*authority,
-              -(localUp.x*8200+localRate.z*3400)*pace*support*authority));
+              -(localUp.x*8200+localRate.z*3400)*pace*support*authority*upright));
             body.torque.vadd(body.quaternion.vmult(new C.Vec3(0,0,rollTorque)),body.torque);
           }
         }
@@ -938,7 +992,7 @@
           const assist=options.antiFlip===false?0:1;
           const torque=body.quaternion.vmult(new C.Vec3(
             throttle*2300*blend-assist*clamp(localRate.x*450,650),0,
-            -(input.steer||0)*1600*blend-assist*clamp(localRate.z*350,500)));
+            -assist*clamp(localRate.z*350,500)));
           body.torque.vadd(torque,body.torque);
         }
         world.step(1/120);
@@ -948,7 +1002,7 @@
             const dx=body.position.x-start.x,dz=body.position.z-start.z;
             const along=dx*start.tx+dz*start.tz;
             if(Math.hypot(dx,dz)>radius||along<-.3||
-              Math.abs(body.position.y-start.y-1.1)>Math.max(3,radius)||
+              Math.abs(body.position.y-start.y-1.1+centerOfMassDrop)>Math.max(3,radius)||
               body.velocity.x*start.tx+body.velocity.z*start.tz<3)continue;
             courseGuide={section,distance:0,segment:0,lateral:0};guideCooldown=2;
             break;
@@ -958,7 +1012,7 @@
           for(const link of importedCourse.transfers){
             const radius=link.radius??4;
             if(Math.hypot(body.position.x-link.from.x,body.position.z-link.from.z)>radius ||
-              Math.abs(body.position.y-link.from.y-1.1)>Math.max(3,radius) ||
+              Math.abs(body.position.y-link.from.y-1.1+centerOfMassDrop)>Math.max(3,radius) ||
               body.velocity.length()<4)continue;
             if(Number.isFinite(link.takeoffHeading)){
               const toward=Math.sin(link.takeoffHeading)*body.velocity.x+

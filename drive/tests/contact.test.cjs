@@ -13,7 +13,8 @@ function incline(car,speed,angle){
  for(const b of [...p.world.bodies])if(b!==p.body)p.world.removeBody(b);
  const plane=new C.Body({mass:0,material});plane.addShape(new C.Plane());
  plane.quaternion.setFromEuler(-Math.PI/2-angle,0,0);p.world.addBody(plane);
- p.body.position.set(0,.75,0);p.body.velocity.set(0,-2,speed);
+ // Hold the visible hull at the same height for cars with a lowered body origin.
+ p.body.position.set(0,.75-(p.spec.centerOfMassDrop||0),0);p.body.velocity.set(0,-2,speed);
  let hit=false,minSpeed=speed,minUp=1;
  for(let i=0;i<60;i++){p.step(1/120);hit ||= contact(p);minSpeed=Math.min(minSpeed,p.body.velocity.z);minUp=Math.min(minUp,up(p));}
  return {hit,minSpeed,minUp};

@@ -60,7 +60,9 @@ test('every car clears the visible gap at recommended approach speeds with uprig
   for(let i=0;i<360&&p.body.position.z>30;i++){
    const state=p.step(1/60);if(!state.grounded)air++;
    if(air>10&&state.grounded&&p.body.position.z<72)landed=true;
-   minUp=Math.min(minUp,up(p));assert.ok(p.body.position.y>.4,'car never falls to recovery floor');
+   minUp=Math.min(minUp,up(p));
+   assert.ok(p.body.position.y+(p.spec.centerOfMassDrop||0)>.4,
+    'the visible chassis never falls to the recovery floor');
   }
   assert.ok(air>=40&&air<90,car+' meaningful but controlled airtime: '+air);
   assert.ok(landed,car+' lands beyond the gap');assert.ok(minUp>.9,car+' upright neutral landing');

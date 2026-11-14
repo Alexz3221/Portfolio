@@ -166,7 +166,20 @@
     // The model has no deck between these ramp lips. Leave the crossing open
     // in the loading collision proxy so a car must actually jump the gap.
     if (point.z===20 && point.y>2 && point.x>=-12.5 && point.x<2.5) point.kind='gap';
+    // The east landing is much wider than the measured centerline suggests:
+    // the source asphalt spans z=18..30, while the route is centered at z=20.
+    // Keep its solid safety underlay inside that native surface so a long
+    // airborne landing cannot pass through CANNON's thin road triangles.
+    if (point.z===20 && point.x>=12.5 && point.x<=45) {
+      point.proxyLeft=2;
+      point.proxyRight=10;
+    } else if (point.x>45 && point.x<=52 && point.z>=16 && point.z<20) {
+      // The same surface fans outward around the southeast bend.
+      point.proxyLeft=4;
+      point.proxyRight=12;
+    }
   }
+  const bangkokScale = .052;
 
   const courses = {
     rainbowroad: {
@@ -215,36 +228,34 @@
     },
     bangkok: {
       id:'bangkok', name:'Bangkok Rush',
-      caption:'Bangkok Rush · southeast city road to temple finish',
-      asset:'assets/courses/bangkok-rush.glb', scale:.026, loop:false, width:6.8,
-      nativeFinish:true,
-      // The source arch/checker crosses Object_61 at (-1, 5, 0) in the old
-      // 0.01-scale coordinates. This run follows the native gray streets
-      // from the southeast city road past the market and temple to that arch.
-      // The authored controls below are at 0.02 scale, enlarged uniformly.
-      // Other native streets remain driveable off route.
-      // The 2.6x source enlargement makes its approximately 3 m street 7.8 m wide.
+      caption:'Bangkok Rush · native city loop from the Mario Kart arch',
+      asset:'assets/courses/bangkok-rush.glb', scale:bangkokScale, loop:true, width:13.6,
+      // The source arch/checker crosses Object_61 near raw (-100,500,0).
+      // Follow the connected gray road east around the block's south bend,
+      // then return on the outer west street and climb back under the arch.
+      // Source coordinates are scaled together with the full model; the
+      // southeast boulevard and other branches stay driveable off route.
       route:routeFrom([
-        [-2,10,0],[8,10,0],[17,10,-1],
-        [20,10,-10],[20,10,-20],[29,10,-22],
-        [39,10,-22],[49,10,-22],[58,10,-20],
-        [67,10,-16],[75,10,-10],[84,10,-9],
-        [94,10.12,-9],[103,10,-11],[105,10,-20],
-        [106,10,-29],[112,10,-37],[119,10.1,-44],
-        [126,10.1,-51],[131,10,-59],[139,10.1,-65],
-        [146,10.1,-72],[148.5,10.1,-81],[150,10,-88]
-      ].reverse().map(point=>point.map(value=>value*1.3)), false, 6.8, 3),
-      // The southeast start lies on level native asphalt. The built-in arch
-      // now marks the finish, with the west street as a safe deceleration run.
-      spawn:{x:198.2,y:13,z:-129.4,heading:-.2},
-      spawnBack:15.6, spawnPadBack:4, finishRunout:39,
-      finishRunoutEndY:10.4,
+        [-100,500,0],[200,500,0],[500,500,0],[800,500,-50],
+        [950,500,-200],[1000,500,-500],[1000,500,-800],
+        [1000,500,-1100],[980,500,-1250],[800,500,-1400],
+        [600,500,-1500],[400,500,-1600],[200,500,-1700],
+        [0,500,-1800],[-200,500,-1900],[-300,500,-2000],
+        [-500,500,-1900],[-600,500,-1800],[-800,491,-1700],
+        [-1000,466,-1600],[-1200,436,-1500],[-1300,418,-1400],
+        [-1450,402,-1300],[-1500,400,-1200],[-1600,400,-1000],
+        [-1600,400,-800],[-1600,400,-500],[-1570,400,-200],
+        [-1500,400,0],[-1300,400,0],[-1200,401,0],
+        [-1000,413,0],[-800,437,0],[-600,464,0],[-400,490,0]
+      ].map(point=>point.map(value=>value*bangkokScale)), true, 13.6, 3),
+      spawn:{x:-300*bangkokScale,y:495*bangkokScale,z:0,heading:Math.PI/2},
+      spawnBack:10.4,
       // The source splits its road and ground among several mesh objects.
       // Include the whole surfaces so the untimed city branches are driveable.
       collisionPattern:/^Object_(?:33|37|45|61|62|63|64)$/i,
       collisionFilter:'bangkok', maxCollisionTriangles:30000,
-      proxyRoad:true, proxyOffset:-.12, overlayRoad:false,
-      edge:560, floor:-50, roadSearchWidth:45,
+      proxyRoad:true, proxyOffset:-.5, overlayRoad:false,
+      edge:1120, floor:-100, roadSearchWidth:90,
       ground:0x355d42, skyLow:0xcad6c7, skyHigh:0x85a6a2, fog:0x9ab3a6,
       ghostSpeed:23
     }

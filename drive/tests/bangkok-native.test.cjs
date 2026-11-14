@@ -43,27 +43,27 @@ function nativeBangkokScene() {
   return scene;
 }
 
-test('Bangkok native asphalt loads as collision and covers the extended course', async () => {
+test('Bangkok native asphalt supports a full loop from the built-in checker', async () => {
   const course=imported.getCourse('bangkok');
-  assert.equal(course.scale,.026);
-  assert.equal(course.loop,false);
-  assert.equal(course.nativeFinish,true);
-  assert.ok(course.route.length>100);
-  assert.ok(Math.abs(course.route[0].x-195)<.01 &&
-    course.route[0].tx<-.1 && course.route[0].tz>.9,
-    'the southeast gray street is the start gate, heading toward the city');
-  assert.ok(course.spawn.z<course.route[0].z-12,
-    'spawn is behind the southeast start gate on native asphalt');
-  assert.ok(Math.abs(course.route.at(-1).x+2.6)<.01 &&
-    course.route.at(-1).tx<-.99,
-    'the run finishes westbound through the source arch/checker');
+  assert.equal(course.scale,.052);
+  assert.equal(course.loop,true);
+  assert.ok(course.route.length>140);
+  assert.ok(Math.abs(course.route[0].x+5.2)<.01 &&
+    course.route[0].tx>.99 && Math.abs(course.route[0].z)<.01,
+    'the model arch/checker is the eastbound lap gate');
+  assert.ok(course.spawn.x<course.route[0].x-8,
+    'spawn is behind the native checker on its west approach');
+  assert.ok(course.route.at(-1).x<course.route[0].x &&
+    course.route.at(-1).tx>.99,
+    'the loop returns on the west approach in the same direction');
   const routeLength=course.route.slice(1).reduce((length,point,index)=>{
     const previous=course.route[index];
     return length+Math.hypot(point.x-previous.x,point.y-previous.y,point.z-previous.z);
   },0);
-  assert.ok(routeLength>280 && routeLength<300,'timed run uses the southeast gray streets');
-  assert.ok(course.finishRunout>=35 && Math.abs(course.finishRunoutEndY-10.4)<.1,
-    'the westward finish runout follows the descending native street');
+  assert.ok(routeLength>400 && routeLength<410,
+    'the lap follows the full connected city-block loop');
+  assert.ok(course.width>=13,
+    'the native asphalt is enlarged enough for the supplied cars');
 
   const scene=nativeBangkokScene();
   class Vector3 {
@@ -78,31 +78,28 @@ test('Bangkok native asphalt loads as collision and covers the extended course',
     assert.equal(triangles,17562);
     assert.ok(triangles<=course.maxCollisionTriangles);
     const sim=physics.create({map:'racetrack',courseId:'bangkok',course,car:'comet'});
+    const initialBodies=new Set(sim.world.bodies);
     assert.equal(sim.addCourseCollisionMeshes(loaded.collisionMeshes),true,
       'the actual source geometry fits CANNON instead of falling back to a proxy');
-    for(const point of course.route.filter((_,index)=>index%10===0)) {
-      assert.ok(Math.abs(sim.roadHeight(point.x,point.z)-point.y)<.35,
-        `native road height matches course at (${point.x.toFixed(1)},${point.z.toFixed(1)})`);
+    const nativeBodies=sim.world.bodies.filter(body=>!initialBodies.has(body));
+    assert.equal(scene.objects[3].name,'Object_61',
+      'the fourth unique source mesh is the gray asphalt');
+    const nativeRoad=nativeBodies[3];
+    for(const point of course.route) {
+      const heights=[];
+      sim.world.raycastAll(new Cannon.Vec3(point.x,point.y+5,point.z),
+        new Cannon.Vec3(point.x,point.y-5,point.z),{},hit=>{
+          if(hit.body===nativeRoad)heights.push(hit.hitPointWorld.y);
+        });
+      assert.ok(heights.some(y=>Math.abs(y-point.y)<.4),
+        `native gray road covers (${point.x.toFixed(1)},${point.z.toFixed(1)})`);
     }
     sim.reset(course.spawn.x,course.spawn.z,course.spawn.heading);
     for(let frame=0;frame<240;frame++)sim.step(1/120);
     assert.ok(sim.car.wheelInfos.every(wheel=>wheel.isInContact),
-      'the car settles on the native southeast road behind its start');
-    const finish=course.route.at(-1);
-    assert.ok(Math.abs(sim.roadHeight(finish.x,finish.z)-finish.y)<.35,
-      'the built-in arch finish lies on native westbound asphalt');
-    const runoutDistance=course.finishRunout-3;
-    const runoutX=finish.x+finish.tx*runoutDistance;
-    const runoutZ=finish.z+finish.tz*runoutDistance;
-    const hit=new Cannon.RaycastResult();
-    assert.equal(sim.world.raycastClosest(
-      new Cannon.Vec3(runoutX,finish.y+3,runoutZ),
-      new Cannon.Vec3(runoutX,finish.y-3,runoutZ),{},hit),true,
-    'the loading proxy and native road support the finish runout');
-    const expectedRunoutY=finish.y+(course.finishRunoutEndY-finish.y)*
-      runoutDistance/course.finishRunout;
-    assert.ok(Math.abs(hit.hitPointWorld.y-expectedRunoutY)<.45,
-      `runout height ${hit.hitPointWorld.y.toFixed(2)} vs source street ${expectedRunoutY.toFixed(2)}`);
+      'the car settles on the native west approach behind the arch');
+    assert.ok(sim.body.velocity.length()<.5,
+      'the parked car stays nearly still before the timed lap');
     sim.dispose();
   } finally { delete globalThis.THREE; }
 });

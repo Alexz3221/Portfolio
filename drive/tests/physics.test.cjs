@@ -25,7 +25,25 @@ test('wheels keep rolling while coasting and turn the same way under airborne th
   p.car.wheelInfos.forEach((w,i)=>assert.ok(w.rotation<0,`wheel ${i} spins forward in air`));
 });
 test('ramp launches without teleporting and lands with gravity',()=>{const p=P.create();run(p,120);let launched=false,landed=false,maxY=0;for(let i=0;i<700;i++){const state=p.step(1/60,{throttle:p.body.position.z<30?1:0});maxY=Math.max(maxY,p.body.position.y);if(p.body.position.z>35&&!state.grounded)launched=true;if(launched&&p.body.position.z>50&&state.grounded)landed=true;assert.ok(Number.isFinite(p.body.position.y));}assert.ok(launched);assert.ok(maxY>5);assert.ok(landed);});
-test('air controls apply torque and allow real full rotations',()=>{const p=P.create();p.body.position.set(0,100,0);let rotation=0,maxTilt=0;for(let i=0;i<180;i++){p.step(1/60,{throttle:1,steer:1});rotation+=p.body.angularVelocity.length()/60;maxTilt=Math.max(maxTilt,Math.abs(p.body.quaternion.x)+Math.abs(p.body.quaternion.z));}assert.ok(rotation>Math.PI*2);assert.ok(p.body.angularVelocity.length()>2);assert.ok(p.body.position.y<95);assert.ok(maxTilt>.25);});
+test('air throttle pitches the car without making steering keys roll it',()=>{
+  const p=P.create();p.body.position.set(0,100,0);
+  let rotation=0;
+  for(let i=0;i<180;i++){
+    p.step(1/60,{throttle:1,steer:1});
+    rotation+=p.body.angularVelocity.length()/60;
+  }
+  assert.ok(rotation>1.5,'air pitch still responds to throttle');
+  assert.ok(Math.abs(p.body.quaternion.x)>.25);
+  assert.ok(Math.abs(p.body.quaternion.z)<.01,'steering does not add a barrel roll');
+  assert.ok(p.body.position.y<95);
+});
+test('a steering key cannot turn a brief airborne moment into a barrel roll',()=>{
+  const p=P.create({map:'city',car:'u9xtreme'});
+  p.body.position.set(0,100,0);
+  for(let i=0;i<120;i++)p.step(1/60,{steer:1});
+  assert.ok(Math.abs(p.body.angularVelocity.z)<.01);
+  assert.ok(Math.abs(p.body.quaternion.z)<.01);
+});
 test('trunk collision stops a car and does not tunnel at driving speed',()=>{const p=P.create();p.reset(-100,-80);p.addTree(-100,-65,.45,8);run(p,120);p.body.velocity.set(0,0,35);run(p,60);assert.ok(p.body.position.z < -65);assert.ok(p.body.velocity.z<5);});
 test('terrain has actual elevation and physics is stable at different render rates',()=>{assert.ok(P.terrainHeight(37,32)>7);const results=[30,60,120].map(fps=>{const p=P.create();p.reset(-100,-100);for(let i=0;i<fps*5;i++)p.step(1/fps,{throttle:i>fps?1:0});return p.body.position.z;});assert.ok(Math.max(...results)-Math.min(...results)<1);});
 
@@ -54,6 +72,34 @@ test('grounded anti-roll keeps a fast car on its wheels after a sideways impulse
   assert.ok(outcomes[1].maxTilt<Math.PI/3,'assisted car stays short of a rollover');
   assert.ok(outcomes[1].maxTilt<outcomes[0].maxTilt*.4,'the assist materially reduces tilt');
   assert.ok(outcomes[1].leastContact>=2,'the assisted car retains tire contact');
+});
+test('guided course steering moves right and left in the same directions as wheel steering',()=>{
+  const Imported=require('../js/imported-courses');
+  const route=Imported.routeFrom([[0,0,0],[0,0,5],[0,0,20],[0,0,40]],false,8,5);
+  const course={id:'guide-steering',loop:false,width:8,route,
+    spawn:{x:0,y:0,z:0,heading:0},edge:100,floor:-20,proxyRoad:true,
+    guidedSections:[{fromIndex:1,toIndex:route.length-1,radius:3,speed:10}]};
+  function guidedX(steer) {
+    const sim=P.create({map:'racetrack',courseId:course.id,course,car:'u9xtreme'});
+    assert.equal(sim.restoreAssistState({kind:'guide',index:0,distance:0,
+      segment:0,lateral:0}),true);
+    for(let frame=0;frame<60;frame++)sim.step(1/120,{steer});
+    return sim.body.position.x;
+  }
+  function wheelX(steer) {
+    const sim=P.create({map:'city',city:{edge:100,buildings:[],
+      highwaySegments:[]},car:'u9xtreme'});
+    sim.reset(0,0,0);
+    for(let frame=0;frame<120;frame++)sim.step(1/60);
+    sim.body.velocity.set(0,0,10);
+    for(let frame=0;frame<60;frame++)sim.step(1/60,{steer});
+    return sim.body.position.x;
+  }
+  for(const steer of [-1,1]) {
+    const guided=guidedX(steer),wheeled=wheelX(steer);
+    assert.ok(guided*wheeled>.25,
+      `guided and wheel steering move to the same side for input ${steer}`);
+  }
 });
 test('all cars settle, accelerate, brake and reverse on the fixture and city',()=>{
   for(const map of ['course','city'])for(const car of Object.keys(P.vehicles)){

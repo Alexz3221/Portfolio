@@ -29,8 +29,11 @@ test('full Rainbow Road uses native collision on every modeled road section', as
   assert.ok(loaded.collisionMeshes.length>=9,'all road eras contribute native triangles');
   const initialBodies = new Set(sim.world.bodies);
   assert.equal(sim.addCourseCollisionMeshes(loaded.collisionMeshes),true);
-  const nativeBodies = new Set(sim.world.bodies.filter(body=>!initialBodies.has(body)));
+  const proxyBodies = new Set(sim.courseSlabs.map(slab=>slab.body));
+  const nativeBodies = new Set(sim.world.bodies.filter(body=>
+    !initialBodies.has(body)&&!proxyBodies.has(body)));
   assert.ok(nativeBodies.size>=9,'the source road chunks enter the physical world');
+  assert.ok(proxyBodies.size>0,'a thin support mesh remains under source seams');
   sim.reset();
   for(let frame=0;frame<240;frame++)sim.step(1/120);
   assert.ok(sim.car.wheelInfos.every(wheel=>wheel.isInContact),
@@ -55,6 +58,27 @@ test('full Rainbow Road uses native collision on every modeled road section', as
     ['N64 loop',66.81,70.46,-73.38]
   ]) assert.ok(nativeAt(x*course.scale/2.5,y*course.scale/2.5,
     z*course.scale/2.5),`${name} has source road collision`);
+
+  function surfaceY(point,bodies) {
+    let best=null,error=Infinity;
+    sim.world.raycastAll(new Cannon.Vec3(point.x,point.y+12,point.z),
+      new Cannon.Vec3(point.x,point.y-12,point.z),{},hit=>{
+        if(!bodies.has(hit.body))return;
+        const distance=Math.abs(hit.hitPointWorld.y-point.y);
+        if(distance<error){error=distance;best=hit.hitPointWorld.y;}
+      });
+    return best;
+  }
+  for(const index of [9,16,20]) {
+    const point=course.route[index];
+    const sourceY=surfaceY(point,nativeBodies);
+    const supportY=surfaceY(point,proxyBodies);
+    assert.ok(sourceY!==null,`the pink curve has native road at sample ${index}`);
+    assert.equal(supportY,null,
+      `no hidden proxy protrudes through the pink curve at sample ${index}`);
+  }
+  assert.ok(sim.courseSlabs.some(slab=>slab.index<=94 && slab.endIndex>=94),
+    'a missing native seam after the MK7 guide still has narrow support');
 
   for(const transfer of course.transfers) {
     const from=course.route.findIndex(point=>Math.hypot(point.x-transfer.from.x,

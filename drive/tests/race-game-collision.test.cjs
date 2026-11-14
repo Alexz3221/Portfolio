@@ -124,4 +124,48 @@ test('Race Game native asphalt supports the full loop, underpass and bridge', as
       driver.car.wheelInfos.filter(wheel=>wheel.isInContact).length>=3,
     `${car} lands on the east road at about 28 mph and keeps driving`);
   }
+  const u9=physics.create({map:'racetrack',courseId:'racegame',course,car:'u9xtreme'});
+  assert.equal(u9.addCourseCollisionMeshes(loaded.collisionMeshes),true);
+  const outside=[];
+  u9.world.raycastAll(new Cannon.Vec3(30,3,31),new Cannon.Vec3(30,-1,31),{},hit=>{
+    if(hit.shape.type===Cannon.Shape.types.CONVEXPOLYHEDRON &&
+      Math.abs(hit.hitPointWorld.y-.72)<.1)outside.push(hit.hitPointWorld.y);
+  });
+  assert.deepEqual(outside,[],
+    'the solid landing underlay stops at the model asphalt edge');
+  for(const [x,z] of [[30,26],[30,28],[37,26]]) {
+    u9.reset(x,z,Math.PI/2);
+    u9.body.position.y=12;
+    let lowest=Infinity;
+    for(let frame=0;frame<450;frame++) {
+      u9.step(1/120);
+      // The U9 hull now sits above its lower center of mass. Compare the
+      // visible chassis clearance, not the shifted physics body origin.
+      lowest=Math.min(lowest,u9.body.position.y+(u9.spec.centerOfMassDrop||0));
+    }
+    assert.ok(lowest>1 &&
+      u9.body.position.y+(u9.spec.centerOfMassDrop||0)>1.5 &&
+      u9.car.wheelInfos.filter(wheel=>wheel.isInContact).length>=3,
+      `the U9 lands on native asphalt at (${x}, ${z}) after a 12 m fall`);
+  }
+  const fastU9=physics.create({map:'racetrack',courseId:'racegame',course,car:'u9xtreme'});
+  assert.equal(fastU9.addCourseCollisionMeshes(loaded.collisionMeshes),true);
+  fastU9.reset(-45,20,Math.PI/2);
+  let airborne=0,flight=0,landed=false;
+  for(let frame=0;frame<800;frame++) {
+    const steer=fastU9.body.position.x>-7&&fastU9.body.position.x<55?.55:0;
+    fastU9.step(1/120,{throttle:1,steer});
+    const position=fastU9.body.position;
+    const contacts=fastU9.car.wheelInfos.filter(wheel=>wheel.isInContact).length;
+    flight=contacts?0:flight+1;
+    airborne=Math.max(airborne,flight);
+    if(flight>200&&position.x>20&&position.x<56&&position.z>18&&position.z<31)
+      assert.ok(position.y+(fastU9.spec.centerOfMassDrop||0)>.75,
+        'the U9 stays above the modeled east landing');
+    if(airborne>200&&contacts>=2&&position.x>20&&position.x<56&&
+      position.z>18&&position.z<31&&
+      position.y+(fastU9.spec.centerOfMassDrop||0)>1)landed=true;
+  }
+  assert.ok(airborne>200&&landed,
+    'the U9 regains wheel contact after a long, fast jump with throttle and steering held');
 });

@@ -39,7 +39,7 @@
     racetrack: {name: 'Stunt course', caption: maps.racetrack.caption},
     rainbowroad: {name: 'Rainbow Road', caption: 'Rainbow Road · full native course', loop: true, revision: 4},
     racegame: {name: 'Race Game Circuit', caption: 'Race Game Circuit · full native lap', loop: true, revision: 4},
-    bangkok: {name: 'Bangkok Rush', caption: 'Bangkok Rush · full native street run', loop: false, revision: 4}
+    bangkok: {name: 'Bangkok Rush', caption: 'Bangkok Rush · full native city lap', loop: true, revision: 5}
   };
   let selectedCourse = 'racetrack';
   const coursePicker = document.querySelector('#coursePicker');
@@ -89,6 +89,15 @@
     return personalBests.get(courseId);
   }
   let personalBest = bestForCourse(selectedCourse);
+  const bestPosePosition = new THREE.Vector3(), bestPoseUp = new THREE.Vector3();
+  function bestLapPosition() {
+    const body = physics.body, drop = physics.spec.centerOfMassDrop || 0;
+    if (!drop) return body.position;
+    // Replays store the original chassis-center coordinate. Keep newly
+    // recorded U9 laps compatible with older personal bests and course ghosts.
+    return bestPosePosition.set(body.position.x, body.position.y, body.position.z)
+      .add(bestPoseUp.set(0, drop, 0).applyQuaternion(body.quaternion));
+  }
   const ghost = {
     model: null, car: null, running: false, armed: false, elapsed: 0, progress: 0,
     rate: 1, trace: null, wheelRotation: 0, lastPosition: new THREE.Vector3(),
@@ -424,12 +433,6 @@
         if (loaded.collisionMeshes.length && !physics.addCourseCollisionMeshes(loaded.collisionMeshes))
           console.warn('Imported course collision unavailable; using its road proxy:',courseId);
         fallback.visible = !!importedCourse.overlayRoad;
-        // Bangkok's reverse run starts on native asphalt without a checker.
-        // Keep its generated start grid after hiding the loading road.
-        if (courseId === 'bangkok' && !fallback.visible) {
-          grid.position.y = physics.roadHeight(start.x,start.z)+.12;
-          world.add(grid);
-        }
       }).catch(error => {
         if (generation !== worldGeneration || selectedCourse !== courseId) return;
         console.warn('Imported course scene unavailable; using playable road proxy:',courseId,error);
@@ -875,7 +878,7 @@
     ghost.wheelRotation = 0;
     ghost.lastFinishDistance = activeCourse()?.loop === false ? finishLineDistance(physics.body.position) : null;
     personalBest.start(selectedCar);
-    personalBest.record(0, physics.body.position, physics.body.quaternion, 0);
+    personalBest.record(0, bestLapPosition(), physics.body.quaternion, 0);
     if (ghost.trace && ghost.model) setGhostPose(0);
     ghostUI.time.textContent = '0:00.0';
     ghostUI.gap.textContent = 'EVEN';
@@ -935,7 +938,7 @@
       ghostUI.status.textContent = 'Lap ended: fell off the course. Reset to start to retry.';
       return;
     }
-    personalBest.record(ghost.elapsed, body.position, body.quaternion, ghost.progress);
+    personalBest.record(ghost.elapsed, bestLapPosition(), body.quaternion, ghost.progress);
     if (ghost.trace) {
       const gap = ghost.elapsed - ghostTimeAtProgress(ghost.progress);
       ghostUI.gap.textContent = Math.abs(gap) < .15 ? 'EVEN' :
@@ -944,7 +947,7 @@
     const minFinishProgress = loop ? count - 4 : finishProgressThreshold(route);
     if ((loop ? crossed : crossedFinish) && ghost.progress >= minFinishProgress) {
       ghost.progress = count;
-      personalBest.record(ghost.elapsed, body.position, body.quaternion, count);
+      personalBest.record(ghost.elapsed, bestLapPosition(), body.quaternion, count);
       finishTimedLap();
     } else if (ghost.trace && !ghost.done && ghost.elapsed >= ghost.trace.lapTime / ghost.rate) {
       ghost.done = true;
@@ -1022,7 +1025,8 @@
     motion.heading = Math.atan2(spawn.tangent.x, spawn.tangent.z);
     vehicle.position.set(spawn.point.x, .03, spawn.point.z);
     vehicle.rotation.set(0,motion.heading,0);
-    if (physics) vehicle.position.y = physics.body.position.y - 1.05;
+    if (physics) vehicle.position.y = physics.body.position.y - 1.05 +
+      (physics.spec.centerOfMassDrop || 0);
     camera.position.set(vehicle.position.x - Math.sin(motion.heading) * 9,
       vehicle.position.y + 5, displayZ(vehicle.position.z - Math.cos(motion.heading) * 9));
     if (isRaceCourse()) {
@@ -1154,13 +1158,23 @@
     if (type !== selectedCar && physics) {
       const assist=physics.getAssistState?.();
       const previous=physics.body;
+      const previousDrop=physics.spec.centerOfMassDrop || 0;
       selectedCar=type;
       buildWorld();
       addFinishMarker();
       // Keep location and orientation, but stop safely when swapping vehicle mass/size.
       physics.body.position.copy(previous.position);
-      physics.body.position.y+=.2;
+      const centerShift=new THREE.Vector3(0,previousDrop-(physics.spec.centerOfMassDrop||0),0)
+        .applyQuaternion(previous.quaternion);
+      physics.body.position.x+=centerShift.x;
+      physics.body.position.y+=centerShift.y+.2;
+      physics.body.position.z+=centerShift.z;
       physics.body.quaternion.copy(previous.quaternion);
+      if (assist?.kind === 'transfer') {
+        assist.from.x+=centerShift.x;
+        assist.from.y+=centerShift.y+.2;
+        assist.from.z+=centerShift.z;
+      }
       physics.restoreAssistState?.(assist);
       physics.syncRenderState();
       releaseControls();motion.speed=0;
@@ -1345,13 +1359,14 @@
       const state=physics.step(delta,{throttle,steer:steering,brake:keys.has(' ')});
       motion.speed=state.speed;
       vehicle.quaternion.copy(physics.renderQuaternion);
-      const offset=new THREE.Vector3(0,-1.05,0).applyQuaternion(vehicle.quaternion);
+      const drop=physics.spec.centerOfMassDrop || 0;
+      const offset=new THREE.Vector3(0,-1.05+drop,0).applyQuaternion(vehicle.quaternion);
       vehicle.position.copy(physics.renderPosition).add(offset);
       const forward=new THREE.Vector3(0,0,1).applyQuaternion(vehicle.quaternion);
       if (Math.hypot(forward.x,forward.z)>.15) motion.heading=Math.atan2(forward.x,forward.z);
       carModels[selectedCar].wheels.forEach(({wheel,pivot},i)=>{
         const w=physics.renderWheels[i];
-        pivot.position.y=1.05+physics.car.wheelInfos[i].chassisConnectionPointLocal.y-w.suspensionLength;
+        pivot.position.y=1.05-drop+physics.car.wheelInfos[i].chassisConnectionPointLocal.y-w.suspensionLength;
         // CANNON's Y-up wheel angle decreases while the car moves along +Z.
         pivot.rotation.y=w.steering;wheel.rotation.x=-w.rotation;
       });
@@ -1367,7 +1382,7 @@
       document.querySelector('#surfaceValue').textContent=isRaceCourse()&&physics.body.position.y<courseFallHeight
         ?'Fell off course · Press R / Reset':state.guided?'ANTI-GRAVITY · FOLLOWING TRACK'
         :state.gliding?'GLIDING TO NEXT ROAD':up.y<.1?'Overturned? Press F / flip in place'
-        :state.grounded?state.grounded+' wheels grounded':'AIRBORNE · ↑↓ pitch / ←→ roll';
+        :state.grounded?state.grounded+' wheels grounded':'AIRBORNE · ↑↓ pitch';
       const fallLimit=selectedMap==='city' && city.terrain
         ? physics.terrainHeight(physics.body.position.x,physics.body.position.z)-30
         : importedLowRoad !== null ? importedLowRoad - 30 : -30;

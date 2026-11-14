@@ -250,7 +250,7 @@ test('Race Game course ghost slows for the modelled jump', () => {
   assert.ok(speed > 11 && speed < 14,`ghost jump speed is ${speed.toFixed(1)} m/s`);
 });
 
-test('Bangkok times the southeast-to-arch run in the intended direction', () => {
+test('Bangkok times a full native loop from its built-in arch', () => {
   const storage=memoryStorage();
   const {sim,document}=context.makeGhostHarness(storage);
   sim.chooseMap('racetrack');
@@ -259,9 +259,11 @@ test('Bangkok times the southeast-to-arch run in the intended direction', () => 
   select.value='bangkok';
   select.listeners.change({target:select});
   const route=ImportedCourses.getCourse('bangkok').route;
-  const start=route[0],finish=route.at(-1),body=sim.physics().body;
-  assert.ok(start.x>190 && finish.x<0,
-    'the native city run begins southeast and ends under the western arch');
+  const start=route[0],body=sim.physics().body;
+  assert.ok(Math.abs(start.x+5.2)<.01 && start.tx>.99,
+    'the model arch is the eastbound lap gate');
+  assert.equal(sim.world.getObjectByName('course-finish-gate'),undefined,
+    'the loop uses the existing checker for both start and finish');
   function place(point,along=0,speed=8) {
     body.position.set(point.x+point.tx*along,point.y+1,
       point.z+point.tz*along);
@@ -273,18 +275,19 @@ test('Bangkok times the southeast-to-arch run in the intended direction', () => 
   assert.equal(sim.ghost.running,false,'wrong-way start does not start timing');
   place(start,-1);
   place(start,1);
-  assert.equal(sim.ghost.running,true,'southeast checker starts the run');
-  place(finish,-1);
-  place(finish,1);
-  assert.equal(sim.ghost.running,true,'skipping the road cannot finish');
-  for(let index=1;index<route.length-1;index++)place(route[index]);
-  place(finish,-1,-8);
-  place(finish,1,-8);
+  assert.equal(sim.ghost.running,true,'the built-in checker starts the lap');
+  place(start,-1);
+  place(start,1);
+  assert.equal(sim.ghost.running,true,'an early recross cannot finish the lap');
+  for(let index=1;index<route.length;index++)place(route[index]);
+  place(start,-1,-8);
+  place(start,1,-8);
   assert.equal(sim.ghost.running,true,'wrong-way arch crossing is ignored');
-  place(finish,-1);
-  place(finish,1);
-  assert.equal(sim.ghost.running,false,'the native arch ends the full run');
-  assert.ok(storage.values.get(PersonalBest.KEY+':bangkok:v4'));
+  place(start,-1);
+  place(start,1);
+  assert.equal(sim.ghost.running,false,'returning through the arch completes the full loop');
+  assert.equal(sim.ghost.progress,route.length);
+  assert.ok(storage.values.get(PersonalBest.KEY+':bangkok:v5'));
 });
 
 test('Rainbow Road does not reset the car on its lower native sections', () => {
@@ -425,6 +428,36 @@ test('a lap finishes only at a forward line crossing after route completion', ()
   assert.equal(sim.ghost.running, false);
   assert.equal(sim.ghost.progress, P.stuntRoute.length);
   assert.match(document.querySelector('#ghostStatus').textContent, /beat the ghost|behind the ghost/);
+});
+
+test('U9 best laps keep the legacy ghost height after its lower center of mass', () => {
+  const storage=memoryStorage();
+  const {sim,document}=context.makeGhostHarness(storage);
+  sim.chooseMap('racetrack');
+  sim.chooseCar('u9xtreme');
+  startLap(sim);
+  const bodyY=sim.physics().body.position.y;
+  sim.ghost.progress=P.stuntRoute.length-4;
+  placeAtStartLine(sim,0);
+  placeAtStartLine(sim,2);
+  const saved=JSON.parse(storage.values.get(PersonalBest.KEY));
+  assert.equal(saved.car,'u9xtreme');
+  assert.ok(Math.abs(saved.frames[0][1]-(bodyY+.2))<.002,
+    'recorded position uses the original chassis-center coordinate');
+  const source=document.querySelector('#ghostSource');
+  source.value='best';source.listeners.change({target:source});
+  assert.ok(Math.abs(sim.ghostVehicle.position.y-(bodyY+.2-1.05))<.002,
+    'replaying the new best keeps the visible car at its original height');
+
+  const oldStorage=memoryStorage();
+  const legacy={...ghostTraces.u9xtreme,car:'u9xtreme'};
+  oldStorage.values.set(PersonalBest.KEY,JSON.stringify(legacy));
+  const old=context.makeGhostHarness(oldStorage);
+  old.sim.chooseMap('racetrack');
+  const oldSource=old.document.querySelector('#ghostSource');
+  oldSource.value='best';oldSource.listeners.change({target:oldSource});
+  assert.ok(Math.abs(old.sim.ghostVehicle.position.y-(legacy.frames[0][1]-1.05))<.002,
+    'an existing best still renders at the recorded height');
 });
 
 test('a complete physical lap finishes the ghost challenge and reports the result', () => {

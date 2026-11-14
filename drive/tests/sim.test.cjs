@@ -100,6 +100,34 @@ test('imported city display keeps physical left turns on the big map’s left si
   assert.equal(sim.vehicleFrame.scale.z, 1, 'other route cars keep their prior frame');
 });
 
+test('right and left arrows steer toward the driver’s right and left at either heading', () => {
+  const C=require('cannon');
+  const {sim,window}=harness();
+  assert.equal(sim.world.scale.z,1,'this course uses the unmirrored display frame');
+  sim.chooseCar('u9xtreme');
+  const physics=sim.physics();
+  const keyEvent=key=>({key,target:{matches:()=>false},repeat:false,
+    preventDefault(){}});
+  function rightwardTravel(heading,key) {
+    physics.reset(80,-120,heading);
+    for(let frame=0;frame<120;frame++)sim.updateVehicle(1/60);
+    const start=physics.body.position.clone();
+    const forward=physics.body.quaternion.vmult(new C.Vec3(0,0,1));
+    const driverRight=new C.Vec3(-forward.z,0,forward.x);
+    physics.body.velocity.set(forward.x*10,0,forward.z*10);
+    window.keydown(keyEvent(key));
+    for(let frame=0;frame<45;frame++)sim.updateVehicle(1/60);
+    window.keyup(keyEvent(key));
+    return physics.body.position.vsub(start).dot(driverRight);
+  }
+  for(const heading of [0,Math.PI]) {
+    assert.ok(rightwardTravel(heading,'ArrowRight')>.5,
+      `right arrow moves driver-right at heading ${heading}`);
+    assert.ok(rightwardTravel(heading,'ArrowLeft')<-.5,
+      `left arrow moves driver-left at heading ${heading}`);
+  }
+});
+
 test('all three maps have distinct drivable, finite closed routes and safe spawns', () => {
   const {sim} = harness();
   const shapes = new Set();
@@ -252,6 +280,26 @@ test('key 6 selects the U9 Xtreme without adding a garage option',()=>{
   assert.doesNotMatch(fs.readFileSync(require.resolve('../index.html'),'utf8'),/data-car="u9xtreme"/);
   window.keydown({key:'1',target:{matches:()=>false},repeat:false});
   assert.equal(sim.carModels.u9xtreme.group.visible,false);
+});
+
+test('switching to the lower U9 center of mass keeps the visible car aligned',()=>{
+  const {sim}=harness();
+  const body=sim.physics().body;
+  body.quaternion.setFromEuler(0,0,Math.PI/3);
+  body.position.set(4,3,5);
+  sim.physics().syncRenderState();
+  sim.updateVehicle(0);
+  const before=sim.vehicle.position.clone();
+  sim.chooseCar('u9xtreme');
+  sim.updateVehicle(0);
+  const after=sim.vehicle.position.clone();
+  assert.ok(Math.abs(after.x-before.x)<.001);
+  assert.ok(Math.abs(after.z-before.z)<.001);
+  assert.ok(Math.abs(after.y-before.y-.2)<.001,
+    'only the existing car-swap safety lift changes the visible chassis height');
+  assert.ok(Math.abs(sim.carModels.u9xtreme.wheels[0].pivot.position.y-
+    (1.05-.15-sim.physics().renderWheels[0].suspensionLength))<.001,
+  'wheel rendering stays attached to the raised local suspension');
 });
 
 test('key 6 loads the supplied U9 GLB once and swaps out the fallback visual',()=>{
