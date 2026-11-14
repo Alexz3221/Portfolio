@@ -45,12 +45,15 @@
   const ghostUI = {
     panel: document.querySelector('#ghostPanel'),
     enabled: document.querySelector('#ghostEnabled'),
+    source: document.querySelector('#ghostSource'),
     car: document.querySelector('#ghostCar'),
     pace: document.querySelector('#ghostPace'),
     start: document.querySelector('#ghostStartButton'),
     status: document.querySelector('#ghostStatus'),
+    best: document.querySelector('#ghostBestValue'),
     hud: document.querySelector('#ghostHud'),
     time: document.querySelector('#ghostTimeValue'),
+    gapRow: document.querySelector('#ghostGapRow'),
     gap: document.querySelector('#ghostGapValue')
   };
   const ghostFrame = new THREE.Group(), ghostVehicle = new THREE.Group();
@@ -58,9 +61,15 @@
   ghostFrame.add(ghostVehicle);
   ghostFrame.visible = false;
   scene.add(ghostFrame);
+  let bestStorage = null;
+  try { bestStorage = window.localStorage; } catch (_) { /* Timed laps still work without storage. */ }
+  const personalBest = typeof DrivePersonalBest === 'undefined'
+    ? {best:null, start(){}, record(){}, finish(){return {improved:false,best:null};}, cancel(){}}
+    : DrivePersonalBest.create({storage:bestStorage});
   const ghost = {
-    model: null, car: null, running: false, elapsed: 0, progress: 0,
-    rate: 1, trace: null, wheelRotation: 0, lastPosition: new THREE.Vector3()
+    model: null, car: null, running: false, armed: false, elapsed: 0, progress: 0,
+    rate: 1, trace: null, wheelRotation: 0, lastPosition: new THREE.Vector3(),
+    lastLineDistance: null
   };
   let ghostTraceLoad = null;
   let cameraMode = 0;
@@ -562,31 +571,51 @@
       if (object.material) [].concat(object.material).forEach(material => materials.add(material));
     });
     ghostVehicle.remove(ghost.model.group);
-    geometries.forEach(geometry => geometry.dispose());
+    // An imported ghost shares its source car's geometry, which stays cached for the garage.
+    if (!ghost.model.sharedGeometry) geometries.forEach(geometry => geometry.dispose());
     materials.forEach(material => material.dispose());
     ghost.model = null;
   }
   function buildGhostModel(type) {
     disposeGhostModel();
-    ghost.model = buildCar(type, carSpecs[type], ghostVehicle);
-    ghost.model.group.visible = true;
-    const materials = new Set();
+    const source = carModels[type];
+    if (source.assetState === 'ready') {
+      const group = source.group.clone(true);
+      group.visible = true;
+      ghostVehicle.add(group);
+      const wheels = source.wheels.map(({pivot}) => {
+        const index = source.group.children.indexOf(pivot);
+        const copy = group.children[index];
+        return {pivot:copy, wheel:copy.children[0]};
+      });
+      ghost.model = {group, wheels, sharedGeometry:true};
+    } else {
+      ghost.model = buildCar(type, carSpecs[type], ghostVehicle);
+      ghost.model.sharedGeometry = false;
+      ghost.model.group.visible = true;
+    }
+    const clonedMaterials = new Map();
     ghost.model.group.traverse(object => {
       if (!object.isMesh) return;
       object.castShadow = object.receiveShadow = false;
       object.renderOrder = 1;
-      [].concat(object.material).forEach(material => materials.add(material));
-    });
-    const tint = new THREE.Color(0xbaf9ff);
-    materials.forEach(material => {
-      material.color?.lerp(tint, .3);
-      material.transparent = true;
-      material.opacity = material.opacity < .2 ? .16 : .48;
-      material.depthWrite = false;
-      if (material.emissive) { material.emissive.setHex(0x275c67); material.emissiveIntensity = .35; }
+      const style = material => {
+        if (clonedMaterials.has(material)) return clonedMaterials.get(material);
+        const copy = ghost.model.sharedGeometry ? material.clone() : material;
+        const tint = new THREE.Color(0xbaf9ff);
+        copy.color?.lerp(tint, .12);
+        copy.transparent = true;
+        copy.opacity = copy.opacity < .2 ? .16 : copy.name?.startsWith('Glass') ? .4 : .68;
+        copy.depthWrite = false;
+        if (copy.emissive) { copy.emissive.setHex(0x275c67); copy.emissiveIntensity = .25; }
+        clonedMaterials.set(material, copy);
+        return copy;
+      };
+      object.material = Array.isArray(object.material) ? object.material.map(style) : style(object.material);
     });
     ghost.car = type;
     ghost.wheelRotation = 0;
+    if (source.assetState !== 'ready') loadCarAsset(type);
   }
   const ghostPosition = new THREE.Vector3(), ghostQuaternion = new THREE.Quaternion();
   const ghostNextQuaternion = new THREE.Quaternion(), ghostOffset = new THREE.Vector3();
@@ -611,31 +640,48 @@
     ghost.model.wheels.forEach(({wheel}) => { wheel.rotation.x = -ghost.wheelRotation; });
   }
   function cancelGhostRun(message) {
+    personalBest.cancel();
     ghost.running = false;
+    ghost.armed = false;
+    ghost.done = false;
     ghost.elapsed = 0;
     ghost.progress = 0;
     ghost.wheelRotation = 0;
-    ghostUI.hud.hidden = true;
-    ghostUI.start.textContent = 'START GHOST RUN';
+    ghost.lastLineDistance = null;
+    ghostUI.hud.hidden = selectedMap !== 'racetrack';
+    ghostUI.gapRow.hidden = true;
+    ghostUI.time.textContent = '0:00.0';
+    ghostUI.start.textContent = 'RESET TO START';
     if (message) ghostUI.status.textContent = message;
     if (ghost.trace && ghost.model) setGhostPose(0);
   }
   function refreshGhostSetup() {
     const onTrack = selectedMap === 'racetrack';
     ghostUI.panel.hidden = !onTrack;
+    ghostUI.best.textContent = personalBest.best ? formatGhostTime(personalBest.best.lapTime) + ' · ' + (carSpecs[personalBest.best.car]?.name || personalBest.best.car) : '—';
     if (!onTrack) { ghostFrame.visible = false; ghostUI.hud.hidden = true; return; }
+    ghostUI.hud.hidden = false;
+    ghostUI.start.disabled = false;
     const enabled = !!ghostUI.enabled.checked;
-    ghostUI.car.disabled = ghostUI.pace.disabled = !enabled;
-    const type = ghostCar(), trace = globalThis.DriveGhostTraces?.[type];
-    ghostUI.start.disabled = !enabled || !trace;
-    if (!enabled) { ghostFrame.visible = false; ghostUI.status.textContent = 'Ghost off. Free drive is still available.'; return; }
-    if (!trace) { ghostFrame.visible = false; ghostUI.status.textContent = 'Loading ghost laps…'; return; }
-    if (ghost.car !== type) buildGhostModel(type);
+    const useBest = ghostUI.source.value === 'best';
+    ghostUI.source.disabled = !enabled;
+    ghostUI.car.disabled = ghostUI.pace.disabled = !enabled || useBest;
+    const candidate = useBest ? personalBest.best : globalThis.DriveGhostTraces?.[ghostCar()];
+    const trace = enabled && candidate && candidate.routeLength === DrivePhysics.stuntRoute.length &&
+      carSpecs[useBest ? candidate.car : ghostCar()] ? candidate : null;
+    const type = useBest ? trace?.car : ghostCar();
     ghost.trace = trace;
-    ghost.rate = ghostRate();
-    ghostFrame.visible = true;
-    setGhostPose(0);
-    ghostUI.status.textContent = carSpecs[type].name + ' replay · target ' + formatGhostTime(trace.lapTime / ghost.rate) + '. No collisions. Start a run.';
+    ghost.rate = useBest ? 1 : ghostRate();
+    ghostUI.gapRow.hidden = !ghost.running || !trace;
+    ghostFrame.visible = !!trace;
+    if (trace) {
+      if (ghost.car !== type) buildGhostModel(type);
+      setGhostPose(ghost.running ? Math.min(ghost.elapsed * ghost.rate, trace.duration) : 0);
+    }
+    if (!ghost.running) ghostUI.status.textContent = !enabled ? 'Timed lap ready. Drive across the line to start.'
+      : useBest && !trace ? 'No best lap yet. Cross the line to record one.'
+      : !trace ? 'Loading course ghost… Cross the line to start the timer.'
+      : carSpecs[type].name + ' ghost · target ' + formatGhostTime(trace.lapTime / ghost.rate) + '. Cross the line to start.';
   }
   function loadGhostTraces() {
     if (globalThis.DriveGhostTraces) return Promise.resolve(globalThis.DriveGhostTraces);
@@ -643,29 +689,16 @@
     if (!document.createElement || !document.head?.appendChild) return Promise.resolve(null);
     ghostTraceLoad = new Promise((resolve, reject) => {
       const script = document.createElement('script');
-      script.src = 'js/ghost-traces.js?v=1';
+      script.src = 'js/ghost-traces.js?v=2';
       script.onload = () => resolve(globalThis.DriveGhostTraces || null);
       script.onerror = () => reject(new Error('Ghost lap data could not load'));
       document.head.appendChild(script);
     }).catch(error => { ghostTraceLoad = null; console.warn(error); return null; });
     return ghostTraceLoad;
   }
-  function startGhostRun() {
-    if (selectedMap !== 'racetrack' || !ghostUI.enabled.checked) return;
-    refreshGhostSetup();
-    if (!ghost.trace || !ghost.model) return;
+  function resetTimedLapToGrid() {
+    if (selectedMap !== 'racetrack') return;
     resetVehicle();
-    ghost.running = true;
-    ghost.done = false;
-    ghost.elapsed = 0;
-    ghost.progress = 0;
-    ghost.wheelRotation = 0;
-    setGhostPose(0);
-    ghostUI.hud.hidden = false;
-    ghostUI.time.textContent = '0:00.0';
-    ghostUI.gap.textContent = 'EVEN';
-    ghostUI.start.textContent = 'RESTART GHOST RUN';
-    ghostUI.status.textContent = 'Go! Beat the ' + carSpecs[ghost.car].name + ' ghost.';
     canvas.focus?.({preventScroll:true});
   }
   function ghostTimeAtProgress(progress) {
@@ -678,16 +711,64 @@
     }
     return low * ghost.trace.dt / ghost.rate;
   }
+  function startLineDistance(position) {
+    const start = DrivePhysics.stuntRoute[0];
+    // The two painted rows sit one and two metres beyond the first route sample.
+    return (position.x - start.x) * start.tx + (position.z - start.z) * start.tz - 1.5;
+  }
+  function crossedStartLine(body, previous, current) {
+    if (previous === null || previous >= 0 || current < 0) return false;
+    const start = DrivePhysics.stuntRoute[0], pos = body.position;
+    const lateral = Math.abs(-(pos.x - start.x) * start.tz + (pos.z - start.z) * start.tx);
+    const forward = body.velocity.x * start.tx + body.velocity.z * start.tz;
+    return lateral < start.width / 2 && Math.abs(pos.y - start.y - 1) < 3 && forward > .5;
+  }
+  function beginTimedLap() {
+    ghost.running = true;
+    ghost.armed = false;
+    ghost.done = false;
+    ghost.elapsed = 0;
+    ghost.progress = 0;
+    ghost.wheelRotation = 0;
+    personalBest.start(selectedCar);
+    personalBest.record(0, physics.body.position, physics.body.quaternion, 0);
+    if (ghost.trace && ghost.model) setGhostPose(0);
+    ghostUI.time.textContent = '0:00.0';
+    ghostUI.gap.textContent = 'EVEN';
+    ghostUI.gapRow.hidden = !ghost.trace;
+    ghostUI.status.textContent = ghost.trace ? 'Go! Beat the ' + carSpecs[ghost.car].name + ' ghost.' : 'Go! Timed lap started.';
+  }
+  function finishTimedLap() {
+    const {improved, saved} = personalBest.finish(ghost.elapsed);
+    ghost.running = false;
+    ghost.armed = false;
+    ghost.done = true;
+    ghostUI.start.textContent = 'RESET TO START';
+    ghostUI.best.textContent = personalBest.best ? formatGhostTime(personalBest.best.lapTime) + ' · ' +
+      (carSpecs[personalBest.best.car]?.name || personalBest.best.car) : '—';
+    const result = improved ? saved ? 'New personal best!' : 'New best for this session.' : 'Lap complete.';
+    const comparison = ghost.trace ? ' · ' + (ghost.elapsed <= ghost.trace.lapTime / ghost.rate ? 'beat' : 'behind') +
+      ' the ghost by ' + Math.abs(ghost.trace.lapTime / ghost.rate - ghost.elapsed).toFixed(1) + 's.' : '';
+    ghostUI.status.textContent = formatGhostTime(ghost.elapsed) + ' · ' + result + comparison;
+  }
   function updateGhostRun(delta) {
-    if (!ghost.running || !delta) return;
+    if (selectedMap !== 'racetrack' || !delta) return;
     const body = physics.body;
+    const lineDistance = startLineDistance(body.position);
+    const crossed = crossedStartLine(body, ghost.lastLineDistance, lineDistance);
+    ghost.lastLineDistance = lineDistance;
+    if (!ghost.running) {
+      if (ghost.armed && crossed) beginTimedLap();
+      return;
+    }
     ghost.elapsed += delta;
-    setGhostPose(Math.min(ghost.elapsed * ghost.rate, ghost.trace.duration));
+    if (ghost.trace && ghost.model) setGhostPose(Math.min(ghost.elapsed * ghost.rate, ghost.trace.duration));
     ghostUI.time.textContent = formatGhostTime(ghost.elapsed);
     if (body.position.y < -2) {
       ghost.running = false;
-      ghostUI.start.textContent = 'TRY AGAIN';
-      ghostUI.status.textContent = 'Run ended: fell off the course. Start again to retry.';
+      ghost.armed = false;
+      personalBest.cancel();
+      ghostUI.status.textContent = 'Lap ended: fell off the course. Reset to start to retry.';
       return;
     }
     const route = DrivePhysics.stuntRoute, count = route.length, pos = body.position;
@@ -698,16 +779,17 @@
       if (distance < nearest) { nearest = distance; next = index; }
     }
     if (nearest < 10) ghost.progress = Math.max(ghost.progress, next);
-    const gap = ghost.elapsed - ghostTimeAtProgress(ghost.progress);
-    ghostUI.gap.textContent = Math.abs(gap) < .15 ? 'EVEN' :
-      Math.abs(gap).toFixed(1) + 's ' + (gap > 0 ? 'behind' : 'ahead');
-    if (ghost.progress >= count) {
-      ghost.running = false;
-      const difference = ghost.trace.lapTime / ghost.rate - ghost.elapsed;
-      ghostUI.start.textContent = 'RACE AGAIN';
-      ghostUI.status.textContent = 'Finished in ' + formatGhostTime(ghost.elapsed) + ' · ' +
-        (difference >= 0 ? 'beat' : 'behind') + ' the ghost by ' + Math.abs(difference).toFixed(1) + 's.';
-    } else if (!ghost.done && ghost.elapsed >= ghost.trace.lapTime / ghost.rate) {
+    personalBest.record(ghost.elapsed, body.position, body.quaternion, ghost.progress);
+    if (ghost.trace) {
+      const gap = ghost.elapsed - ghostTimeAtProgress(ghost.progress);
+      ghostUI.gap.textContent = Math.abs(gap) < .15 ? 'EVEN' :
+        Math.abs(gap).toFixed(1) + 's ' + (gap > 0 ? 'behind' : 'ahead');
+    }
+    if (crossed && ghost.progress >= count - 4) {
+      ghost.progress = count;
+      personalBest.record(ghost.elapsed, body.position, body.quaternion, count);
+      finishTimedLap();
+    } else if (ghost.trace && !ghost.done && ghost.elapsed >= ghost.trace.lapTime / ghost.rate) {
       ghost.done = true;
       ghostUI.status.textContent = 'Ghost finished in ' + formatGhostTime(ghost.trace.lapTime / ghost.rate) + '. Keep going!';
     }
@@ -744,6 +826,12 @@
       model.brakeMaterials = imported.brakeMaterials || [];
       model.assetState = 'ready';
       if(selectedCar === type) document.querySelector('#modelStatus').textContent = modelStatus(type);
+      if(ghost.car === type && ghost.model && !ghost.model.sharedGeometry) {
+        const rotation = ghost.wheelRotation;
+        buildGhostModel(type);
+        ghost.wheelRotation = rotation;
+        setGhostPose(ghost.running && ghost.trace ? Math.min(ghost.elapsed * ghost.rate, ghost.trace.duration) : 0);
+      }
     };
     const onFailure = error => {
       model.assetState = 'failed';
@@ -755,9 +843,9 @@
   }
   scene.add(vehicleFrame);
   function resetVehicle() {
-    if (ghost.running) cancelGhostRun('Run reset. Start a new ghost run when ready.');
+    if (selectedMap === 'racetrack') cancelGhostRun();
     resetOrbit();
-    const spawn = samples[0];
+    const spawn = selectedMap === 'racetrack' ? samples[samples.length - 2] : samples[0];
     if (physics) physics.reset(spawn.point.x,spawn.point.z,Math.atan2(spawn.tangent.x,spawn.tangent.z));
     releaseControls();
     document.querySelectorAll('[data-key]').forEach(button => button.classList.remove('pressed'));
@@ -768,6 +856,11 @@
     if (physics) vehicle.position.y = physics.body.position.y - 1.05;
     camera.position.set(vehicle.position.x - Math.sin(motion.heading) * 9,
       vehicle.position.y + 5, displayZ(vehicle.position.z - Math.cos(motion.heading) * 9));
+    if (selectedMap === 'racetrack') {
+      ghost.armed = true;
+      ghost.lastLineDistance = startLineDistance(physics.body.position);
+      refreshGhostSetup();
+    }
   }
   function recoverVehicleInPlace() {
     if (!physics) return;
@@ -818,6 +911,7 @@
     if (!maps[type]) return;
     cancelGhostRun();
     selectedMap = type;
+    document.body?.classList?.toggle('racetrack-mode', type === 'racetrack');
     buildWorld();
     document.querySelector('.garage').style.display = '';
     resetVehicle();
@@ -829,7 +923,8 @@
     if (type === 'racetrack') loadGhostTraces().then(traces => {
       if (selectedMap !== 'racetrack') return;
       refreshGhostSetup();
-      if (!traces) ghostUI.status.textContent = 'Ghost laps unavailable. Free drive still works.';
+      if (!traces && ghostUI.enabled.checked && ghostUI.source.value === 'course')
+        ghostUI.status.textContent = 'Course ghost unavailable. Timed laps still work.';
     });
   }
   chooseMap('city');
@@ -861,7 +956,11 @@
     });
     document.querySelector('#topSpeedValue').textContent = Math.round(carSpecs[type].maxSpeed * 2.236936) + ' mph target top speed'
       + (carSpecs[type].powerPS ? ' · ' + carSpecs[type].powerPS.toLocaleString('en-US') + ' PS' : '');
-    if (changed && selectedMap === 'racetrack') refreshGhostSetup();
+    if (changed && selectedMap === 'racetrack') {
+      ghost.armed = true;
+      ghost.lastLineDistance = startLineDistance(physics.body.position);
+      refreshGhostSetup();
+    }
   }
   chooseCar('comet');
 
@@ -914,10 +1013,22 @@
     canvas.focus?.({preventScroll:true});
   });
   document.querySelector('#resetButton').addEventListener('click', event => { resetVehicle(); returnToDrivingAfterPointer(event); });
-  ghostUI.enabled.addEventListener('change', () => { cancelGhostRun(); refreshGhostSetup(); });
-  ghostUI.car.addEventListener('change', () => { cancelGhostRun(); refreshGhostSetup(); });
-  ghostUI.pace.addEventListener('change', () => { cancelGhostRun(); refreshGhostSetup(); });
-  ghostUI.start.addEventListener('click', startGhostRun);
+  function commitGhostSetting(event) {
+    cancelGhostRun();
+    if (selectedMap === 'racetrack') {
+      ghost.armed = true;
+      ghost.lastLineDistance = startLineDistance(physics.body.position);
+    }
+    refreshGhostSetup();
+    // Keep native select navigation while it is open; return to driving after the change.
+    event?.target?.blur?.();
+    canvas.focus?.({preventScroll:true});
+  }
+  ghostUI.enabled.addEventListener('change', commitGhostSetting);
+  ghostUI.source.addEventListener('change', commitGhostSetting);
+  ghostUI.car.addEventListener('change', commitGhostSetting);
+  ghostUI.pace.addEventListener('change', commitGhostSetting);
+  ghostUI.start.addEventListener('click', resetTimedLapToGrid);
 
   const drivingKeys = new Set(['w', 'a', 's', 'd', 'arrowup', 'arrowleft', 'arrowdown', 'arrowright', ' ']);
   function syncInputKey(key) {

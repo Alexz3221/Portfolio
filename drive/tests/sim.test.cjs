@@ -222,9 +222,10 @@ test('hood camera stays on the car at high speed rather than trailing behind', (
 
  test('all cars integrate with circuit controls, reset and map switching', () => {
   const {sim,document}=harness();sim.chooseMap('racetrack');sim.chooseCar('pickup');assert.equal(sim.carModels.comet.group.visible,false);assert.equal(sim.carModels.pickup.group.visible,true);
-  const spawn=sim.samples()[0].point;
+  const spawn=sim.samples()[0].point, grid=sim.samples().at(-2).point;
+  assert.ok(grid.x<spawn.x,'racetrack reset grid is behind the start line');
   sim.keys.add('w');for(let i=0;i<240;i++)sim.updateVehicle(1/60);assert.ok(sim.vehicle.position.clone().sub(spawn).dot(sim.samples()[0].tangent)>10);assert.ok(sim.vehicle.position.toArray().every(Number.isFinite));
-  sim.resetVehicle();assert.equal(sim.keys.size,0);assert.ok(Math.abs(sim.vehicle.position.z-spawn.z)<.01);
+  sim.resetVehicle();assert.equal(sim.keys.size,0);assert.ok(Math.abs(sim.vehicle.position.x-grid.x)<.01);assert.ok(Math.abs(sim.vehicle.position.z-grid.z)<.01);
   sim.chooseMap('city');assert.equal(document.querySelector('.garage').style.display,'');sim.chooseCar('pickup');assert.equal(sim.carModels.pickup.group.visible,true);
   sim.chooseMap('racetrack');assert.equal(document.querySelector('.garage').style.display,'');assert.equal(sim.carModels.pickup.group.visible,true);
 });
