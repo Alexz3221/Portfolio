@@ -57,23 +57,24 @@ test('each imported course has a physical road, a stable grid, and a fast course
 
 test('Rainbow follows the entire native road chain and keeps seam support', () => {
   const course = imported.getCourse('rainbowroad');
-  assert.equal(course.scale,2.5);
+  assert.equal(course.scale,5);
+  assert.equal(course.width,9.2,'the entire native road is twice as wide as before');
   assert.equal(course.loop,true,'the full modeled road returns to its checkerboard');
   assert.ok(course.route.length>400,'the path covers the full source model');
-  assert.ok(Math.hypot(course.route[0].x-187.9,course.route[0].z+25.9)<1,
+  assert.ok(Math.hypot(course.route[0].x-375.8,course.route[0].z+51.8)<2,
     'the lap starts at the source checkerboard');
   assert.ok(course.route[0].tz<-.9,'the car starts southbound into the MK8 section');
   let previous=0;
   for(const [name,match] of [
-    ['MK8 loop',point=>point.x>215&&point.z<-40],
-    ['MK7 climb',point=>point.x>240&&point.y>105],
-    ['DS3DS span',point=>point.x>100&&point.x<150&&point.z<-100],
-    ['Wii climb',point=>point.x<-40&&point.y>110&&point.z>-80],
-    ['DS spiral',point=>point.x<-100&&point.y<40&&point.z>20],
-    ['GCN bends',point=>point.x<-25&&point.z>40&&point.y<40],
-    ['GBA hairpin',point=>point.x>75&&point.z>60],
-    ['N64 loop',point=>point.x<70&&point.z<-65],
-    ['SFC return',point=>point.x>160&&point.z>0]
+    ['MK8 loop',point=>point.x>430&&point.z<-80],
+    ['MK7 climb',point=>point.x>480&&point.y>210],
+    ['DS3DS span',point=>point.x>200&&point.x<300&&point.z<-200],
+    ['Wii climb',point=>point.x<-80&&point.y>220&&point.z>-160],
+    ['DS spiral',point=>point.x<-200&&point.y<80&&point.z>40],
+    ['GCN bends',point=>point.x<-50&&point.z>80&&point.y<80],
+    ['GBA hairpin',point=>point.x>150&&point.z>120],
+    ['N64 loop',point=>point.x<140&&point.z<-130],
+    ['SFC return',point=>point.x>320&&point.z>0]
   ]) {
     const index=course.route.findIndex((point,position)=>position>previous&&match(point));
     assert.ok(index>previous,`${name} comes after the preceding section`);
@@ -93,13 +94,13 @@ test('Rainbow follows the entire native road chain and keeps seam support', () =
   assert.ok(sim.courseSlabs.length>=3,'the full road has continuous grouped support');
   const before=sim.courseSlabs.length;
   const {x,y,z} = course.route[0];
-  const mk7Seam=course.route.find(point=>point.x>208&&point.x<209&&point.z<-60);
+  const mk7Seam=course.route.find(point=>point.x>416&&point.x<418&&point.z<-120);
   assert.ok(mk7Seam,'the authored route includes the MK7 transition');
   assert.ok(Math.abs(ray(sim.world,mk7Seam.x,mk7Seam.z,
     mk7Seam.y+3,mk7Seam.y-3)-mk7Seam.y)<.3,
     'continuous support keeps the MK7 seam at road height');
   const loaded = sim.addCourseCollisionMeshes([{vertices:[
-    x-4,y,z-8, x-4,y,z+8, x+4,y,z+8, x+4,y,z-8
+    x-8,y,z-16, x-8,y,z+16, x+8,y,z+16, x+8,y,z-16
   ],indices:[0,1,2,0,2,3]}]);
   assert.equal(loaded,true);
   assert.equal(sim.courseSlabs.length,before,'only the narrow seam support remains');
@@ -115,7 +116,7 @@ test('Race Game follows the entire native lap through both levels of the central
   assert.ok(course.routeHeightWeight>=1,'route progress distinguishes bridge from underpass');
   assert.ok(Math.abs(route[0].x-55)<.1 && Math.abs(route[0].z+19.4)<.1,
     'the timing line is centered on the built-in checkerboard stripe');
-  assert.ok(course.spawn.z<route[0].z-5 && route[0].tz>.99,
+  assert.ok(course.spawn.z>route[0].z+5 && route[0].tz<-.99,
     'the car starts behind the stripe, facing the course direction');
   assert.ok(route.some(point=>point.kind==='gap'&&point.x<0&&point.z===20&&point.y>6),
     'the native jump is represented as open air above the underpass');
@@ -126,15 +127,15 @@ test('Race Game follows the entire native lap through both levels of the central
     'the loading proxy leaves the stunt jump open');
   let after=0;
   for(const [name,onRoad] of [
-    ['jump lip',point=>Math.abs(point.x-2.5)<.1&&point.z===20&&point.y>5],
-    ['west landing ramp',point=>Math.abs(point.x+12.5)<.1&&point.z===20&&point.y>4],
-    ['lower straight',point=>point.x<-30&&Math.abs(point.z-20)<.1&&point.y<2],
-    ['bottom U-turn',point=>point.x<-20&&point.z>40&&point.y<2],
-    ['underpass',point=>Math.abs(point.x+5)<.1&&Math.abs(point.z)<.1&&point.y<1],
-    ['inner U-turn',point=>point.x>10&&point.z<-24&&point.y<2],
-    ['bridge crest',point=>Math.abs(point.x)<.1&&Math.abs(point.z+4)<.1&&point.y>6],
+    ['top straight',point=>point.x>10&&point.z<-44&&point.y<2],
     ['left outer bend',point=>point.x<-49&&point.z<-20&&point.y<2],
-    ['top straight',point=>point.x>10&&point.z<-44&&point.y<2]
+    ['bridge crest',point=>Math.abs(point.x)<.1&&Math.abs(point.z+4)<.1&&point.y>6],
+    ['inner U-turn',point=>point.x>10&&point.z<-24&&point.y<2],
+    ['underpass',point=>Math.abs(point.x+5)<.1&&Math.abs(point.z)<.1&&point.y<1],
+    ['bottom U-turn',point=>point.x<-20&&point.z>40&&point.y<2],
+    ['lower straight',point=>point.x<-30&&Math.abs(point.z-20)<.1&&point.y<2],
+    ['west takeoff ramp',point=>Math.abs(point.x+12.5)<.1&&point.z===20&&point.y>4],
+    ['east landing ramp',point=>Math.abs(point.x-2.5)<.1&&point.z===20&&point.y>5]
   ]) {
     const index=route.findIndex((point,position)=>position>after&&onRoad(point));
     assert.ok(index>after,`the ${name} follows the previous modeled section`);

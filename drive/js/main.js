@@ -37,9 +37,9 @@
   let selectedMap = 'city';
   const raceCourses = {
     racetrack: {name: 'Stunt course', caption: maps.racetrack.caption},
-    rainbowroad: {name: 'Rainbow Road', caption: 'Rainbow Road · full native course', loop: true, revision: 3},
-    racegame: {name: 'Race Game Circuit', caption: 'Race Game Circuit · full native lap', loop: true, revision: 3},
-    bangkok: {name: 'Bangkok Rush', caption: 'Bangkok Rush · full native street run', loop: false, revision: 3}
+    rainbowroad: {name: 'Rainbow Road', caption: 'Rainbow Road · full native course', loop: true, revision: 4},
+    racegame: {name: 'Race Game Circuit', caption: 'Race Game Circuit · full native lap', loop: true, revision: 4},
+    bangkok: {name: 'Bangkok Rush', caption: 'Bangkok Rush · full native street run', loop: false, revision: 4}
   };
   let selectedCourse = 'racetrack';
   const coursePicker = document.querySelector('#coursePicker');
@@ -361,7 +361,8 @@
       const route = importedCourse.route;
       const last = route.at(-1),runout = importedCourse.finishRunout || 0;
       const renderRoute = importedCourse.loop === false && runout > 0
-        ? [...route,{...last,x:last.x+last.tx*runout,z:last.z+last.tz*runout}]
+        ? [...route,{...last,x:last.x+last.tx*runout,
+          y:importedCourse.finishRunoutEndY ?? last.y,z:last.z+last.tz*runout}]
         : route;
       const count = renderRoute.length - (importedCourse.loop === false ? 1 : 0);
       const nearestRouteIndex = point => {
@@ -423,10 +424,17 @@
         if (loaded.collisionMeshes.length && !physics.addCourseCollisionMeshes(loaded.collisionMeshes))
           console.warn('Imported course collision unavailable; using its road proxy:',courseId);
         fallback.visible = !!importedCourse.overlayRoad;
+        // Bangkok's reverse run starts on native asphalt without a checker.
+        // Keep its generated start grid after hiding the loading road.
+        if (courseId === 'bangkok' && !fallback.visible) {
+          grid.position.y = physics.roadHeight(start.x,start.z)+.12;
+          world.add(grid);
+        }
       }).catch(error => {
         if (generation !== worldGeneration || selectedCourse !== courseId) return;
         console.warn('Imported course scene unavailable; using playable road proxy:',courseId,error);
         ghostUI.status.textContent = 'Map model unavailable. The timed course remains playable.';
+        if (importedCourse.nativeFinish) addFinishMarker(true);
       });
     }
 
@@ -1070,8 +1078,9 @@
       });
     } else travel();
   }
-  function addFinishMarker() {
-    if (!isRaceCourse() || activeCourse()?.loop !== false) return;
+  function addFinishMarker(force = false) {
+    if (!isRaceCourse() || activeCourse()?.loop !== false ||
+      (activeCourse()?.nativeFinish && !force)) return;
     const finish = activeRoute().at(-1);
     if (!finish) return;
     const width = Math.max(3, Math.min(24, finish.width || 8));

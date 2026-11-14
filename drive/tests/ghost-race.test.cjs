@@ -17,7 +17,7 @@ const importedCourses = {load() { return new Promise(() => {}); }, getCourse(id)
     id, name: 'Rainbow Road', caption: 'Rainbow Road test course', loop: false,
     route: importedRoute, edge: 200, floor: -20, proxyRoad: true, spawnBack: 8,
     finishOffset: -8
-  } : id === 'racegame' ? ImportedCourses.getCourse(id) : null;
+  } : id === 'racegame' || id === 'bangkok' ? ImportedCourses.getCourse(id) : null;
 }};
 
 // Reuse the browserless WebGL harness, with the actual generated ghost laps and
@@ -184,7 +184,7 @@ test('point-to-point timing requires forward start and finish crossings and keep
   place(finish, 1, 4);
   assert.equal(sim.ghost.running, false);
   assert.equal(sim.ghost.progress, importedRoute.length);
-  assert.ok(storage.values.get(PersonalBest.KEY + ':rainbowroad:v3'));
+  assert.ok(storage.values.get(PersonalBest.KEY + ':rainbowroad:v4'));
   assert.equal(storage.values.get(PersonalBest.KEY), undefined, 'original stunt best is isolated');
   select.value = 'racetrack';
   select.listeners.change({target: select});
@@ -228,7 +228,7 @@ test('Race Game completes a full native lap at its checker and saves a best', ()
   place(start, 1);
   assert.equal(sim.ghost.running, false, 'the checker ends the complete ordered lap');
   assert.match(document.querySelector('#ghostStatus').textContent, /personal best|Lap complete/);
-  assert.ok(storage.values.get(PersonalBest.KEY + ':racegame:v3'));
+  assert.ok(storage.values.get(PersonalBest.KEY + ':racegame:v4'));
 });
 
 test('Race Game course ghost slows for the modelled jump', () => {
@@ -248,6 +248,43 @@ test('Race Game course ghost slows for the modelled jump', () => {
   }
   const speed = distance/(at(to)-at(from));
   assert.ok(speed > 11 && speed < 14,`ghost jump speed is ${speed.toFixed(1)} m/s`);
+});
+
+test('Bangkok times the southeast-to-arch run in the intended direction', () => {
+  const storage=memoryStorage();
+  const {sim,document}=context.makeGhostHarness(storage);
+  sim.chooseMap('racetrack');
+  const select=document.querySelector('#courseSelect');
+  select.blur=()=>{};
+  select.value='bangkok';
+  select.listeners.change({target:select});
+  const route=ImportedCourses.getCourse('bangkok').route;
+  const start=route[0],finish=route.at(-1),body=sim.physics().body;
+  assert.ok(start.x>190 && finish.x<0,
+    'the native city run begins southeast and ends under the western arch');
+  function place(point,along=0,speed=8) {
+    body.position.set(point.x+point.tx*along,point.y+1,
+      point.z+point.tz*along);
+    body.velocity.set(point.tx*speed,0,point.tz*speed);
+    sim.updateGhostRun(.05);
+  }
+  place(start,-1,-8);
+  place(start,1,-8);
+  assert.equal(sim.ghost.running,false,'wrong-way start does not start timing');
+  place(start,-1);
+  place(start,1);
+  assert.equal(sim.ghost.running,true,'southeast checker starts the run');
+  place(finish,-1);
+  place(finish,1);
+  assert.equal(sim.ghost.running,true,'skipping the road cannot finish');
+  for(let index=1;index<route.length-1;index++)place(route[index]);
+  place(finish,-1,-8);
+  place(finish,1,-8);
+  assert.equal(sim.ghost.running,true,'wrong-way arch crossing is ignored');
+  place(finish,-1);
+  place(finish,1);
+  assert.equal(sim.ghost.running,false,'the native arch ends the full run');
+  assert.ok(storage.values.get(PersonalBest.KEY+':bangkok:v4'));
 });
 
 test('Rainbow Road does not reset the car on its lower native sections', () => {
@@ -284,7 +321,8 @@ test('Rainbow Road does not reset the car on its lower native sections', () => {
   body.position.set(lower.x,lower.y+1.1,lower.z);
   body.velocity.setZero();
   sim.updateVehicle(1/60);
-  assert.ok(body.position.y < 35,'the lower modeled road does not trigger reset to the upper grid');
+  assert.ok(Math.abs(body.position.y-lower.y-1.1)<2,
+    'the lower modeled road does not trigger reset to the upper grid');
   assert.doesNotMatch(document.querySelector('#surfaceValue').textContent,/Fell off course/);
 });
 

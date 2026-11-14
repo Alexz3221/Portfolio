@@ -53,7 +53,8 @@ test('full Rainbow Road uses native collision on every modeled road section', as
     ['GCN bends',-24.45,38.39,50.88],
     ['GBA hairpin',77.75,64,64.11],
     ['N64 loop',66.81,70.46,-73.38]
-  ]) assert.ok(nativeAt(x,y,z),`${name} has source road collision`);
+  ]) assert.ok(nativeAt(x*course.scale/2.5,y*course.scale/2.5,
+    z*course.scale/2.5),`${name} has source road collision`);
 
   for(const transfer of course.transfers) {
     const from=course.route.findIndex(point=>Math.hypot(point.x-transfer.from.x,
@@ -129,7 +130,7 @@ test('full Rainbow Road uses native collision on every modeled road section', as
         (point.y+1-sim.body.position.y)*.3);
       if(distance<best){best=distance;candidate=index;}
     }
-    if(best<4.3&&sim.body.velocity.length()>.5)
+    if(best<course.width/2+2&&sim.body.velocity.length()>.5)
       timedProgress=Math.max(timedProgress,candidate);
     minFallMargin=Math.min(minFallMargin,
       sim.body.position.y-(route[timedProgress].y-8));

@@ -34,9 +34,16 @@
   }
 
   // Full native Rainbow Road, from the checker through every road era and back.
-  // Coordinates are in displayed world metres, after the GLB's 2.5x scale.
+  // These source controls were measured at 2.5x; enlarge the entire course
+  // together so the route, collision and source checker stay aligned.
   // Two authored air gaps connect the Wii and DS roads, then N64 and SFC.
-  const rainbowScale = 2.5;
+  const rainbowScale = 5;
+  const rainbowExpansion = rainbowScale / 2.5;
+  const rainbowPoint = point => ({x:point.x*rainbowExpansion,
+    y:point.y*rainbowExpansion,z:point.z*rainbowExpansion});
+  const rainbowTransfer = link => ({...link,from:rainbowPoint(link.from),
+    to:rainbowPoint(link.to),radius:link.radius*rainbowExpansion,
+    duration:link.duration*rainbowExpansion,arc:link.arc*rainbowExpansion});
   const rainbowControls = [
     [188,69,-26],[187.62,69.06,-34.33],[188.63,69.05,-39.13],
     [190.41,68.71,-43.31],[188.46,69.47,-47.69],[189.74,69.51,-52.24],
@@ -126,9 +133,9 @@
     [133,69,0],[135,69,8],[180,69,8],
     [188,69,2]
   ];
-  // One full lap of the model's painted road. The lower east-to-west road
-  // launches across a gap over the central underpass, and the return leg
-  // climbs the continuous upper bridge.
+  // One full lap of the model's painted road. The lower west-to-east road
+  // launches across a gap over the central underpass, and the other crossing
+  // follows the continuous upper bridge.
   // The first point is the middle of the source model's checkerboard stripe.
   const raceGameControls = [
     [55,.87,-19.4],[55,.87,-12],[55,.87,0],[55,.87,10],
@@ -151,11 +158,14 @@
     [30,.87,-45],[43,.87,-43],[51,.88,-38],[55,.87,-31],
     [55,.87,-27]
   ];
-  const raceGameRoute = routeFrom(raceGameControls, true, 8, 2.5);
+  // The model's checker faces the long northern straight. Reverse the
+  // measured full-lap controls while keeping that checker as sample zero.
+  const raceGameRoute = routeFrom(
+    [raceGameControls[0],...raceGameControls.slice(1).reverse()], true, 8, 2.5);
   for (const point of raceGameRoute) {
     // The model has no deck between these ramp lips. Leave the crossing open
     // in the loading collision proxy so a car must actually jump the gap.
-    if (point.z===20 && point.y>2 && point.x<=2.5 && point.x>-12.5) point.kind='gap';
+    if (point.z===20 && point.y>2 && point.x>=-12.5 && point.x<2.5) point.kind='gap';
   }
 
   const courses = {
@@ -163,21 +173,25 @@
       id:'rainbowroad', name:'Rainbow Road',
       caption:'Rainbow Road · full native course · all nine road sections',
       asset:'assets/courses/rainbow-road.glb', scale:rainbowScale,
-      loop:true, width:4.6,
-      route:routeFrom(rainbowControls, true, 4.6, 5),
+      loop:true, width:4.6*rainbowExpansion,
+      route:routeFrom(rainbowControls.map(point=>point.map(value=>value*rainbowExpansion)),
+        true, 4.6*rainbowExpansion, 5*rainbowExpansion),
       // The checkerboard in the source model is the lap gate.
-      spawn:{x:188,y:68.96,z:-21,heading:Math.PI}, spawnBack:4,
+      spawn:{...rainbowPoint({x:188,y:68.96,z:-21}),heading:Math.PI},
+      spawnBack:4*rainbowExpansion,
       // Native collision for every road era; the narrow underlay supports mesh seams.
       proxyRoad:true, proxyMesh:true, proxyOffset:-.15, proxyCap:.04, overlayRoad:false,
-      edge:650, floor:-50, roadSearchWidth:12,
+      edge:650*rainbowExpansion, floor:-50*rainbowExpansion,
+      roadSearchWidth:12*rainbowExpansion,
       collisionPattern:/^mesh_mdl_(?:DSroad1|MK8road2|MK8road3|SFCroad1|N64road1|GBAroad1|GCNroad1|Wiiroad1|MK7road1|DSroad3ds)_/i,
       transfers:[
         {from:{x:-55,y:115.5,z:-36},to:{x:-79.6,y:49.2,z:20.9},radius:4,
           duration:2.8,arc:12,takeoffHeading:-.1,landingHeading:-.75,landingSpeed:12},
         {from:{x:137.4,y:57.6,z:-36.6},to:{x:160,y:69,z:-41},radius:4,
           duration:1.4,arc:6,takeoffHeading:.8,landingHeading:.78,landingSpeed:12}
-      ],
-      guidedSections:[{fromIndex:35,toIndex:92,radius:4,speed:14,landingSpeed:12}],
+      ].map(rainbowTransfer),
+      guidedSections:[{fromIndex:35,toIndex:92,radius:4*rainbowExpansion,
+        speed:14,landingSpeed:12}],
       ground:0x0d1230, skyLow:0x18265d, skyHigh:0x020415, fog:0x101536,
       ghostSpeed:20
     },
@@ -186,7 +200,7 @@
       caption:'Race Game Circuit · full native lap · jump near 30 mph · bridge and underpass',
       asset:'assets/courses/race-game-environment.glb', loop:true, width:8,
       route:raceGameRoute,
-      spawn:{x:55,y:.87,z:-27,heading:0}, spawnBack:7.6,
+      spawn:{x:55,y:.87,z:-12,heading:Math.PI}, spawnBack:7.4,
       routeHeightWeight:1.2,
       // The visual model is partitioned into 15 arbitrary mesh chunks. Keep
       // all native road, bridge and terrain tops plus nearby curb/obstacle
@@ -197,15 +211,16 @@
       edge:240, floor:-6, groundVisualOffset:-.5, roadSearchWidth:20,
       ground:0x54883b, skyLow:0x9ec5dd, skyHigh:0x6b9fc4, fog:0x99b9ce,
       ghostSpeed:23,
-      ghostSpeedZones:[{from:{x:20,y:.87,z:20},to:{x:-25,y:.87,z:20},speed:12.5}]
+      ghostSpeedZones:[{from:{x:-25,y:.87,z:20},to:{x:20,y:.87,z:20},speed:12.5}]
     },
     bangkok: {
       id:'bangkok', name:'Bangkok Rush',
-      caption:'Bangkok Rush · temple street to southeast city run',
+      caption:'Bangkok Rush · southeast city road to temple finish',
       asset:'assets/courses/bangkok-rush.glb', scale:.026, loop:false, width:6.8,
+      nativeFinish:true,
       // The source arch/checker crosses Object_61 at (-1, 5, 0) in the old
       // 0.01-scale coordinates. This run follows the native gray streets
-      // past the temple and market, then down the southeast city road.
+      // from the southeast city road past the market and temple to that arch.
       // The authored controls below are at 0.02 scale, enlarged uniformly.
       // Other native streets remain driveable off route.
       // The 2.6x source enlargement makes its approximately 3 m street 7.8 m wide.
@@ -217,12 +232,13 @@
         [94,10.12,-9],[103,10,-11],[105,10,-20],
         [106,10,-29],[112,10,-37],[119,10.1,-44],
         [126,10.1,-51],[131,10,-59],[139,10.1,-65],
-        [146,10.1,-72],[150,10.1,-81],[150,10,-88]
-      ].map(point=>point.map(value=>value*1.3)), false, 6.8, 3),
-      // The broad west intersection is flat; the steeper approach nearer
-      // the arch lets an unpowered car roll backwards before the timer starts.
-      spawn:{x:-35.1,y:10.08,z:0,heading:Math.PI/2},
-      spawnBack:32.5, spawnPadBack:4, finishRunout:39,
+        [146,10.1,-72],[148.5,10.1,-81],[150,10,-88]
+      ].reverse().map(point=>point.map(value=>value*1.3)), false, 6.8, 3),
+      // The southeast start lies on level native asphalt. The built-in arch
+      // now marks the finish, with the west street as a safe deceleration run.
+      spawn:{x:198.2,y:13,z:-129.4,heading:-.2},
+      spawnBack:15.6, spawnPadBack:4, finishRunout:39,
+      finishRunoutEndY:10.4,
       // The source splits its road and ground among several mesh objects.
       // Include the whole surfaces so the untimed city branches are driveable.
       collisionPattern:/^Object_(?:33|37|45|61|62|63|64)$/i,
@@ -398,7 +414,9 @@
   }
   function rainbowStripePatch(course) {
     const start = course.route[0], half = course.width / 2;
-    const y = start.y - .12, zMin = start.z - 1.1, zMax = start.z + .9;
+    const expansion=course.scale/2.5;
+    const y = start.y - .12, zMin = start.z - 1.1*expansion,
+      zMax = start.z + .9*expansion;
     return {vertices:[
       start.x-half,y,zMin, start.x-half,y,zMax,
       start.x+half,y,zMax, start.x+half,y,zMin

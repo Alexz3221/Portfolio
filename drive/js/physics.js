@@ -72,7 +72,8 @@
     // BYD U9 Xtreme: 2,480 kg, 4,991 x 2,029 mm with carbon aero, 2,900 mm
     // wheelbase and 325/35ZR20 tires. BYD publishes peak power (2,220 kW),
     // not a wheel-force curve; launch force and grip remain game tuning.
-    u9xtreme: {mass:2480,width:2.029,length:4.991,wheelX:0.83575,wheelZ:1.45,radius:0.36775,maxSpeed:503.17/3.6,powerKW:2220,powerPS:3019,engine:8500,grip:4.1,height:1.351,wheelLayout:[
+    // The extra roll recovery offsets its high mass when a curb lifts a tire.
+    u9xtreme: {mass:2480,width:2.029,length:4.991,wheelX:0.83575,wheelZ:1.45,radius:0.36775,maxSpeed:503.17/3.6,powerKW:2220,powerPS:3019,engine:8500,grip:4.1,height:1.351,rollStability:2.5,angularDamping:.55,wheelLayout:[
       {x:-0.838,y:0,z:-1.45,radius:0.36775},{x:-0.8345,y:0,z:1.45,radius:0.36775},
       {x:0.838,y:0,z:-1.45,radius:0.36775},{x:0.8345,y:0,z:1.45,radius:0.36775}
     ]},
@@ -614,10 +615,15 @@
       }
       if(!courseLoops && importedCourse.finishRunout>0 && !courseRunoutBody){
         const last=courseRoute.at(-1),length=importedCourse.finishRunout;
-        const top=last.y+(importedCourse.proxyOffset??-.12);
-        courseRunoutBody=box(last.x+last.tx*length/2,top-.25,
+        const offset=importedCourse.proxyOffset??-.12;
+        const startY=last.y+offset;
+        const endY=(importedCourse.finishRunoutEndY??last.y)+offset;
+        const pitch=-Math.atan2(endY-startY,length);
+        courseRunoutBody=box(last.x+last.tx*length/2,
+          (startY+endY)/2-.25/Math.cos(pitch),
           last.z+last.tz*length/2,(last.width||importedCourse.width)/2,.25,
-          length/2+.5,0,Math.atan2(last.tx,last.tz));
+          Math.hypot(length,endY-startY)/2+.5,pitch,
+          Math.atan2(last.tx,last.tz));
         importedRoadBodies.add(courseRunoutBody);
       }
     }
@@ -750,7 +756,8 @@
     }
     const wallCenter=(wallBottom+wallTop)/2,wallHalf=(wallTop-wallBottom)/2;
     box(-edge,wallCenter,0,1,wallHalf,edge);box(edge,wallCenter,0,1,wallHalf,edge);box(0,wallCenter,-edge,edge,wallHalf,1);box(0,wallCenter,edge,edge,wallHalf,1);
-    const body=new C.Body({mass:spec.mass,material:chassisMaterial,linearDamping:.015,angularDamping:.25});
+    const body=new C.Body({mass:spec.mass,material:chassisMaterial,linearDamping:.015,
+      angularDamping:spec.angularDamping??.25});
     // Bevel the low bumper/side edges instead of a full-length square belly.
     // The old bottom corners caught shallow grades before the wheels could
     // compress, turning forward momentum into a large pitch impulse. Keep the
@@ -904,14 +911,20 @@
           let support=0;
           if(grounded>=2) support=1;
           else if(grounded===1) support=.8;
+          else if(spec.rollStability>1 && airTime<.8) {
+            const clearance=body.position.y-roadHeight(body.position.x,body.position.z);
+            if(clearance>-.5 && clearance<spec.radius+2.2)
+              support=Math.max(.15,1-airTime/.8);
+          }
           else if(isCity && airTime<.22 && body.position.y-height(body.position.x,body.position.z)<spec.radius+1.7) support=.4;
-          if(support && up.y>.25) {
+          if(support && up.y>(spec.rollStability>1?-.25:.25)) {
             const inverse=body.quaternion.conjugate();
             const localUp=inverse.vmult(new C.Vec3(0,1,0));
             const localRate=inverse.vmult(body.angularVelocity);
             const pace=Math.min(1.4,Math.max(.65,horizontalSpeed/20));
-            const rollTorque=Math.max(-14000,Math.min(14000,
-              -(localUp.x*8200+localRate.z*3400)*pace*support));
+            const authority=spec.rollStability||1;
+            const rollTorque=Math.max(-14000*authority,Math.min(14000*authority,
+              -(localUp.x*8200+localRate.z*3400)*pace*support*authority));
             body.torque.vadd(body.quaternion.vmult(new C.Vec3(0,0,rollTorque)),body.torque);
           }
         }

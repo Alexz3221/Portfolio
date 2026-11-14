@@ -92,7 +92,7 @@ test('Race Game native asphalt supports the full loop, underpass and bridge', as
   }
   sim.reset();
   for(let frame=0;frame<320;frame++)sim.step(1/120,{throttle:1});
-  assert.ok(sim.body.position.z > -20 && sim.body.position.y > 1.2,
+  assert.ok(sim.body.position.z < -20 && sim.body.position.y > 1.2,
     'the car crosses the native checkerboard stripe in the course direction');
   for(const [x,z,heading] of [[55,0,0],[45,20,-Math.PI/2],
     [-47,30,0],[-5,20,Math.PI],[10,-26,Math.PI/2],
@@ -102,26 +102,26 @@ test('Race Game native asphalt supports the full loop, underpass and bridge', as
     assert.ok(sim.body.position.y>1.1 && sim.car.wheelInfos.filter(w=>w.isInContact).length>=3,
       `the physical car settles on the native route at (${x}, ${z})`);
   }
-  sim.reset(55,-19.4,0);
+  sim.reset(55,-19.4,Math.PI);
   for(let frame=0;frame<180;frame++)sim.step(1/120);
   assert.ok(sim.car.wheelInfos.every(wheel=>wheel.isInContact),
     'the native start and finish stripe sits on solid asphalt');
   for(const car of ['hypercar','rally']) {
     const driver=car==='hypercar'?sim:physics.create({map:'racetrack',courseId:'racegame',course,car});
     if(driver!==sim)assert.equal(driver.addCourseCollisionMeshes(loaded.collisionMeshes),true);
-    driver.reset(45,20,-Math.PI/2);
+    driver.reset(-45,20,Math.PI/2);
     let jumped=false;
     for(let frame=0;frame<950;frame++) {
       const speed=driver.body.velocity.length();
       driver.step(1/120,{throttle:speed<12.5,brake:speed>13.5});
       const position=driver.body.position;
-      if(position.x<-2.5&&position.x>-12.5&&position.y>5&&
+      if(position.x>-12.5&&position.x<2.5&&position.y>5&&
         driver.car.wheelInfos.every(wheel=>!wheel.isInContact))jumped=true;
     }
     const position=driver.body.position;
     assert.ok(jumped,`${car} actually flies over the native opening`);
-    assert.ok(position.x<-25&&Math.abs(position.z-20)<2.5&&position.y>1.2&&
+    assert.ok(position.x>20&&Math.abs(position.z-20)<2.5&&position.y>1.2&&
       driver.car.wheelInfos.filter(wheel=>wheel.isInContact).length>=3,
-    `${car} lands on the west road at about 28 mph and keeps driving`);
+    `${car} lands on the east road at about 28 mph and keeps driving`);
   }
 });
