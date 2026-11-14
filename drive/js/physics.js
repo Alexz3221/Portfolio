@@ -84,12 +84,20 @@
   function create(options={}) {
     const course = !options.map || options.map === 'course';
     const isCity = options.map === 'city';
+    // Imported circuits share the race UI, but supply their own physical road.
+    // Collision meshes use the same already-transformed coordinates as the GLB.
+    const importedCourse=options.map==='racetrack' && options.course && options.courseId!=='racetrack'
+      ? options.course : null;
+    const courseRoute=importedCourse?.route || stuntRoute;
+    const courseLoops=importedCourse?.loop!==false;
     const cityMap=options.city || City;
     const cityTerrain=isCity && cityMap.terrain?.data?.length>1 ? cityMap.terrain : null;
-    const edge=isCity?cityMap.edge:course?160:200, cells=isCity?0:edge;
-    const floorOffset=options.map==='racetrack'?stuntFeatures.floor:0;
+    const edge=isCity?cityMap.edge:importedCourse?Math.max(40,Math.ceil(importedCourse.edge||200)):course?160:200;
+    const cells=isCity||importedCourse?0:edge;
+    const floorOffset=importedCourse?(Number.isFinite(importedCourse.floor)?importedCourse.floor:-20)
+      :options.map==='racetrack'?stuntFeatures.floor:0;
     const analyticHeight=course?terrainHeight:(x,z)=>scenicHeight(options.map,x,z)-floorOffset;
-    const data=cityTerrain?.data || (isCity?null:Array.from({length:cells+1},(_,i)=>Array.from({length:cells+1},(_,j)=>analyticHeight(i*2-edge,edge-j*2))));
+    const data=cityTerrain?.data || (isCity||importedCourse?null:Array.from({length:cells+1},(_,i)=>Array.from({length:cells+1},(_,j)=>analyticHeight(i*2-edge,edge-j*2))));
     // CANNON's Heightfield pillar bottom is fixed at local -1. When source
     // elevations dip below that, its generated convex triangles invert. Shift
     // collider samples up and the whole body back down; world heights stay exact.
@@ -99,6 +107,7 @@
     const collisionData=terrainShift?data.map(column=>column.map(value=>value+terrainShift)):data;
     // CANNON 0.6.2 getHeightAt is only an average. Match its actual triangles.
     function height(x,z) {
+      if(importedCourse)return floorOffset;
       if(isCity&&!cityTerrain)return 0;
       const nx=data.length-1,nz=data[0].length-1;
       const u=Math.max(0,Math.min(nx,cityTerrain?(x-cityTerrain.originX)/cityTerrain.elementSize:(x+edge)/2));
@@ -118,7 +127,7 @@
     world.addContactMaterial(new C.ContactMaterial(chassisMaterial,terrainMaterial,{friction:.01,restitution:0}));
     const floor=new C.Body({mass:0,material:terrainMaterial});
     if(cityTerrain) { floor.addShape(new C.Heightfield(collisionData,{elementSize:cityTerrain.elementSize})); floor.position.set(cityTerrain.originX,-terrainShift,cityTerrain.maxZ); }
-    else if(isCity) { floor.addShape(new C.Plane()); floor.position.set(0,0,0); }
+    else if(isCity||importedCourse) { floor.addShape(new C.Plane()); floor.position.set(0,floorOffset,0); }
     else { floor.addShape(new C.Heightfield(data,{elementSize:2})); floor.position.set(-edge,floorOffset,edge); }
     floor.quaternion.setFromEuler(-Math.PI/2,0,0); world.addBody(floor);
     function box(x,y,z,hx,hy,hz,angle=0,yaw=0) {
@@ -486,7 +495,7 @@
     }
     // Every route slab uses the exact same vertices for rendering and collision.
     const bridges=[],stuntSlabs=[];
-    if(options.map==='racetrack') for(let i=0;i<stuntRoute.length;i++) {
+    if(options.map==='racetrack'&&!importedCourse) for(let i=0;i<stuntRoute.length;i++) {
       const a=stuntRoute[i];let j=i+1,b=stuntRoute[j%stuntRoute.length];
       // Coalesce flat/constant-grade straight pieces. Curves, width tapers and
       // grade changes retain their authored samples; the public route is unchanged.
@@ -509,9 +518,88 @@
       stuntSlabs.push({index:startIndex,endIndex:j,a,b,vertices,faces,body});
     }
     const stuntSupports=[];
-    if(options.map==='racetrack')for(const [x,z,top] of [[-65,0,9],[65,0,9],[0,-65,4],[0,-85,4]]){
+    if(options.map==='racetrack'&&!importedCourse)for(const [x,z,top] of [[-65,0,9],[65,0,9],[0,-65,4],[0,-85,4]]){
       const h=top-.6-stuntFeatures.floor, support={x,z,y:stuntFeatures.floor+h/2,hx:.6,hy:h/2,hz:.6};
       support.body=box(x,support.y,z,support.hx,support.hy,support.hz);stuntSupports.push(support);
+    }
+    const courseSlabs=[],importedRoadBodies=new Set(),importedMeshBodies=[];
+    function buildCourseSlabs() {
+      if(!importedCourse||courseSlabs.length)return;
+      const offset=importedMeshBodies.length ? (importedCourse.proxyOffset??-.12) : 0;
+      // Other imported scenes use a deliberately simple driveable ribbon.
+      // The samples also drive the timing gates, so rendering and physics can
+      // share one centerline instead of relying on decorative GLB triangles.
+      const first=courseRoute[0],spawn=importedCourse.spawn;
+      const approach=!courseLoops&&spawn&&Number.isFinite(spawn.x)&&Number.isFinite(spawn.z)
+        ? {x:spawn.x,z:spawn.z,y:spawn.y??first.y,width:first.width,tx:first.tx,tz:first.tz} : null;
+      for(let i=approach?-1:0;i<courseRoute.length-(courseLoops?0:1);i++) {
+        const a=i<0?approach:courseRoute[i],b=courseRoute[(i+1+courseRoute.length)%courseRoute.length];
+        const dx=b.x-a.x,dz=b.z-a.z,length=Math.hypot(dx,dz);
+        if(length<.01||a.kind==='gap')continue;
+        // Rectangular segment caps overlap slightly at turns. Using averaged
+        // endpoint tangents can make a short, wide segment self-intersect and
+        // gives CANNON an invalid convex polyhedron.
+        const tx=dx/length,tz=dz/length,cap=Math.min(.9,length*.25);
+        const wa=(a.width||10)/2,wb=(b.width||10)/2;
+        const ax=a.x-tx*cap,az=a.z-tz*cap,bx=b.x+tx*cap,bz=b.z+tz*cap;
+        const top=[
+          new C.Vec3(ax+tz*wa,a.y+offset,az-tx*wa),
+          new C.Vec3(bx+tz*wb,b.y+offset,bz-tx*wb),
+          new C.Vec3(bx-tz*wb,b.y+offset,bz+tx*wb),
+          new C.Vec3(ax-tz*wa,a.y+offset,az+tx*wa)
+        ];
+        const vertices=[...top.map(v=>new C.Vec3(v.x,v.y-.6,v.z)),...top];
+        const faces=[[0,1,2,3],[7,6,5,4],[4,5,1,0],[5,6,2,1],[6,7,3,2],[7,4,0,3]];
+        const body=new C.Body({mass:0,material:terrainMaterial});
+        const center=new C.Vec3((a.x+b.x)/2,(a.y+b.y)/2+offset-.3,(a.z+b.z)/2);
+        vertices.forEach(v=>v.vsub(center,v));
+        body.addShape(new C.ConvexPolyhedron(vertices,faces));body.position.copy(center);world.addBody(body);
+        courseSlabs.push({index:i,a,b,body,vertices,faces});
+        importedRoadBodies.add(body);
+      }
+    }
+    function addCourseCollisionMeshes(meshes) {
+      if(!importedCourse||!Array.isArray(meshes)||!meshes.length)return false;
+      const added=[];
+      let triangles=0;
+      try {
+        for(const surface of meshes) {
+          if(!surface?.vertices?.length||!surface?.indices?.length||
+              surface.vertices.length%3||surface.indices.length%3)continue;
+          triangles+=surface.indices.length/3;
+          // Large scenic models use the authored route proxy instead of
+          // putting hundreds of thousands of decorative faces in CANNON.
+          if(triangles>30000)throw new RangeError('course collision mesh is too dense');
+          // A selected GLB road may provide its transformed triangles. The
+          // junction helper also repairs the CANNON 0.6.2 octree issue.
+          const body=junctionBody({vertices:surface.vertices,indices:surface.indices,x:0,z:0});
+          if(body)added.push(body);
+        }
+      } catch (_) {
+        for(const body of added)world.removeBody(body);
+        return false;
+      }
+      if(!added.length)return false;
+      for(const body of importedMeshBodies){world.removeBody(body);importedRoadBodies.delete(body);}
+      importedMeshBodies.length=0;
+      importedMeshBodies.push(...added);
+      added.forEach(body=>importedRoadBodies.add(body));
+      if(!importedCourse.proxyRoad) {
+        for(const slab of courseSlabs){world.removeBody(slab.body);importedRoadBodies.delete(slab.body);}
+        courseSlabs.length=0;
+      }
+      return true;
+    }
+    function useCourseProxy() {
+      if(!importedCourse)return false;
+      for(const body of importedMeshBodies){world.removeBody(body);importedRoadBodies.delete(body);}
+      importedMeshBodies.length=0;
+      buildCourseSlabs();
+      return courseSlabs.length>0;
+    }
+    if(importedCourse) {
+      if(!addCourseCollisionMeshes(importedCourse.collisionMeshes||[]))buildCourseSlabs();
+      else if(importedCourse.proxyRoad)buildCourseSlabs();
     }
     function roadHeight(x,z) {
       if(isCity) {
@@ -525,6 +613,24 @@
           if(distance<best && distance<=road.width/2+1) {best=distance;top=Math.max(ground,road.y1+(road.y2-road.y1)*t);}
         }
         return top;
+      }
+      if(importedCourse) {
+        let best=Infinity,expected=floorOffset;
+        for(let i=0;i<courseRoute.length-(courseLoops?0:1);i++) {
+          const a=courseRoute[i],b=courseRoute[(i+1)%courseRoute.length];
+          const dx=b.x-a.x,dz=b.z-a.z,len2=dx*dx+dz*dz;
+          const t=Math.max(0,Math.min(1,((x-a.x)*dx+(z-a.z)*dz)/(len2||1)));
+          const d=Math.hypot(x-a.x-dx*t,z-a.z-dz*t);
+          if(d<best){best=d;expected=a.y+(b.y-a.y)*t;}
+        }
+        if(best>Math.max(20,importedCourse.roadSearchWidth||20))return floorOffset;
+        let actual=null,delta=Infinity;
+        world.raycastAll(new C.Vec3(x,expected+12,z),new C.Vec3(x,expected-12,z),{},hit=>{
+          if(!importedRoadBodies.has(hit.body))return;
+          const error=Math.abs(hit.hitPointWorld.y-expected);
+          if(error<delta){delta=error;actual=hit.hitPointWorld.y;}
+        });
+        return actual??expected;
       }
       if(options.map!=='racetrack')return height(x,z);
       // Reset only onto a physical road, never into the recovery floor.
@@ -542,6 +648,10 @@
     }
     // Invisible perimeter only at the edge of the matching visible terrain.
     let wallBottom=-1,wallTop=options.map === 'mountain'?119:course?9:69;
+    if(importedCourse) {
+      wallBottom=floorOffset-2;
+      wallTop=Math.max(...courseRoute.map(p=>p.y))+40;
+    }
     if(cityTerrain) {
       let minY=Infinity,maxY=-Infinity;
       for(const column of data)for(const y of column){minY=Math.min(minY,y);maxY=Math.max(maxY,y);}
@@ -587,7 +697,13 @@
     }
     function syncRenderState(){snapshot();interpolate(1);}
     const citySpawn=streamingCity && cityMap.routeSamples?.[0];
-    function reset(x=citySpawn?.x??0,z=citySpawn?.z??-28,heading=citySpawn?Math.atan2(citySpawn.tx,citySpawn.tz):0){refreshCityColliders(x,z,true);body.position.set(x,roadHeight(x,z)+spec.radius+.6,z);body.quaternion.setFromEuler(0,heading,0);body.velocity.setZero();body.angularVelocity.setZero();body.force.setZero();body.torque.setZero();body.wakeUp();accumulator=0;steer=0;grounded=0;airTime=0;car.wheelInfos.forEach(w=>{w.rotation=0;w.deltaRotation=0;w.suspensionLength=w.suspensionRestLength;w.steering=0;});syncRenderState();}
+    const start=importedCourse&&courseRoute[0],next=importedCourse&&courseRoute[1];
+    const startDirection=start&&next?Math.atan2(start.tx??next.x-start.x,start.tz??next.z-start.z):0;
+    const spawnBack=importedCourse?.spawnBack??8;
+    const initialX=importedCourse?.spawn?.x??(start?start.x-Math.sin(startDirection)*spawnBack:citySpawn?.x??0);
+    const initialZ=importedCourse?.spawn?.z??(start?start.z-Math.cos(startDirection)*spawnBack:citySpawn?.z??-28);
+    const initialHeading=importedCourse?.spawn?.heading??(start?startDirection:citySpawn?Math.atan2(citySpawn.tx,citySpawn.tz):0);
+    function reset(x=initialX,z=initialZ,heading=initialHeading){refreshCityColliders(x,z,true);body.position.set(x,roadHeight(x,z)+spec.radius+.6,z);body.quaternion.setFromEuler(0,heading,0);body.velocity.setZero();body.angularVelocity.setZero();body.force.setZero();body.torque.setZero();body.wakeUp();accumulator=0;steer=0;grounded=0;airTime=0;car.wheelInfos.forEach(w=>{w.rotation=0;w.deltaRotation=0;w.suspensionLength=w.suspensionRestLength;w.steering=0;});syncRenderState();}
     function step(dt,input={}) {
       accumulator+=Math.min(Math.max(dt,0),.1);
       while(accumulator>=1/120){
@@ -659,7 +775,7 @@
     const watchTiles=cityMap.onTileChanged || cityMap.onTileLoaded;
     const stopTileListener=streamingCity && watchTiles?.call(cityMap,()=>refreshCityColliders(body.position.x,body.position.z,true,false));
     function dispose(){if(typeof stopTileListener==='function')stopTileListener();}
-    reset();return {world,body,car,step,reset,dispose,addTree,edge,obstacles,addObstacle,bridges,stuntSlabs,stuntSupports,roadHeight,terrainHeight:height,ramp,spec,renderPosition,renderQuaternion,renderWheels,syncRenderState};
+    reset();return {world,body,car,step,reset,dispose,addTree,edge,obstacles,addObstacle,bridges,stuntSlabs,stuntSupports,courseRoute,courseSlabs,addCourseCollisionMeshes,useCourseProxy,roadHeight,terrainHeight:height,ramp,spec,renderPosition,renderQuaternion,renderWheels,syncRenderState};
   }
   return {create,terrainHeight,scenicHeight,ramp,vehicles,mountainPoints,stuntBumps,overpasses,stuntRoute,stuntFeatures,stuntProfile,city:City};
 });

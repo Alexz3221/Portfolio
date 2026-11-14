@@ -10,6 +10,13 @@ const PersonalBest = require('../js/personal-best');
 const traceContext = vm.createContext({});
 vm.runInContext(fs.readFileSync(require.resolve('../js/ghost-traces.js'), 'utf8'), traceContext);
 const ghostTraces = traceContext.DriveGhostTraces;
+const importedRoute = P.stuntRoute.slice(0, 40).map(point => ({...point}));
+const importedCourses = {load() { return new Promise(() => {}); }, getCourse(id) {
+  return id === 'rainbowroad' ? {
+    id, name: 'Rainbow Road', caption: 'Rainbow Road test course', loop: false,
+    route: importedRoute, edge: 200, floor: -20, proxyRoad: true, spawnBack: 8
+  } : null;
+}};
 
 // Reuse the browserless WebGL harness, with the actual generated ghost laps and
 // the new controls initialized to the values supplied by index.html.
@@ -18,13 +25,13 @@ const configuredSource = harnessSource
   .replace('function harness() {', 'function harness(storage = null, assetLoader = undefined) {')
   .replace('const fakeThree = {...THREE', 'window.localStorage = storage; const fakeThree = {...THREE')
   .replace('requestAnimationFrame() {}, console',
-    'requestAnimationFrame() {}, DriveGhostTraces: ghostTraces, DrivePersonalBest: PersonalBest, DriveVehicleAssets: assetLoader, console')
+    'requestAnimationFrame() {}, DriveGhostTraces: ghostTraces, DrivePersonalBest: PersonalBest, DriveVehicleAssets: assetLoader, DriveImportedCourses: importedCourses, console')
   .replace("const source = fs.readFileSync(require.resolve('../js/main.js'), 'utf8');",
     "document.querySelector('#ghostEnabled').checked = true; document.querySelector('#ghostSource').value = 'course'; document.querySelector('#ghostCar').value = 'match'; document.querySelector('#ghostPace').value = 'standard'; const source = fs.readFileSync(require.resolve('../js/main.js'), 'utf8');")
   .replace('renderer, sky, orbit, canvas};})();',
     'renderer, sky, orbit, canvas, ghost, ghostFrame, ghostVehicle, updateGhostRun};})();');
 assert.notEqual(configuredSource, harnessSource);
-const context = vm.createContext({require, __dirname, console, ghostTraces, PersonalBest});
+const context = vm.createContext({require, __dirname, console, ghostTraces, PersonalBest, importedCourses});
 vm.runInContext(configuredSource + ';globalThis.makeGhostHarness=harness;', context);
 
 function placeAtStartLine(sim, along, lateral = 0, forwardSpeed = 4) {
@@ -102,6 +109,77 @@ test('committing ghost controls returns keyboard focus to driving', () => {
   focused = start;
   start.listeners.click();
   assert.equal(focused, sim.canvas);
+});
+
+test('the racetrack course selector preserves its choice and returns keyboard focus', () => {
+  const {sim, document} = context.makeGhostHarness();
+  sim.chooseMap('racetrack');
+  const picker = document.querySelector('#coursePicker');
+  const select = document.querySelector('#courseSelect');
+  assert.equal(picker.hidden, false);
+  assert.equal(select.value, 'racetrack');
+  let focused = select;
+  select.blur = () => { focused = null; };
+  sim.canvas.focus = () => { focused = sim.canvas; };
+  select.value = 'rainbowroad';
+  select.listeners.change({target: select});
+  assert.equal(focused, sim.canvas);
+  assert.equal(document.querySelector('#mapSelect').value, 'racetrack');
+  assert.equal(document.querySelector('#mapDescription').textContent, 'Rainbow Road test course');
+  assert.ok(sim.world.getObjectByName('course-finish-gate'));
+  sim.chooseCar('pickup');
+  assert.ok(sim.world.getObjectByName('course-finish-gate'), 'finish remains visible after changing cars');
+  sim.chooseMap('city');
+  assert.equal(picker.hidden, true);
+  sim.chooseMap('racetrack');
+  assert.equal(select.value, 'rainbowroad');
+  assert.equal(picker.hidden, false);
+});
+
+test('point-to-point timing requires forward start and finish crossings and keeps its own best', () => {
+  const storage = memoryStorage();
+  const {sim, document} = context.makeGhostHarness(storage);
+  sim.chooseMap('racetrack');
+  const select = document.querySelector('#courseSelect');
+  select.blur = () => {};
+  select.value = 'rainbowroad';
+  select.listeners.change({target: select});
+  const physics = sim.physics();
+  physics.courseRoute = importedRoute;
+  sim.resetVehicle();
+  const start = importedRoute[0], finish = importedRoute.at(-1), body = physics.body;
+  assert.ok((body.position.x - start.x) * start.tx + (body.position.z - start.z) * start.tz < 0,
+    'reset places the car behind the start gate');
+  function place(gate, along, speed) {
+    body.position.set(gate.x + gate.tx * along, gate.y + 1, gate.z + gate.tz * along);
+    body.velocity.set(gate.tx * speed, 0, gate.tz * speed);
+    sim.updateGhostRun(.1);
+  }
+  place(start, -1, -4);
+  place(start, 1, -4);
+  assert.equal(sim.ghost.running, false, 'reverse start crossing is ignored');
+  place(start, -1, 4);
+  place(start, 1, 4);
+  assert.equal(sim.ghost.running, true, 'forward start crossing begins timing');
+  place(finish, -1, 4);
+  place(finish, 1, 4);
+  assert.equal(sim.ghost.running, true, 'skipping the ordered route does not finish');
+  sim.ghost.progress = importedRoute.length - 5;
+  place(finish, -1, -4);
+  place(finish, 1, -4);
+  assert.equal(sim.ghost.running, true, 'reverse finish crossing is ignored');
+  place(finish, -1, 4);
+  place(finish, 1, 4);
+  assert.equal(sim.ghost.running, false);
+  assert.equal(sim.ghost.progress, importedRoute.length);
+  assert.ok(storage.values.get(PersonalBest.KEY + ':rainbowroad'));
+  assert.equal(storage.values.get(PersonalBest.KEY), undefined, 'original stunt best is isolated');
+  select.value = 'racetrack';
+  select.listeners.change({target: select});
+  assert.equal(document.querySelector('#ghostBestValue').textContent, '—');
+  select.value = 'rainbowroad';
+  select.listeners.change({target: select});
+  assert.notEqual(document.querySelector('#ghostBestValue').textContent, '—');
 });
 
 test('a late car model upgrades the ghost without changing the player asset', () => {

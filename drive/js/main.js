@@ -35,10 +35,27 @@
   const world = new THREE.Group();
   scene.add(world);
   let selectedMap = 'city';
+  const raceCourses = {
+    racetrack: {name: 'Stunt course', caption: maps.racetrack.caption},
+    rainbowroad: {name: 'Rainbow Sprint', caption: 'Rainbow Sprint · reach the finish without falling', loop: false},
+    racegame: {name: 'Race Game Outer Run', caption: 'Race Game Outer Run · painted asphalt', loop: false},
+    bangkok: {name: 'Bangkok Skyway', caption: 'Bangkok Skyway · elevated stunt loop'}
+  };
+  let selectedCourse = 'racetrack';
+  const coursePicker = document.querySelector('#coursePicker');
+  const courseSelect = document.querySelector('#courseSelect');
+  function isRaceCourse() { return selectedMap === 'racetrack'; }
+  function activeCourse() {
+    return selectedCourse === 'racetrack' ? raceCourses.racetrack
+      : globalThis.DriveImportedCourses?.getCourse?.(selectedCourse) || raceCourses[selectedCourse];
+  }
+  function activeRoute() { return physics?.courseRoute || DrivePhysics.stuntRoute; }
   function mirroredCityView() { return selectedMap === 'city' && !!city.terrain; }
   function displayZ(z) { return mirroredCityView() ? -z : z; }
   let samples = [];
   let cityVisual = null;
+  let importedAssetScene = null;
+  let worldGeneration = 0;
   let portfolio = null;
   const carModels = {};
   let selectedCar = 'comet';
@@ -63,13 +80,19 @@
   scene.add(ghostFrame);
   let bestStorage = null;
   try { bestStorage = window.localStorage; } catch (_) { /* Timed laps still work without storage. */ }
-  const personalBest = typeof DrivePersonalBest === 'undefined'
-    ? {best:null, start(){}, record(){}, finish(){return {improved:false,best:null};}, cancel(){}}
-    : DrivePersonalBest.create({storage:bestStorage});
+  const personalBests = new Map();
+  function bestForCourse(courseId) {
+    if (!personalBests.has(courseId)) personalBests.set(courseId, typeof DrivePersonalBest === 'undefined'
+      ? {best:null, start(){}, record(){}, finish(){return {improved:false,best:null};}, cancel(){}}
+      : DrivePersonalBest.create({storage:bestStorage, key:courseId === 'racetrack'
+        ? DrivePersonalBest.KEY : DrivePersonalBest.KEY + ':' + courseId}));
+    return personalBests.get(courseId);
+  }
+  let personalBest = bestForCourse(selectedCourse);
   const ghost = {
     model: null, car: null, running: false, armed: false, elapsed: 0, progress: 0,
     rate: 1, trace: null, wheelRotation: 0, lastPosition: new THREE.Vector3(),
-    lastLineDistance: null
+    lastLineDistance: null, lastFinishDistance: null
   };
   let ghostTraceLoad = null;
   let cameraMode = 0;
@@ -118,7 +141,8 @@
   function distanceToRoad(x, z) {
     if (selectedMap === 'city') return city.distanceToRoad(x, z);
     let nearest = Infinity;
-    for (let index = 0; index < samples.length; index += 1) {
+    const segmentCount = isRaceCourse() && activeCourse()?.loop === false ? samples.length - 1 : samples.length;
+    for (let index = 0; index < segmentCount; index += 1) {
       const a = samples[index].point, b = samples[(index + 1) % samples.length].point;
       const dx = b.x - a.x, dz = b.z - a.z;
       const t = THREE.MathUtils.clamp(((x - a.x) * dx + (z - a.z) * dz) / (dx * dx + dz * dz || 1), 0, 1);
@@ -157,9 +181,16 @@
   }
 
   function buildWorld() {
+    const generation = ++worldGeneration;
+    const imported = isRaceCourse() && selectedCourse !== 'racetrack';
+    const importedCourse = imported ? activeCourse() : null;
     // Dispose shared resources once when changing maps, never accumulate old scenery.
     cityVisual?.dispose?.();
     physics?.dispose?.();
+    if (importedAssetScene) {
+      world.remove(importedAssetScene);
+      importedAssetScene = null;
+    }
     const geometries = new Set(), materials = new Set(), textures = new Set();
     world.traverse(object => {
       if (object.geometry) geometries.add(object.geometry);
@@ -176,34 +207,38 @@
     geometries.forEach(geometry => geometry.dispose());
     materials.forEach(material => material.dispose());
     textures.forEach(texture => texture.dispose());
-    physics = DrivePhysics.create({map:selectedMap, city, car:selectedCar, distanceToRoad, roadHalfWidth:selectedMap === 'city' ? city.roadHalfWidth : maps[selectedMap].roadHalfWidth || 6.2});
-    const config = maps[selectedMap];
+    physics = DrivePhysics.create({map:selectedMap, courseId:selectedCourse, course:importedCourse,
+      city, car:selectedCar, distanceToRoad,
+      roadHalfWidth:selectedMap === 'city' ? city.roadHalfWidth : imported ? importedCourse.width / 2 : maps[selectedMap].roadHalfWidth || 6.2});
+    const config = imported ? {...maps.racetrack, ...importedCourse} : maps[selectedMap];
     scene.fog.color.setHex(config.fog);
     scene.background = new THREE.Color(config.fog);
     sky.material.uniforms.low.value.setHex(config.skyLow);
     sky.material.uniforms.high.value.setHex(config.skyHigh);
-    scene.fog.density = selectedMap === 'city' ? .0032 : .0048;
+    scene.fog.density = selectedMap === 'city' ? .0032 : imported ? .0015 : .0048;
     renderer.toneMappingExposure = selectedMap === 'city' ? 1.05 : .9;
     sun.visible = sunGlow.visible = selectedMap !== 'city';
     ambientLight.intensity = selectedMap === 'city' ? .7 : .9;
     sunsetLight.intensity = selectedMap === 'city' ? .22 : 1.25;
-    sunsetLight.castShadow = selectedMap !== 'city';
+    sunsetLight.castShadow = selectedMap !== 'city' && !imported;
     blueFill.intensity = selectedMap === 'city' ? .65 : .35;
     if (!(selectedMap === 'city' && city.terrain)) {
-      const groundDetail = surfaceTexture(selectedMap === 'mountain' ? 'rock' : 'ground', physics.edge / 4);
-      const ground = new THREE.Mesh(new THREE.PlaneGeometry(physics.edge * 2, physics.edge * 2, selectedMap === 'city' ? 1 : physics.edge, selectedMap === 'city' ? 1 : physics.edge), new THREE.MeshStandardMaterial({color: config.ground, roughness: 1, map: groundDetail, bumpMap: groundDetail, bumpScale: .12}));
-      if (selectedMap !== 'city') {
+      const groundDetail = imported ? null : surfaceTexture(selectedMap === 'mountain' ? 'rock' : 'ground', physics.edge / 4);
+      const groundSegments = selectedMap === 'city' || imported ? 1 : physics.edge;
+      const ground = new THREE.Mesh(new THREE.PlaneGeometry(physics.edge * 2, physics.edge * 2, groundSegments, groundSegments), new THREE.MeshStandardMaterial({color: config.ground, roughness: 1, map: groundDetail, bumpMap: groundDetail, bumpScale: .12}));
+      if (selectedMap !== 'city' && !imported) {
         const pos = ground.geometry.attributes.position;
         for (let i=0;i<pos.count;i++) pos.setZ(i, physics.terrainHeight(pos.getX(i), -pos.getY(i)));
         ground.geometry.computeVertexNormals();
       }
       ground.rotation.x = -Math.PI / 2;
-      ground.position.y = 0;
+      ground.position.y = imported ? physics.terrainHeight(0, 0) : 0;
       ground.name = 'terrain';
       ground.receiveShadow = true;
       world.add(ground);
     }
     if (selectedMap === 'city') samples = city.routeSamples.map(sample => ({point: new THREE.Vector3(sample.x, sample.y ?? physics.terrainHeight(sample.x,sample.z), sample.z), tangent: new THREE.Vector3(sample.tx, 0, sample.tz)}));
+    else if (isRaceCourse()) samples = physics.courseRoute.map(p => ({point:new THREE.Vector3(p.x,p.y,p.z),tangent:new THREE.Vector3(p.tx,0,p.tz),width:p.width,kind:p.kind}));
     else {
       const path = new THREE.CatmullRomCurve3(config.points.map(([x, z]) => new THREE.Vector3(x, 0, z)), true, 'centripetal');
       samples = Array.from({length: 480}, (_, index) => ({
@@ -211,7 +246,6 @@
       }));
       samples.forEach(sample => { sample.point.y = physics.terrainHeight(sample.point.x, sample.point.z); });
     }
-    if(selectedMap==='racetrack')samples=DrivePhysics.stuntRoute.map(p=>({point:new THREE.Vector3(p.x,p.y,p.z),tangent:new THREE.Vector3(p.tx,0,p.tz),width:p.width,kind:p.kind}));
 
     const ribbonSamples = samples;
     function ribbon(offsetA, offsetB, height, material) {
@@ -276,7 +310,7 @@
 
     }
     // The stunt ribbon is the collider itself, not paint over an old track.
-    if(selectedMap==='racetrack') {
+    if(selectedMap==='racetrack' && !imported) {
       const positions=[],colors=[],markings=[],markColors=[];
       function tri(out,cols,a,b,c,color){const col=new THREE.Color(color);for(const p of [a,b,c]){out.push(p.x,p.y,p.z);cols.push(col.r,col.g,col.b);}}
       function quad(out,cols,v,color){tri(out,cols,v[0],v[1],v[2],color);tri(out,cols,v[0],v[2],v[3],color);}
@@ -319,6 +353,64 @@
       }
     }
 
+    if (imported) {
+      // A lightweight, playable road is shown while the selected GLB loads.
+      // It also keeps this time trial usable if a local asset is unavailable.
+      const fallback = new THREE.Group();
+      fallback.name = 'imported-course-fallback';
+      const route = importedCourse.route, count = route.length - (importedCourse.loop === false ? 1 : 0);
+      const rainbow = selectedCourse === 'rainbowroad';
+      const colors = rainbow ? [0xff4646,0xff9a38,0xffed4b,0x57d872,0x4dbaf8,0x6f74f7,0xbc6ff7] : [0x45535a];
+      for (let stripe = 0; stripe < colors.length; stripe++) {
+        const vertices = [], indices = [];
+        const sideA = -importedCourse.width / 2 + importedCourse.width * stripe / colors.length;
+        const sideB = -importedCourse.width / 2 + importedCourse.width * (stripe + 1) / colors.length;
+        for (let index = 0; index <= count; index++) {
+          const p = route[index % route.length], tangent = new THREE.Vector3(p.tx,0,p.tz);
+          const normal = new THREE.Vector3(-tangent.z,0,tangent.x);
+          for (const side of [sideA,sideB]) {
+            const point = new THREE.Vector3(p.x,p.y+.035,p.z).addScaledVector(normal,side);
+            vertices.push(point.x,point.y,point.z);
+          }
+          if (index < count) {
+            const at = index * 2;
+            indices.push(at,at+1,at+2,at+1,at+3,at+2);
+          }
+        }
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position',new THREE.Float32BufferAttribute(vertices,3));
+        geometry.setIndex(indices);geometry.computeVertexNormals();
+        const mesh = new THREE.Mesh(geometry,new THREE.MeshBasicMaterial({color:colors[stripe],side:THREE.DoubleSide}));
+        mesh.name = 'imported-course-road';fallback.add(mesh);
+      }
+      const start = route[0], tileWidth = importedCourse.width / 8;
+      const grid = new THREE.Group();
+      grid.position.set(start.x,start.y+.06,start.z);
+      grid.rotation.y = Math.atan2(start.tx,start.tz);
+      for (let row=0; row<2; row++) for (let col=0; col<8; col++) {
+        const tile = new THREE.Mesh(new THREE.PlaneGeometry(tileWidth,.4),
+          new THREE.MeshBasicMaterial({color:(row+col)%2?0xf5f7ee:0x17212a,side:THREE.DoubleSide}));
+        tile.rotation.x=-Math.PI/2;
+        tile.position.set((col-3.5)*tileWidth,.01,(row-.5)*.4);
+        grid.add(tile);
+      }
+      grid.name='circuit-start-line';fallback.add(grid);
+      world.add(fallback);
+      const courseId = selectedCourse;
+      Promise.resolve().then(() => DriveImportedCourses.load(courseId)).then(loaded => {
+        if (generation !== worldGeneration || !isRaceCourse() || selectedCourse !== courseId) return;
+        importedAssetScene = loaded.scene;
+        world.add(importedAssetScene);
+        if (loaded.collisionMeshes.length && !physics.addCourseCollisionMeshes(loaded.collisionMeshes))
+          console.warn('Imported course collision unavailable; using its road proxy:',courseId);
+        fallback.visible = !!importedCourse.overlayRoad;
+      }).catch(error => {
+        if (generation !== worldGeneration || selectedCourse !== courseId) return;
+        console.warn('Imported course scene unavailable; using playable road proxy:',courseId,error);
+        ghostUI.status.textContent = 'Map model unavailable. The timed course remains playable.';
+      });
+    }
+
     physics.obstacles.forEach(obstacle => {
       const mesh = new THREE.Mesh(new THREE.BoxGeometry(obstacle.hx*2, obstacle.hy*2, obstacle.hz*2), new THREE.MeshStandardMaterial({color:0xef7845,roughness:.85}));
       mesh.name = 'solid-obstacle';
@@ -328,7 +420,7 @@
       stripe.position.copy(mesh.position); stripe.position.y += .25; world.add(stripe);
     });
     const rand = (() => { let seed = config.seed; return () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296); })();
-    if (selectedMap !== 'city') {
+    if (selectedMap !== 'city' && !imported) {
     const barkDetail = surfaceTexture('bark', 2);
     const bark = new THREE.MeshStandardMaterial({color: 0x68513d, roughness: 1, map: barkDetail, bumpMap: barkDetail, bumpScale: .08});
     const pine = [
@@ -627,7 +719,7 @@
     const a = frames[index], b = frames[index + 1];
     ghostPosition.set(a[0], a[1], a[2]).lerp(ghostOffset.set(b[0], b[1], b[2]), blend);
     // Give the non-colliding ghost its own start lane, then merge onto its recorded line.
-    const start = DrivePhysics.stuntRoute[0], merge = Math.max(0, 1 - time / 5) ** 2;
+    const start = activeRoute()[0], merge = Math.max(0, 1 - time / 5) ** 2;
     ghostPosition.x += (start.tx * 1.5 - start.tz * 1.7) * merge;
     ghostPosition.z += (start.tz * 1.5 + start.tx * 1.7) * merge;
     ghostQuaternion.set(a[3], a[4], a[5], a[6]);
@@ -648,15 +740,21 @@
     ghost.progress = 0;
     ghost.wheelRotation = 0;
     ghost.lastLineDistance = null;
-    ghostUI.hud.hidden = selectedMap !== 'racetrack';
+    ghost.lastFinishDistance = null;
+    ghostUI.hud.hidden = !isRaceCourse();
     ghostUI.gapRow.hidden = true;
     ghostUI.time.textContent = '0:00.0';
     ghostUI.start.textContent = 'RESET TO START';
     if (message) ghostUI.status.textContent = message;
     if (ghost.trace && ghost.model) setGhostPose(0);
   }
+  function courseGhostTrace() {
+    if (selectedCourse === 'racetrack') return globalThis.DriveGhostTraces?.[ghostCar()];
+    return activeCourse()?.ghostTraces?.[ghostCar()] ||
+      globalThis.DriveCourseGhostTraces?.[selectedCourse]?.[ghostCar()] || null;
+  }
   function refreshGhostSetup() {
-    const onTrack = selectedMap === 'racetrack';
+    const onTrack = isRaceCourse();
     ghostUI.panel.hidden = !onTrack;
     ghostUI.best.textContent = personalBest.best ? formatGhostTime(personalBest.best.lapTime) + ' · ' + (carSpecs[personalBest.best.car]?.name || personalBest.best.car) : '—';
     if (!onTrack) { ghostFrame.visible = false; ghostUI.hud.hidden = true; return; }
@@ -666,8 +764,8 @@
     const useBest = ghostUI.source.value === 'best';
     ghostUI.source.disabled = !enabled;
     ghostUI.car.disabled = ghostUI.pace.disabled = !enabled || useBest;
-    const candidate = useBest ? personalBest.best : globalThis.DriveGhostTraces?.[ghostCar()];
-    const trace = enabled && candidate && candidate.routeLength === DrivePhysics.stuntRoute.length &&
+    const candidate = useBest ? personalBest.best : courseGhostTrace();
+    const trace = enabled && candidate && candidate.routeLength === activeRoute().length &&
       carSpecs[useBest ? candidate.car : ghostCar()] ? candidate : null;
     const type = useBest ? trace?.car : ghostCar();
     ghost.trace = trace;
@@ -680,7 +778,9 @@
     }
     if (!ghost.running) ghostUI.status.textContent = !enabled ? 'Timed lap ready. Drive across the line to start.'
       : useBest && !trace ? 'No best lap yet. Cross the line to record one.'
-      : !trace ? 'Loading course ghost… Cross the line to start the timer.'
+      : !trace ? selectedCourse === 'racetrack'
+        ? 'Loading course ghost… Cross the line to start the timer.'
+        : 'Course ghost unavailable here. Cross the line to start the timer.'
       : carSpecs[type].name + ' ghost · target ' + formatGhostTime(trace.lapTime / ghost.rate) + '. Cross the line to start.';
   }
   function loadGhostTraces() {
@@ -697,7 +797,7 @@
     return ghostTraceLoad;
   }
   function resetTimedLapToGrid() {
-    if (selectedMap !== 'racetrack') return;
+    if (!isRaceCourse()) return;
     resetVehicle();
     canvas.focus?.({preventScroll:true});
   }
@@ -712,16 +812,21 @@
     return low * ghost.trace.dt / ghost.rate;
   }
   function startLineDistance(position) {
-    const start = DrivePhysics.stuntRoute[0];
-    // The two painted rows sit one and two metres beyond the first route sample.
-    return (position.x - start.x) * start.tx + (position.z - start.z) * start.tz - 1.5;
+    const start = activeRoute()[0];
+    const offset = activeCourse()?.startOffset ?? (selectedCourse === 'racetrack' ? 1.5 : 0);
+    return (position.x - start.x) * start.tx + (position.z - start.z) * start.tz - offset;
   }
-  function crossedStartLine(body, previous, current) {
+  function finishLineDistance(position) {
+    const finish = activeRoute().at(-1);
+    const offset = activeCourse()?.finishOffset || 0;
+    return (position.x - finish.x) * finish.tx + (position.z - finish.z) * finish.tz - offset;
+  }
+  function crossedCourseLine(body, previous, current, gate) {
     if (previous === null || previous >= 0 || current < 0) return false;
-    const start = DrivePhysics.stuntRoute[0], pos = body.position;
-    const lateral = Math.abs(-(pos.x - start.x) * start.tz + (pos.z - start.z) * start.tx);
-    const forward = body.velocity.x * start.tx + body.velocity.z * start.tz;
-    return lateral < start.width / 2 && Math.abs(pos.y - start.y - 1) < 3 && forward > .5;
+    const pos = body.position;
+    const lateral = Math.abs(-(pos.x - gate.x) * gate.tz + (pos.z - gate.z) * gate.tx);
+    const forward = body.velocity.x * gate.tx + body.velocity.z * gate.tz;
+    return lateral < gate.width / 2 && Math.abs(pos.y - gate.y - 1) < 3 && forward > .5;
   }
   function beginTimedLap() {
     ghost.running = true;
@@ -730,6 +835,7 @@
     ghost.elapsed = 0;
     ghost.progress = 0;
     ghost.wheelRotation = 0;
+    ghost.lastFinishDistance = activeCourse()?.loop === false ? finishLineDistance(physics.body.position) : null;
     personalBest.start(selectedCar);
     personalBest.record(0, physics.body.position, physics.body.quaternion, 0);
     if (ghost.trace && ghost.model) setGhostPose(0);
@@ -746,16 +852,18 @@
     ghostUI.start.textContent = 'RESET TO START';
     ghostUI.best.textContent = personalBest.best ? formatGhostTime(personalBest.best.lapTime) + ' · ' +
       (carSpecs[personalBest.best.car]?.name || personalBest.best.car) : '—';
-    const result = improved ? saved ? 'New personal best!' : 'New best for this session.' : 'Lap complete.';
+    const result = improved ? saved ? 'New personal best!' : 'New best for this session.'
+      : activeCourse()?.loop === false ? 'Finish reached.' : 'Lap complete.';
     const comparison = ghost.trace ? ' · ' + (ghost.elapsed <= ghost.trace.lapTime / ghost.rate ? 'beat' : 'behind') +
       ' the ghost by ' + Math.abs(ghost.trace.lapTime / ghost.rate - ghost.elapsed).toFixed(1) + 's.' : '';
     ghostUI.status.textContent = formatGhostTime(ghost.elapsed) + ' · ' + result + comparison;
   }
   function updateGhostRun(delta) {
-    if (selectedMap !== 'racetrack' || !delta) return;
+    if (!isRaceCourse() || !delta) return;
     const body = physics.body;
+    const route = activeRoute(), count = route.length, loop = activeCourse()?.loop !== false;
     const lineDistance = startLineDistance(body.position);
-    const crossed = crossedStartLine(body, ghost.lastLineDistance, lineDistance);
+    const crossed = crossedCourseLine(body, ghost.lastLineDistance, lineDistance, route[0]);
     ghost.lastLineDistance = lineDistance;
     if (!ghost.running) {
       if (ghost.armed && crossed) beginTimedLap();
@@ -764,28 +872,37 @@
     ghost.elapsed += delta;
     if (ghost.trace && ghost.model) setGhostPose(Math.min(ghost.elapsed * ghost.rate, ghost.trace.duration));
     ghostUI.time.textContent = formatGhostTime(ghost.elapsed);
-    if (body.position.y < -2) {
+    const pos = body.position;
+    const finishDistance = loop ? null : finishLineDistance(pos);
+    const crossedFinish = !loop && crossedCourseLine(body, ghost.lastFinishDistance, finishDistance, route[count - 1]);
+    ghost.lastFinishDistance = finishDistance;
+    let nearest = Infinity, next = ghost.progress;
+    const advance = selectedCourse === 'racetrack' ? 12
+      : Math.max(3, Math.ceil(body.velocity.length() * delta / 2) + 2);
+    for (let index = Math.max(0, ghost.progress - 2); index <= Math.min(loop ? count : count - 1, ghost.progress + advance); index++) {
+      const point = route[loop ? index % count : index];
+      const distance = Math.hypot(point.x - pos.x, point.z - pos.z, (point.y + 1 - pos.y) * .3);
+      if (distance < nearest) { nearest = distance; next = index; }
+    }
+    const routeTolerance = selectedCourse === 'racetrack' ? 10
+      : Math.max(4, (route[Math.min(next,count-1)].width || 8) / 2 + 2);
+    if (nearest < routeTolerance && body.velocity.length() > .5)
+      ghost.progress = Math.max(ghost.progress, next);
+    const nearbyRoute = route[Math.min(ghost.progress, count - 1)];
+    if (body.position.y < (selectedCourse === 'racetrack' ? -2 : nearbyRoute.y - 8)) {
       ghost.running = false;
       ghost.armed = false;
       personalBest.cancel();
       ghostUI.status.textContent = 'Lap ended: fell off the course. Reset to start to retry.';
       return;
     }
-    const route = DrivePhysics.stuntRoute, count = route.length, pos = body.position;
-    let nearest = Infinity, next = ghost.progress;
-    for (let index = Math.max(0, ghost.progress - 2); index <= Math.min(count, ghost.progress + 12); index++) {
-      const point = route[index % count];
-      const distance = Math.hypot(point.x - pos.x, point.z - pos.z, (point.y + 1 - pos.y) * .3);
-      if (distance < nearest) { nearest = distance; next = index; }
-    }
-    if (nearest < 10) ghost.progress = Math.max(ghost.progress, next);
     personalBest.record(ghost.elapsed, body.position, body.quaternion, ghost.progress);
     if (ghost.trace) {
       const gap = ghost.elapsed - ghostTimeAtProgress(ghost.progress);
       ghostUI.gap.textContent = Math.abs(gap) < .15 ? 'EVEN' :
         Math.abs(gap).toFixed(1) + 's ' + (gap > 0 ? 'behind' : 'ahead');
     }
-    if (crossed && ghost.progress >= count - 4) {
+    if ((loop ? crossed : crossedFinish) && ghost.progress >= count - 4) {
       ghost.progress = count;
       personalBest.record(ghost.elapsed, body.position, body.quaternion, count);
       finishTimedLap();
@@ -843,9 +960,15 @@
   }
   scene.add(vehicleFrame);
   function resetVehicle() {
-    if (selectedMap === 'racetrack') cancelGhostRun();
+    if (isRaceCourse()) cancelGhostRun();
     resetOrbit();
-    const spawn = selectedMap === 'racetrack' ? samples[samples.length - 2] : samples[0];
+    const pointToPoint = isRaceCourse() && activeCourse()?.loop === false;
+    const start = pointToPoint ? activeRoute()[0] : null;
+    const back = activeCourse()?.spawnBack ?? 8;
+    const spawn = pointToPoint ? {
+      point: new THREE.Vector3(start.x - start.tx * back, start.y, start.z - start.tz * back),
+      tangent: new THREE.Vector3(start.tx, 0, start.tz)
+    } : isRaceCourse() ? samples[samples.length - 2] : samples[0];
     if (physics) physics.reset(spawn.point.x,spawn.point.z,Math.atan2(spawn.tangent.x,spawn.tangent.z));
     releaseControls();
     document.querySelectorAll('[data-key]').forEach(button => button.classList.remove('pressed'));
@@ -856,7 +979,7 @@
     if (physics) vehicle.position.y = physics.body.position.y - 1.05;
     camera.position.set(vehicle.position.x - Math.sin(motion.heading) * 9,
       vehicle.position.y + 5, displayZ(vehicle.position.z - Math.cos(motion.heading) * 9));
-    if (selectedMap === 'racetrack') {
+    if (isRaceCourse()) {
       ghost.armed = true;
       ghost.lastLineDistance = startLineDistance(physics.body.position);
       refreshGhostSetup();
@@ -907,25 +1030,71 @@
       });
     } else travel();
   }
+  function addFinishMarker() {
+    if (!isRaceCourse() || activeCourse()?.loop !== false) return;
+    const finish = activeRoute().at(-1);
+    if (!finish) return;
+    const width = Math.max(3, Math.min(24, finish.width || 8));
+    const columns = Math.max(4, Math.ceil(width / .8));
+    const tileWidth = width / columns;
+    const gate = new THREE.Group();
+    gate.name = 'course-finish-gate';
+    const offset = activeCourse()?.finishOffset || 0;
+    gate.position.set(finish.x + finish.tx * offset, finish.y, finish.z + finish.tz * offset);
+    gate.rotation.y = Math.atan2(finish.tx, finish.tz);
+    const light = new THREE.MeshBasicMaterial({color: 0xf5f5ed, side: THREE.DoubleSide});
+    const dark = new THREE.MeshBasicMaterial({color: 0x16212c, side: THREE.DoubleSide});
+    for (let row = 0; row < 2; row++) for (let col = 0; col < columns; col++) {
+      const tile = new THREE.Mesh(new THREE.PlaneGeometry(tileWidth, .65), (row + col) % 2 ? dark : light);
+      tile.rotation.x = -Math.PI / 2;
+      tile.position.set((col + .5 - columns / 2) * tileWidth, .08, (row - .5) * .65);
+      gate.add(tile);
+    }
+    const postMaterial = new THREE.MeshStandardMaterial({color: 0xffd35a, roughness: .55});
+    for (const side of [-1, 1]) {
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(.12, .12, 3.2, 8), postMaterial);
+      post.position.set(side * (width / 2 + .25), 1.6, 0);
+      gate.add(post);
+    }
+    for (let col = 0; col < columns; col++) {
+      const block = new THREE.Mesh(new THREE.BoxGeometry(tileWidth, .3, .3), col % 2 ? dark : light);
+      block.position.set((col + .5 - columns / 2) * tileWidth, 3.2, 0);
+      gate.add(block);
+    }
+    world.add(gate);
+  }
   function chooseMap(type) {
     if (!maps[type]) return;
     cancelGhostRun();
     selectedMap = type;
-    document.body?.classList?.toggle('racetrack-mode', type === 'racetrack');
+    document.body?.classList?.toggle('racetrack-mode', isRaceCourse());
+    coursePicker.hidden = !isRaceCourse();
+    courseSelect.value = selectedCourse;
     buildWorld();
+    addFinishMarker();
     document.querySelector('.garage').style.display = '';
     resetVehicle();
-    document.querySelector('#mapDescription').textContent = maps[type].caption;
+    document.querySelector('#mapDescription').textContent = isRaceCourse()
+      ? activeCourse()?.caption || raceCourses[selectedCourse].caption : maps[type].caption;
     document.querySelector('#resetButton').textContent = '↺ BACK TO ROAD';
     chooseCar(selectedCar);
     document.querySelector('#mapSelect').value = type;
     refreshGhostSetup();
-    if (type === 'racetrack') loadGhostTraces().then(traces => {
-      if (selectedMap !== 'racetrack') return;
+    if (isRaceCourse() && selectedCourse === 'racetrack') loadGhostTraces().then(traces => {
+      if (!isRaceCourse() || selectedCourse !== 'racetrack') return;
       refreshGhostSetup();
       if (!traces && ghostUI.enabled.checked && ghostUI.source.value === 'course')
         ghostUI.status.textContent = 'Course ghost unavailable. Timed laps still work.';
     });
+  }
+  function chooseCourse(courseId) {
+    if (!raceCourses[courseId]) return;
+    if (courseId !== selectedCourse) {
+      cancelGhostRun();
+      selectedCourse = courseId;
+      personalBest = bestForCourse(courseId);
+    }
+    chooseMap('racetrack');
   }
   chooseMap('city');
 
@@ -937,6 +1106,7 @@
       const previous=physics.body;
       selectedCar=type;
       buildWorld();
+      addFinishMarker();
       // Keep location and orientation, but stop safely when swapping vehicle mass/size.
       physics.body.position.copy(previous.position);
       physics.body.position.y+=.2;
@@ -956,7 +1126,7 @@
     });
     document.querySelector('#topSpeedValue').textContent = Math.round(carSpecs[type].maxSpeed * 2.236936) + ' mph target top speed'
       + (carSpecs[type].powerPS ? ' · ' + carSpecs[type].powerPS.toLocaleString('en-US') + ' PS' : '');
-    if (changed && selectedMap === 'racetrack') {
+    if (changed && isRaceCourse()) {
       ghost.armed = true;
       ghost.lastLineDistance = startLineDistance(physics.body.position);
       refreshGhostSetup();
@@ -1012,10 +1182,15 @@
     event.target.blur();
     canvas.focus?.({preventScroll:true});
   });
+  courseSelect.addEventListener('change', event => {
+    chooseCourse(event.target.value);
+    event.target.blur();
+    canvas.focus?.({preventScroll:true});
+  });
   document.querySelector('#resetButton').addEventListener('click', event => { resetVehicle(); returnToDrivingAfterPointer(event); });
   function commitGhostSetting(event) {
     cancelGhostRun();
-    if (selectedMap === 'racetrack') {
+    if (isRaceCourse()) {
       ghost.armed = true;
       ghost.lastLineDistance = startLineDistance(physics.body.position);
     }
@@ -1134,9 +1309,14 @@
       else model.rearLamp.color.setHex(braking?0xff8090:0xff354e);
       document.querySelector('#speedValue').textContent=String(Math.round(physics.body.velocity.length()*2.236936));
       const up=new THREE.Vector3(0,1,0).applyQuaternion(vehicle.quaternion);
-      document.querySelector('#surfaceValue').textContent=selectedMap==='racetrack'&&physics.body.position.y<-2?'Fell off course · Press R / Reset':up.y<.1?'Overturned? Press F / flip in place':state.grounded?state.grounded+' wheels grounded':'AIRBORNE · ↑↓ pitch / ←→ roll';
+      const courseFallHeight = isRaceCourse()
+        ? selectedCourse === 'racetrack' ? -2 : activeRoute()[0].y - 8 : -Infinity;
+      document.querySelector('#surfaceValue').textContent=isRaceCourse()&&physics.body.position.y<courseFallHeight
+        ?'Fell off course · Press R / Reset':up.y<.1?'Overturned? Press F / flip in place'
+        :state.grounded?state.grounded+' wheels grounded':'AIRBORNE · ↑↓ pitch / ←→ roll';
       const fallLimit=selectedMap==='city' && city.terrain
-        ? physics.terrainHeight(physics.body.position.x,physics.body.position.z)-30 : -30;
+        ? physics.terrainHeight(physics.body.position.x,physics.body.position.z)-30
+        : isRaceCourse() && selectedCourse !== 'racetrack' ? activeRoute()[0].y - 30 : -30;
       if(physics.body.position.y < fallLimit) resetVehicle();
       return;
     }

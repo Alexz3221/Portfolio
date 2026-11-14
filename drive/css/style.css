@@ -8,6 +8,8 @@
 .route-picker{position:fixed;z-index:3;top:90px;left:clamp(18px,4vw,60px);width:230px;padding:14px;border:1px solid #ffffff3a;border-radius:9px;background:#09121bd9;backdrop-filter:blur(15px)}
 .route-picker label{display:block;margin-bottom:8px;color:#a9f2e9;font:10px ui-monospace,Consolas,monospace;letter-spacing:.12em}
 .route-picker select{width:100%;padding:8px;border:1px solid #ffffff40;border-radius:4px;background:#13252d;color:#f1f5f2;font:inherit;font-size:13px}
+.route-picker .course-picker{margin-top:10px}
+.route-picker .course-picker[hidden]{display:none}
 .route-picker p{margin:8px 0 12px;color:#a8c3c1;font-size:11px}
 .route-picker button{padding:6px 0;border:0;background:transparent;color:#d1e5e3;font-size:10px;letter-spacing:.08em}
 .route-picker select:focus-visible{outline:2px solid #a9f2e9;outline-offset:3px}
@@ -124,3 +126,6 @@ html,body{height:100dvh}
 @media(min-width:751px) and (min-height:601px){.racetrack-mode .garage{left:auto;right:max(clamp(18px,4vw,60px),env(safe-area-inset-right))}.racetrack-mode .ghost-panel{max-height:calc(100dvh - 290px)}}
 @media(max-width:750px){.ghost-panel{top:230px;left:max(18px,env(safe-area-inset-left));width:min(185px,calc(100vw - 160px));max-height:calc(100dvh - 360px);padding:10px}.ghost-panel h2{font-size:10px}.ghost-toggle{margin-bottom:9px}.ghost-fields select{min-height:36px}.ghost-panel #ghostStartButton{min-height:44px}}
 @media(max-height:600px) and (orientation:landscape){.ghost-panel{top:calc(160px + env(safe-area-inset-top));left:max(14px,env(safe-area-inset-left));width:190px;max-height:calc(100dvh - 235px);padding:8px}.ghost-panel h2{margin-bottom:7px}.ghost-toggle{margin-bottom:6px}.ghost-panel #ghostStatus{margin-top:6px}.ghost-hud{margin-top:5px;padding-top:5px}}
+.racetrack-mode .ghost-panel{top:315px;max-height:calc(100dvh - 335px)}
+@media(max-width:750px){.racetrack-mode .ghost-panel{top:270px;max-height:calc(100dvh - 290px)}}
+@media(max-height:600px) and (orientation:landscape){.racetrack-mode .ghost-panel{top:calc(54px + env(safe-area-inset-top));left:calc(max(14px,env(safe-area-inset-left)) + 205px);max-height:calc(100dvh - 70px - env(safe-area-inset-top))}}
