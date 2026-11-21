@@ -5,6 +5,8 @@ const vm = require('node:vm');
 const THREE = require('three');
 
 function harness() {
+  // Ghost replay tests reuse this harness and supply their own parameters.
+  const authoredCity = arguments[0]?.authoredCity === true;
   class Element {
     constructor(dataset = {}) { this.style = {}; this.dataset = dataset; this.listeners = {}; this.classes = new Set(); this.attributes = {}; this.textContent = ''; this.value = ''; this.classList = {add: x => this.classes.add(x), remove: x => this.classes.delete(x), toggle: (x, on) => on ? this.classes.add(x) : this.classes.delete(x)}; }
     addEventListener(name, fn) { this.listeners[name] = fn; }
@@ -22,7 +24,10 @@ function harness() {
   };
   const window = {THREE, devicePixelRatio: 1, innerWidth: 1280, innerHeight: 800, addEventListener: (name, fn) => { window[name] = fn; }};
   const fakeThree = {...THREE, WebGLRenderer: class {constructor(){this.shadowMap={};} setPixelRatio(){} setSize(){} render(){} }};
-  const context = vm.createContext({window, document, THREE: fakeThree, DrivePhysics: require('../js/physics.js'), requestAnimationFrame() {}, console});
+  const context = vm.createContext({
+    window, document, THREE: fakeThree, DrivePhysics: require('../js/physics.js'), requestAnimationFrame() {}, console,
+    ...(authoredCity && {DrivePortfolioCity: require('../js/portfolio-city.js')})
+  });
   const source = fs.readFileSync(require.resolve('../js/main.js'), 'utf8');
   vm.runInContext(source.replace(/\}\)\(\);\s*$/, 'globalThis.sim = {maps, physics: () => physics, samples: () => samples, world, vehicle, motion, carSpecs, carModels, keys, chooseMap, chooseCar, resetVehicle, updateVehicle, distanceToRoad, camera, updateCamera, setCameraMode, renderer, sky, orbit, canvas};})();'), context);
   return {sim: context.sim, document, window, cars, controls};
@@ -69,6 +74,47 @@ test('hood look stays anchored to car and returns to forward view', () => {
   sim.canvas.listeners.pointerup({pointerId:1});
   for(let i=0;i<100;i++) sim.updateCamera(.1);
   assert.ok(sim.camera.quaternion.angleTo(rotation)<.001);
+});
+
+test('Portfolio City supports a high upward drag in every camera mode with the usual recentering', () => {
+  const {sim} = harness({authoredCity:true});
+  const settle = frames => { for (let i=0; i<frames; i++) sim.updateCamera(.1); };
+  const forward = new THREE.Vector3();
+  const elevation = () => Math.asin(sim.camera.getWorldDirection(forward).y)*180/Math.PI;
+
+  for (const [mode,pointerType] of [['chase','mouse'],['wide','touch'],['hood','touch']]) {
+    const send = (name,y) => sim.canvas.listeners[name]({
+      pointerType,pointerId:7,button:0,clientX:400,clientY:y,preventDefault(){}
+    });
+    settle(28);
+    const baseline = elevation();
+    send('pointerdown',400);
+    send('pointermove',320);
+    settle(15);
+    const usual = elevation();
+    send('pointermove',318);
+    settle(2);
+    assert.ok(Math.abs(elevation()-usual)<2,mode+' smoothly enters sky look');
+    send('pointermove',35);
+    settle(42);
+    assert.ok(elevation()>75 && elevation()<80,mode+' can see directly above the rooftops');
+    send('pointerup',35);
+    settle(39);
+    assert.ok(elevation()>75,mode+' holds the view for four idle seconds');
+    settle(2);
+    assert.ok(elevation()>baseline && elevation()<75,mode+' recenters gradually');
+    settle(48);
+    assert.ok(Math.abs(elevation()-baseline)<.02,mode+' returns to the ordinary view');
+    sim.setCameraMode();
+  }
+
+  sim.chooseMap('mountain');
+  const send = (name,y) => sim.canvas.listeners[name]({
+    pointerType:'mouse',pointerId:7,button:0,clientX:400,clientY:y,preventDefault(){}
+  });
+  send('pointerdown',400);
+  send('pointermove',35);
+  assert.equal(sim.orbit.pitch,-.4,'other maps keep the original upward range');
 });
 
 test('map textures dispose when changing routes', () => {

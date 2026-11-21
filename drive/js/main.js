@@ -120,6 +120,7 @@
   let ghostTraceLoad = null;
   let cameraMode = 0;
   const orbit = {yaw: 0, pitch: 0, idle: 4, pointer: null, x: 0, y: 0};
+  const citySkyLook = {start:.4, limit:1.55, elevation:77 * Math.PI / 180};
   function resetOrbit() { orbit.yaw = 0; orbit.pitch = 0; orbit.idle = 4; orbit.pointer = null; }
   const cameraModes = ['CHASE', 'WIDE', 'HOOD'];
 
@@ -1445,7 +1446,8 @@
     event.preventDefault();
     orbit.yaw -= (event.clientX - orbit.x) * .006;
     orbit.yaw = Math.atan2(Math.sin(orbit.yaw), Math.cos(orbit.yaw));
-    orbit.pitch = THREE.MathUtils.clamp(orbit.pitch + (event.clientY - orbit.y) * .005, -.4, .8);
+    const upwardLimit = isPortfolioCity() ? -citySkyLook.limit : -.4;
+    orbit.pitch = THREE.MathUtils.clamp(orbit.pitch + (event.clientY - orbit.y) * .005, upwardLimit, .8);
     orbit.x = event.clientX; orbit.y = event.clientY; orbit.idle = 0;
   });
   const endOrbit = event => { if (orbit.pointer === event.pointerId) { orbit.pointer = null; orbit.idle = 0; } };
@@ -1517,13 +1519,13 @@
       orbit.yaw *= decay; orbit.pitch *= decay;
     }
     const lookHeading = motion.heading + orbit.yaw;
+    const authoredCity = isPortfolioCity();
     if (cameraMode === 2) {
       const hoodOffset = carSpecs[selectedCar].length * .4;
       const eyeHeight = selectedCar === 'comet' || selectedCar === 'hypercar' || selectedCar === 'u9xtreme' ? 1.9 : 2.3;
       desired.set(0,eyeHeight,hoodOffset).applyQuaternion(vehicle.quaternion).add(vehicle.position);
       target.set(Math.sin(orbit.yaw)*22,eyeHeight-Math.sin(orbit.pitch)*22,Math.cos(orbit.yaw)*22).applyQuaternion(vehicle.quaternion).add(vehicle.position);
     } else {
-      const authoredCity = isPortfolioCity();
       const narrowCityView = authoredCity && camera.aspect < .85;
       const distance = cameraMode === 1 ? 16 : narrowCityView ? 11.6 : authoredCity ? 9.7 : 7.8;
       const height = cameraMode === 1 ? 8 : 4.3;
@@ -1540,11 +1542,25 @@
     else camera.position.lerp(desired, 1 - Math.exp(-5 * delta));
     if (physics) camera.position.y=Math.max(camera.position.y,
       physics.terrainHeight(camera.position.x,displayZ(camera.position.z))+1.5);
-    if (cameraMode !== 2 && isPortfolioCity() && city.constrainCamera) {
+    if (cameraMode !== 2 && authoredCity && city.constrainCamera) {
       cameraAnchor.copy(vehicle.position);
       cameraAnchor.y += 1.35;
       const clearance = city.constrainCamera(cameraAnchor, camera.position);
       if (clearance < 1) camera.position.lerpVectors(cameraAnchor, camera.position, clearance);
+    }
+    // Keep the normal orbit through the old drag range. A longer upward drag
+    // lifts the aim from the actual eye position without lowering the camera.
+    if (authoredCity && orbit.pitch < -citySkyLook.start) {
+      let horizontal = Math.hypot(target.x - camera.position.x, target.z - camera.position.z);
+      if (horizontal < .001) {
+        horizontal = 1;
+        target.x = camera.position.x + Math.sin(lookHeading);
+        target.z = camera.position.z + Math.cos(lookHeading);
+      }
+      const baseElevation = Math.atan2(target.y - camera.position.y, horizontal);
+      const lift = THREE.MathUtils.smoothstep(-orbit.pitch, citySkyLook.start, citySkyLook.limit);
+      const elevation = THREE.MathUtils.lerp(baseElevation, Math.max(baseElevation, citySkyLook.elevation), lift);
+      target.y = camera.position.y + Math.tan(elevation) * horizontal;
     }
     camera.lookAt(target);
     // Keep the enclosing sky centered on the camera and within its far plane.

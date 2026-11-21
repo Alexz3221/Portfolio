@@ -21,6 +21,7 @@ test('corporate projections face both ways, stay in place and release their reso
       assert.ok(face?.material.depthTest);
       assert.equal(face.material.depthWrite,false);
       assert.equal(face.material.side,THREE.DoubleSide);
+      assert.equal(face.material.uniforms.sky.value,0);
       const center=face.getWorldPosition(new THREE.Vector3());
       const facing=new THREE.Vector3(0,0,1).transformDirection(face.matrixWorld);
       for (const side of [-1,1]) {
@@ -75,4 +76,52 @@ test('airborne displays share the campaign renderer and retain a deliberate art 
   assert.equal(parked.material.uniforms.motion.value,0);
   assert.equal(parked.material.uniforms.artBay.value.z,.34);
   parked.dispose();
+});
+
+test('sky campaigns reuse artwork with a denser optical pane and stable scene placement', async () => {
+  const previous=globalThis.DrivePortfolioSkyCampaignPlacements;
+  globalThis.DrivePortfolioSkyCampaignPlacements=[{
+    id:'sky-lumen',campaign:'lumen',sky:true,x:24,y:73,z:-81,width:56,height:20,heading:.38,tilt:.64
+  }];
+  try {
+    const world=new THREE.Group();
+    const display=ads.attach(THREE,world);
+    assert.deepEqual(await display.ready,[false]); // Node uses the browser-free fallback image.
+    const face=world.getObjectByName('portfolio-corporate-projection-sky-lumen');
+    const {art,sky,clock,artBay}=face.material.uniforms;
+    assert.equal(sky.value,1);
+    assert.equal(art.value.name,'portfolio-corporate-art-lumen');
+    assert.equal(artBay.value.z,.44);
+    assert.equal(face.material.side,THREE.DoubleSide);
+    assert.equal(face.material.depthWrite,false);
+    assert.equal(face.userData.portfolioAdId,'corporate-sky-lumen');
+    assert.equal(face.userData.portfolioSkyProjection,true);
+    assert.equal(face.userData.portfolioAdFace,true);
+    assert.equal(world.getObjectByName('portfolio-corporate-emitters'),undefined);
+    world.updateMatrixWorld(true);
+    const normal=new THREE.Vector3(0,0,1).transformDirection(face.matrixWorld);
+    const expected=new THREE.Vector3(0,-Math.sin(.64),Math.cos(.64)).applyAxisAngle(new THREE.Vector3(0,1,0),.38);
+    assert.ok(normal.distanceTo(expected)<1e-8);
+    const center=face.getWorldPosition(new THREE.Vector3());
+    for (const side of [-1,1]) {
+      const ray=new THREE.Raycaster(center.clone().addScaledVector(normal,side*6),normal.clone().multiplyScalar(-side));
+      assert.ok(ray.intersectObject(face).length>0);
+    }
+    const matrix=face.matrixWorld.clone();
+    display.update(.5);
+    assert.equal(clock.value,.5);
+    assert.ok(face.matrixWorld.equals(matrix));
+    display.dispose();
+    assert.equal(world.children.length,0);
+
+    const parked=ads.attach(THREE,world,{reducedMotion:true});
+    parked.update(.5);
+    const fixed=world.getObjectByName('portfolio-corporate-projection-sky-lumen').material.uniforms;
+    assert.equal(fixed.clock.value,0);
+    assert.equal(fixed.motion.value,0);
+    parked.dispose();
+  } finally {
+    if (previous===undefined) delete globalThis.DrivePortfolioSkyCampaignPlacements;
+    else globalThis.DrivePortfolioSkyCampaignPlacements=previous;
+  }
 });

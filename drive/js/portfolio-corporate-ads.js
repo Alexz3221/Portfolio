@@ -8,6 +8,7 @@
   const assetBase = typeof document !== 'undefined' && document.currentScript?.src
     ? new URL('../assets/portfolio-ads/', document.currentScript.src).href
     : 'assets/portfolio-ads/';
+  const pendingArtwork=new Map();
   const campaigns = {
     farline: {brand:'FARLINE', unit:'NIGHT SHIFT TRANSIT', line:['Get your time', 'back.'], cta:'UPGRADE YOUR RIDE', color:'#83f4de', glyph:0},
     relay: {brand:'RELAY', unit:'CONSUMER CREDIT', line:['Start living', 'today.'], cta:'CHECK YOUR CREDIT', color:'#ff8ab7', glyph:1, poster:true},
@@ -168,13 +169,13 @@
     ctx.stroke();
   }
 
-  function projectionMaterial(THREE, map, clock, color, phase, layout, reducedMotion) {
+  function projectionMaterial(THREE, map, clock, color, phase, layout, reducedMotion, sky) {
     const uniforms=THREE.UniformsUtils.clone(THREE.UniformsLib.fog);
     const {w,h,artX,artY,artW,artH}=layout;
     const artBay=new THREE.Vector4(artX/w,1-(artY+artH)/h,artW/w,artH/h);
     Object.assign(uniforms,{
       art:{value:map},clock,accent:{value:color},phase:{value:phase},
-      artBay:{value:artBay},motion:{value:reducedMotion ? 0 : 1}
+      artBay:{value:artBay},motion:{value:reducedMotion ? 0 : 1},sky:{value:sky ? 1 : 0}
     });
     return new THREE.ShaderMaterial({
       uniforms, transparent:true, depthWrite:false, fog:true, side:THREE.DoubleSide,
@@ -193,7 +194,7 @@
         uniform sampler2D art;
         uniform vec3 accent;
         uniform vec4 artBay;
-        uniform float clock, phase, motion;
+        uniform float clock, phase, motion, sky;
         #include <fog_pars_fragment>
         void main() {
           vec2 p=vec2(gl_FrontFacing ? panel.x : 1.-panel.x,panel.y);
@@ -225,6 +226,15 @@
           float sparkle=(.019+.034*sweep*photoMask)*smoothstep(.025,.28,outputLight);
           vec3 color=ink*stripes*1.06+accent*(.013+sparkle+.26*margin);
           float alpha=.11+artwork.a*mix(.46,.88,smoothstep(.018,.44,outputLight));
+          if (sky>.5) {
+            // A denser optical field keeps the large artwork readable against the sky.
+            float paint=smoothstep(-fwidth(inside),.006,inside);
+            float lettering=smoothstep(.018,.32,outputLight);
+            vec3 field=vec3(.015,.021,.031)+accent*(.028+.050*(1.-p.y));
+            float corner=(1.-smoothstep(.090,.123,max(min(p.x,1.-p.x),min(p.y,1.-p.y))))*margin;
+            color=mix(field*stripes,color,max(paint,lettering))+accent*(.32*margin+.66*corner);
+            alpha=mix(.88,.97,max(paint,lettering));
+          }
           gl_FragColor=vec4(color,envelope*max(alpha,.56*margin));
           #include <encodings_fragment>
           #include <fog_fragment>
@@ -243,11 +253,24 @@
     return glass;
   }
 
-  function createCampaignDisplay(THREE,id,{displayAspect=2.6,clock,artShare,airborne=false,compact=false,reducedMotion=false}={}) {
+  function loadArtwork(THREE,id) {
+    if (!pendingArtwork.has(id)) {
+      const loaded=new Promise(resolve=>{
+        new THREE.ImageLoader().load(assetBase+id+'.webp?v=2',resolve,undefined,()=>resolve(null));
+      }).then(image=>{
+        pendingArtwork.delete(id);
+        return image;
+      });
+      pendingArtwork.set(id,loaded);
+    }
+    return pendingArtwork.get(id);
+  }
+
+  function createCampaignDisplay(THREE,id,{displayAspect=2.6,clock,artShare,airborne=false,sky=false,compact=false,reducedMotion=false}={}) {
     const campaign=campaigns[id];
     if (!campaign) return null;
     const time=clock || {value:0};
-    const layout=artworkLayout(displayAspect,campaign,artShare,airborne);
+    const layout=artworkLayout(displayAspect,campaign,artShare ?? (sky ? .44 : undefined),airborne || sky);
     const color=new THREE.Color(campaign.color).convertSRGBToLinear();
     const canvas=typeof document==='undefined' ? null : document.createElement('canvas');
     if (canvas) {
@@ -264,16 +287,13 @@
     map.needsUpdate=true;
 
     let disposed=false;
-    const ready=canvas ? new Promise(resolve=>{
-      new THREE.ImageLoader().load(assetBase+id+'.webp?v=2',image=>{
-        if (!disposed) {
-          printArtwork(canvas,campaign,layout,image);
-          map.needsUpdate=true;
-        }
-        resolve(!disposed);
-      },undefined,()=>resolve(false));
+    const ready=canvas ? loadArtwork(THREE,id).then(image=>{
+      if (!image || disposed) return false;
+      printArtwork(canvas,campaign,layout,image);
+      map.needsUpdate=true;
+      return true;
     }) : Promise.resolve(false);
-    const material=projectionMaterial(THREE,map,time,color,campaign.glyph*.113,layout,reducedMotion);
+    const material=projectionMaterial(THREE,map,time,color,campaign.glyph*.113,layout,reducedMotion,sky);
 
     return {
       material,ready,
@@ -290,7 +310,10 @@
   }
 
   function attach(THREE,world,{reducedMotion=false}={}) {
-    const placements=globalThis.DrivePortfolioCorporateAdPlacements || [];
+    const placements=[
+      ...(globalThis.DrivePortfolioCorporateAdPlacements || []),
+      ...(globalThis.DrivePortfolioSkyCampaignPlacements || [])
+    ];
     const group=new THREE.Group();
     group.name='portfolio-corporate-ads';
     const clock={value:0};
@@ -306,9 +329,9 @@
       list.push({matrix:pose.matrix.clone().premultiply(reference.matrix),color});
     }
 
-    for (const {id,x,y,z,width,height,heading,mount,artShare} of placements) {
-      const campaignDisplay=createCampaignDisplay(THREE,id,{
-        displayAspect:width/height,clock,artShare,compact:Math.max(width,height)<=10,reducedMotion
+    for (const {id,campaign=id,x,y,z,width,height,heading,tilt=0,mount,artShare,sky=false} of placements) {
+      const campaignDisplay=createCampaignDisplay(THREE,campaign,{
+        displayAspect:width/height,clock,artShare,sky,compact:!sky && Math.max(width,height)<=10,reducedMotion
       });
       if (!campaignDisplay) continue;
       displays.push(campaignDisplay);
@@ -316,7 +339,7 @@
       const structure=new THREE.Group();
       structure.name='portfolio-corporate-ad-'+id;
       structure.position.set(x,y,z);
-      structure.rotation.y=heading;
+      structure.rotation.set(sky ? tilt : 0,heading,0,'YXZ');
       structure.updateMatrix();
       group.add(structure);
 
@@ -325,6 +348,10 @@
       display.userData.portfolioAdFace=true;
       display.userData.portfolioAdId='corporate-'+id;
       structure.add(display);
+      if (sky) {
+        display.userData.portfolioSkyProjection=true;
+        continue;
+      }
 
       const borderX=width*.5+.13, borderY=height*.5+.13;
       const edgeWidth=Math.min(.92,width*.12), edgeHeight=Math.min(1.4,height*.10);
