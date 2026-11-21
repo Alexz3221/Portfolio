@@ -194,11 +194,12 @@
 
     function frontage(x,z,yaw) {
       const cosine = Math.cos(yaw), sine = Math.sin(yaw);
+      const elevation = globalThis.DrivePortfolioArrivalSidewalks?.surfaceHeight(x,z) || 0;
       yawRotation.setFromAxisAngle(upward,yaw);
       function batch(kind,material,lx,y,lz,w,h,d,color,rotation=0,tilt=0) {
         const key = kind+'-'+material;
         if (!batches.has(key)) batches.set(key, {kind,material,parts:[]});
-        transform.position.set(x+lx*cosine+lz*sine,y,z-lx*sine+lz*cosine);
+        transform.position.set(x+lx*cosine+lz*sine,elevation+y,z-lx*sine+lz*cosine);
         transform.scale.set(w,h,d);
         transform.rotation.set(tilt,rotation,0);
         transform.quaternion.premultiply(yawRotation);
@@ -218,7 +219,7 @@
         line.set((bx-ax)*cosine+(bz-az)*sine,by-ay,-(bx-ax)*sine+(bz-az)*cosine);
         const length = line.length();
         localRotation.setFromUnitVectors(upward,line.normalize());
-        midpoint.set(x+(ax+bx)*.5*cosine+(az+bz)*.5*sine,(ay+by)*.5,z-(ax+bx)*.5*sine+(az+bz)*.5*cosine);
+        midpoint.set(x+(ax+bx)*.5*cosine+(az+bz)*.5*sine,elevation+(ay+by)*.5,z-(ax+bx)*.5*sine+(az+bz)*.5*cosine);
         transform.position.copy(midpoint);
         transform.quaternion.copy(localRotation);
         transform.scale.set(radius*2,length,radius*2);
@@ -231,7 +232,7 @@
         for (const [du,dv] of [[0,0],[1,0],[1,1],[0,0],[1,1],[0,1]]) {
           const a = (du-.5)*w;
           const xx = lx+(perpendicular ? 0 : a), zz = lz-perpendicular*a;
-          text.xyz.push(x+xx*cosine+zz*sine,y+(dv-.5)*h,z-xx*sine+zz*cosine);
+          text.xyz.push(x+xx*cosine+zz*sine,elevation+y+(dv-.5)*h,z-xx*sine+zz*cosine);
           text.uv.push(du ? u1:u0,dv ? v1:v0);
         }
       }

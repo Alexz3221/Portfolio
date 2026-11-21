@@ -131,7 +131,9 @@
     }));
   }
 
+  let studioLightMap;
   function studioReflection(THREE) {
+    if (studioLightMap) return studioLightMap;
     const width = 128, height = 64, pixels = new Uint8Array(width * height * 4);
     for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
       const u = x / width, v = y / height, n = (y * width + x) * 4;
@@ -148,6 +150,7 @@
     texture.mapping = THREE.EquirectangularReflectionMapping;
     texture.encoding = THREE.sRGBEncoding;
     texture.needsUpdate = true;
+    studioLightMap = texture;
     return texture;
   }
 
@@ -318,5 +321,5 @@
     return {group, wheels, brakeMaterials, load};
   }
 
-  return {create};
+  return {create,studioReflection};
 });

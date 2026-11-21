@@ -37,3 +37,19 @@ The built-in ImageGen tool created these three wall finishes. They were encoded 
 ### `cast-stone.webp`
 
 > Use case: photorealistic-natural. Asset type: seamless square albedo texture for precision cast stone and pale warm concrete upper floors of a futuristic campus. A flat orthographic close scan of wide, smooth, light warm-gray architectural precast cladding panels with narrow shallow horizontal and vertical panel seams, softly pitted limestone aggregate, tiny chips near joints, a few pale streaks and restrained everyday patina. Four to six panels believable at around 4 meters scale; slightly varied values, soft oyster and stone tones, avoid pure white. Readable diffuse physical texture from a street camera with no harsh contrast. Tile top to bottom and left to right. Whole frame is the material. No actual window, perspective, vignette, light source, ambient shadows, strong baked specular, props, logo, text or border.
+
+## Arrival street finishes
+
+The built-in ImageGen tool created these enamel, bronze, and paving maps. All three are encoded at 768 × 768 for the game.
+
+### `blue-enamel.webp`
+
+> Use case: photorealistic-natural. Asset type: square tileable architectural cladding albedo for the lower and middle elevations of an original futuristic urban building. Direct orthographic flat scan of deep ocean-blue and muted petroleum blue vitreous enamel on metal, realistic fine orange peel and restrained chalked wear, a small number of tiny repaired chips and cloudy glaze variation in patches. Subtle tone variation between close values. Emphasize material finish in evenly diffuse neutral light. Area roughly 2.5m across, no distinct window, heavy repeating stripes, geometric design, long repeated seams, props, perspective, shadow, reflections, lighting gradients or text. Make all edges tile smoothly. Full bleed image.
+
+### `brushed-bronze.webp`
+
+> Use case: photorealistic-natural. Asset type: square repeating architectural metal albedo, for physically modeled window surrounds and spandrels on a near-future urban tower. Straight orthographic macro-ish scan of warm muted bronze brushed vertically, fine linear texture, subtle finger-length oxidation streaks and richer red-brown stained recesses, restrained uneven weathered patina. Approximately 2m across at 1:1. Balanced dark umber and desaturated real architectural champagne bronze. Broad surface detail and fine brushed grain read well together. Avoid any baked metallic glare, harsh shadows, window patterns, seams, distinct objects, vignettes, labels, or typography. Uniform soft diffuse light, seams aligned on the image edges for repeating use.
+
+### `../portfolio/arrival-sidewalk.webp`
+
+> Use case: photorealistic-natural. Asset type: seamless fine-detail paving albedo for close-up street sidewalks in a near-future browser game. Square edge-to-edge orthographic material scan, charcoal and gray worn rectified volcanic concrete with very fine visible stone aggregate, a few restrained gum scuffs and faint dark rain tide marks, subtle smooth areas from foot traffic. Aim for around 1.8 meters edge to edge. Gray-neutral slightly cool, gentle contrast, no strong repetition motif. Leave paving joints to the game's geometry, so use one uninterrupted surface. Flat and evenly exposed with no directional lighting, cast shadows, specular highlights, borders, perspective, plants, objects, gridded pavement seams, text or watermark. Tile opposite edges.

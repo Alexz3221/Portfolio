@@ -4,7 +4,45 @@
   const files = {comet:'passenger/comet.glb',rally:'garage/rally.glb',pickup:'garage/pickup.glb',hypercar:'garage/delorean.glb'};
   const credits = {comet:'Comrade1280 · CC BY 4.0',rally:'tevy · CC0',pickup:'Quaternius · CC0',hypercar:'JandroS · CC BY 4.0'};
   const wheelNames = ['wheel-back-right','wheel-front-right','wheel-back-left','wheel-front-left'];
-  function prepare(source, spec) {
+  function garageFinish(material, type) {
+    const key = material.name;
+    const reflective = (type==='rally' && /^(paint_body|livery_blue|rim_machined|mirror_glass|chrome)/.test(key))
+      || (type==='pickup' && key==='Atlas');
+    if (reflective) {
+      const lighting = root.DrivePortfolioCar?.studioReflection?.(THREE);
+      if (lighting) {
+        material.envMap = lighting;
+        material.envMapIntensity = type==='rally' ? .86 : .66;
+      }
+      material.metalness = key==='Atlas' ? .31 : .44;
+      material.roughness = key==='Atlas' ? .51 : .28;
+      material.needsUpdate = true;
+    }
+    if (type==='rally' && key==='paint_body') material.color.setHex(0xc2d8eb).convertSRGBToLinear();
+    if (type==='rally' && key.startsWith('livery_blue')) material.color.setHex(0x087baa).convertSRGBToLinear();
+    if (type==='rally' && /^light_front/.test(key)) {
+      material.emissive.setHex(0xb5edff).convertSRGBToLinear();
+      material.emissiveIntensity = .63;
+    }
+    if (type==='pickup' && key==='Atlas') {
+      material.onBeforeCompile = shader => {
+        const atlas = THREE.ShaderChunk.map_fragment.replace('diffuseColor *= texelColor;', `
+          // Pick out the blue body enamel without replacing the yellow cage,
+          // safety stripes, trim or shading in the original palette.
+          float enamel = smoothstep(.025,.094,texelColor.b-texelColor.r)
+            * smoothstep(.075,.20,texelColor.g);
+          float value = dot(texelColor.rgb, vec3(.2126,.7152,.0722));
+          texelColor.rgb = mix(texelColor.rgb,vec3(1.16,.58,1.72)*value,enamel*.91);
+          diffuseColor *= texelColor;`);
+        shader.fragmentShader = shader.fragmentShader.replace('#include <map_fragment>',atlas);
+      };
+    }
+    if (type==='pickup' && key==='Headlights') {
+      material.emissive.setHex(0xffbf78).convertSRGBToLinear();
+      material.emissiveIntensity = .78;
+    }
+  }
+  function prepare(source, spec, type) {
     source.updateMatrixWorld(true);
     const wheelNodes=wheelNames.map(name=>{
       const node=source.getObjectByName(name);
@@ -34,6 +72,7 @@
     materials.forEach(material=>{
       // Keep the source's body, glass, wheel and optics textures/materials.
       for(const texture of Object.values(material)) if(texture?.isTexture) texture.anisotropy=4;
+      garageFinish(material,type);
     });
     const wheels=wheelNodes.map((node,i)=>{
       const wheel=new THREE.Group();
@@ -63,8 +102,9 @@
   }
   function load(type,spec,success,failure) {
     if(!THREE.GLTFLoader){failure(new Error('Vehicle loader unavailable'));return;}
-    new THREE.GLTFLoader().load('assets/vehicles/'+files[type],gltf=>{
-      try{success(prepare(gltf.scene,spec));}catch(error){failure(error);}
+    const revision = type==='hypercar' ? '?v=2' : '';
+    new THREE.GLTFLoader().load('assets/vehicles/'+files[type]+revision,gltf=>{
+      try{success(prepare(gltf.scene,spec,type));}catch(error){failure(error);}
     },undefined,failure);
   }
   root.DriveVehicleAssets={load,prepare,files,credits};

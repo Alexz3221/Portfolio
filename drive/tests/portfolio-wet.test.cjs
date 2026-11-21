@@ -39,6 +39,8 @@ test('wet roads capture the current camera while moving and reuse the mirror whe
   road.material.onBeforeCompile(shader);
   reflection.update(camera, .016);
   assert.equal(captures.length, 1);
+  assert.equal(shader.uniforms.wetImage.value.generateMipmaps, true);
+  assert.equal(shader.uniforms.wetImage.value.minFilter, THREE.LinearMipmapLinearFilter);
   assert.ok(Math.abs(captures[0].position.y + 3.904) < 1e-6);
   assert.equal(target, null);
   assert.equal(road.visible, true);

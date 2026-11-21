@@ -33,7 +33,10 @@
     market:['terrace-brick.webp',2.7,2.05,.83,.08],
     campus:['cast-stone.webp',3.3,2.5,.71,.13],
     service:['ribbed-titanium.webp',2.45,3.4,.60,.28],
-    transfer:['ribbed-titanium.webp',2.7,3.8,.48,.34]
+    transfer:['ribbed-titanium.webp',2.7,3.8,.48,.34],
+    enamel:['blue-enamel.webp',2.6,3.15,.58,.24],
+    bronze:['brushed-bronze.webp',2.2,2.7,.49,.40],
+    concrete:['board-concrete.webp',2.85,2.55,.86,.05]
   };
 
   // Fixed districts and levels keep the reveals clear of the billboard
@@ -63,6 +66,41 @@
     {at:[130,-60,0],face:'west',floors:[4.85,7.07],cols:6,style:'service'},
     {at:[133.3,-30.4,0],face:'west',floors:[5.4,8.03,10.65],cols:4,style:'service'},
     {at:[133.3,-30.4,0],face:'north',floors:[5.4,8.03,10.65],cols:5,style:'service'}
+  ];
+
+  // Each neighbor has its own window proportions, cladding and street frontage.
+  // Fractions are measured across the wall, with a separate composition per floor.
+  const arrivalPlans = [
+    {x:-18,z:-103,kind:'utility',room:'service',skin:'transfer',depth:.64,trim:0x77706c,tint:0xa9bdc9,
+      light:0xff9a6b,rows:[
+        [5.04,1.70,[[.03,.26],[.30,.48],[.52,.72],[.78,.95]]],
+        [7.35,1.88,[[.06,.30],[.37,.56],[.61,.91]]]
+      ]},
+    {x:17,z:-103,kind:'enamel',room:'transfer',skin:'enamel',depth:.69,trim:0x568690,tint:0xc4e6f1,
+      light:0x9cf8ec,rows:[
+        [5.48,2.60,[[.04,.23],[.29,.50],[.55,.76],[.81,.96]]],
+        [7.83,.83,[[.04,.49],[.55,.96]]]
+      ]},
+    {x:-23,z:-78,kind:'apartments',room:'campus',skin:'concrete',depth:.82,trim:0x6b7975,tint:0xbfc5bb,
+      light:0xffcf98,rows:[
+        [4.99,1.78,[[.05,.28],[.34,.48],[.54,.71],[.76,.95]]],
+        [7.28,1.78,[[.05,.26],[.31,.56],[.61,.74],[.80,.95]]]
+      ]},
+    {x:20,z:-79,kind:'arcade',room:'service',skin:'bronze',depth:.75,trim:0x988377,tint:0xddc8b5,
+      light:0xffcc91,rows:[
+        [5.77,3.47,[[.03,.20],[.23,.40],[.43,.60],[.63,.81],[.84,.97]]],
+        [8.07,.68,[[.04,.36],[.43,.68],[.75,.96]]]
+      ]},
+    {x:-21,z:-52,kind:'brick',room:'market',skin:'market',depth:.75,trim:0x867064,tint:0xe8ba9e,
+      light:0xffb49a,rows:[
+        [5.02,1.69,[[.03,.19],[.23,.40],[.46,.66],[.70,.87],[.90,.98]]],
+        [7.26,1.83,[[.07,.29],[.34,.51],[.57,.73],[.78,.95]]]
+      ]},
+    {x:24,z:-52,kind:'exchange',room:'transfer',skin:'campus',depth:.67,trim:0x657f83,tint:0xccdddb,
+      light:0xaaf5ed,rows:[
+        [5.00,1.54,[[.04,.18],[.22,.42],[.49,.68],[.74,.97]]],
+        [7.35,1.86,[[.06,.32],[.38,.63],[.69,.94]]]
+      ]}
   ];
 
   function matchingBlock(buildings,[x,z,y]) {
@@ -203,11 +241,99 @@
         part('metal',x,y-h*.18,front-.032,w,.068,.098,style.trim);
     }
 
+    function addArrivalFace(building, face, plan, faceIndex) {
+      const [nx,nz,yaw] = sides[face];
+      const x = building.x + nx * building.width / 2;
+      const z = building.z + nz * building.depth / 2;
+      const facingStreet = nx === -building.side;
+      const span = (nx ? building.depth : building.width) - .65;
+      const draw = makeWall(building,face);
+      const style = {...styles[plan.room],trim:plan.trim,light:plan.light};
+      const skin = 'skin-'+plan.skin, front = plan.depth;
+      const keepClear = [];
+      for (const sign of city.adPlacements || []) {
+        const dx = sign.x-x, dz = sign.z-z;
+        const normalDistance = nx*dx+nz*dz;
+        if (Math.cos(sign.heading-yaw) < .96 || normalDistance < -.35 || normalDistance > 1.65) continue;
+        const width = sign.width+.65, height = (sign.height || sign.width*.5)+.44;
+        const u = dx*nz-dz*nx;
+        keepClear.push([u-width/2,u+width/2,sign.y-height/2,sign.y+height/2]);
+      }
+      if (facingStreet && Math.abs(x) < 10.8) for (const rib of city.entryRibs || []) {
+        const u = -(rib.z-z)*nx;
+        keepClear.push([u-.74,u+.74,0,9]);
+      }
+      const clear = (u,y,w,h) => keepClear.every(([left,right,lower,upper]) =>
+        u+w/2<left || u-w/2>right || y+h/2<lower || y-h/2>upper);
+      const emit = (kind,u,y,d,w,h,depth,color,pitch) => {
+        if (clear(u,y,w,h)) draw(kind,u,y,d,w,h,depth,color,pitch);
+      };
+      let roomCount = 0;
+      for (const [row,[y,h,ranges]] of plan.rows.entries()) {
+        // Blind side walls keep taller uninterrupted piers and group their openings.
+        const openings = facingStreet ? ranges : row % 2 ? [[.12,.38],[.58,.83]] : [[.08,.30],[.37,.68],[.74,.92]];
+        let bays = openings.map(([a,b]) => [(a-.5)*span,(b-.5)*span]);
+        for (const [left,right,lower,upper] of keepClear) {
+          if (y+h/2+.23<lower || y-h/2-.23>upper) continue;
+          bays = bays.flatMap(([start,end]) => {
+            if (end<left-.26 || start>right+.26) return [[start,end]];
+            return [[start,Math.min(end,left-.26)],[Math.max(start,right+.26),end]];
+          }).filter(([start,end])=>end-start>1.02);
+        }
+        for (const [column,[start,end]] of bays.entries()) {
+          const u = (start+end)/2, w = end-start;
+          const bottom = y-h/2, top = y+h/2;
+          const variant = (row*13+column*9+faceIndex*7+Math.round(Math.abs(building.x)))%43;
+          if (!clear(u,y,w+.40,h+.31)) continue;
+          roomCount++;
+          const jamb = plan.kind === 'utility' ? .26 : plan.kind === 'arcade' ? .21 : .16;
+          const lintelColor = plan.kind === 'brick' ? 0x7d5146 : plan.trim;
+          emit(skin,u,bottom-.14,front*.49,w+.14,.26,front,plan.tint);
+          emit(skin,u,top+.10,front*.48,w+.18,.19,front,plan.tint);
+          for (const side of [-1,1]) {
+            const edge = u+side*(w/2+jamb/2);
+            emit(skin,edge,y,front*.49,jamb,h+.27,front,plan.tint);
+            emit('metal',edge,y,front+.014,.038,h+.20,.06,plan.trim);
+          }
+          emit('metal',u,bottom-.109,front+.045,w+.18,.105,.15,lintelColor);
+          emit('paint',u,top+.208,front*.73,w+.12,.10,.27,lintelColor);
+          fitRoom(emit,u,y,w,h,front,style,plan.room,variant,(variant*7+column)%10<7);
+          if (['apartments','brick'].includes(plan.kind) && (column+row+faceIndex)%3!==2 &&
+              clear(u,bottom+.44,w+.28,1.28)) {
+            balcony(emit,u,bottom,w,front,style,variant);
+          }
+          if (plan.kind==='utility' && variant%3!==0) {
+            for (let vent=0;vent<4;vent++)
+              emit('metal',u,bottom+.23+vent*.125,front+.032,w*.83,.044,.10,0x8e7970,-.26);
+          }
+          if (plan.kind==='arcade' && row===0) {
+            emit('metal',u,top+.12,front+.09,w+.22,.16,.27,0x8e7768);
+            emit('bulbs',u,top+.018,front+.19,w*.43,.044,.04,plan.light);
+          }
+        }
+      }
+      // Large material panels fill selected express joints between openings.
+      const piers = plan.kind === 'enamel' ? [.255,.524,.784] : plan.kind === 'exchange' ? [.195,.455,.710] : [.021,.979];
+      for (const at of piers) {
+        const u=(at-.5)*span;
+        emit(skin,u,6.23,front*.25,.28,4.48,front*.53,plan.tint);
+        emit('metal',u,6.24,front*.61,.069,4.39,.11,plan.trim);
+      }
+      const capY = building.podiumHeight - .132;
+      for (const [a,b] of [[.03,.30],[.32,.64],[.66,.97]]) {
+        const u = ((a+b)/2-.5)*span, w=(b-a)*span;
+        emit(skin,u,capY,front*.30,w,.18,front*.72,plan.tint);
+        if (facingStreet && ['enamel','exchange'].includes(plan.kind))
+          emit('bulbs',u,capY-.096,front*.61,w*.8,.042,.067,plan.light);
+      }
+      return roomCount;
+    }
+
     const placements = [];
     for (const [index,spec] of fronts.entries()) {
       const {at,face,floors,cols,style:type,balconies} = spec;
       const b = matchingBlock(city.buildings,at);
-      if (!b) continue;
+      if (!b || b.arrivalPodium) continue;
       const style = styles[type];
       const width=(sides[face][0] ? b.depth : b.width)-.68;
       const front=type==='campus' ? .87 : type==='market' ? .76 : .69;
@@ -245,6 +371,15 @@
       emit('metal',0,highest+.036,front-.10,width+.20,.10,.36,style.trim);
     }
 
+    const arrival = [];
+    for (const building of city.arrivalFrontages || []) {
+      const plan = arrivalPlans.find(item => item.x===building.x && item.z===building.z);
+      if (!plan) continue;
+      for (const [index,face] of Object.keys(sides).entries()) {
+        arrival.push({building:building.id,face,kind:plan.kind,rooms:addArrivalFace(building,face,plan,index)});
+      }
+    }
+
     for (const [kind,parts] of batches) {
       const material = materials[kind] || paint;
       const mesh = new THREE.InstancedMesh(box,material,parts.length);
@@ -257,6 +392,7 @@
       root.add(mesh);
     }
     root.userData.facades=placements;
+    root.userData.arrivalFacades=arrival;
     world.add(root);
     return root;
   }

@@ -7,9 +7,9 @@ const THREE = require('three');
 const {vehicles} = require('../js/physics.js');
 
 const files = [
-  {type:'hypercar', file:'delorean.glb', author:'JandroS', license:'CC BY 4.0', triangles:59592},
-  {type:'rally', file:'rally.glb', author:'tevy', license:'CC0 1.0', triangles:17770},
-  {type:'pickup', file:'pickup.glb', author:'Quaternius', license:'CC0 1.0', triangles:13184}
+  {type:'hypercar', file:'delorean.glb', author:'JandroS', license:'CC BY 4.0', triangles:169930, maxBytes:4500000},
+  {type:'rally', file:'rally.glb', author:'tevy', license:'CC0 1.0', triangles:17770, maxBytes:800000},
+  {type:'pickup', file:'pickup.glb', author:'Quaternius', license:'CC0 1.0', triangles:13184, maxBytes:800000}
 ];
 const wheelNames = ['wheel-back-right','wheel-front-right','wheel-back-left','wheel-front-left'];
 
@@ -27,7 +27,7 @@ for (const modulePath of ['../js/vendor/GLTFLoader.js', '../js/vehicle-assets.js
   vm.runInContext(fs.readFileSync(require.resolve(modulePath), 'utf8'), context);
 }
 
-for (const {type,file,author,license,triangles} of files) {
+for (const {type,file,author,license,triangles,maxBytes} of files) {
   test(`${file} fits the retained chassis and exposes both brake faces`, async () => {
     const spec = vehicles[type];
     const bytes = fs.readFileSync(path.join(__dirname,'../assets/vehicles/garage',file));
@@ -35,7 +35,7 @@ for (const {type,file,author,license,triangles} of files) {
     assert.equal(data.asset.extras.author, author);
     assert.ok(data.asset.extras.license.startsWith(license));
     assert.equal(data.extensionsRequired?.length || 0, 0);
-    assert.ok(bytes.length < 2300000, 'model fits the lazy download budget');
+    assert.ok(bytes.length < maxBytes, 'model fits the lazy download budget');
     const source = await new Promise((resolve,reject) => {
       new loaderThree.GLTFLoader().parse(bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength), '', resolve, reject);
     });

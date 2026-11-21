@@ -18,14 +18,15 @@
     if (!wet.length) return null;
     hidden.push(...wet);
 
-    const target = new THREE.WebGLRenderTarget(1, 1, {minFilter:THREE.LinearFilter, magFilter:THREE.LinearFilter});
+    const target = new THREE.WebGLRenderTarget(1, 1, {
+      minFilter:THREE.LinearMipmapLinearFilter, magFilter:THREE.LinearFilter
+    });
     target.texture.name = 'Portfolio City pavement reflection';
-    target.texture.generateMipmaps = false;
+    target.texture.generateMipmaps = true;
     const mirror = new THREE.PerspectiveCamera();
     const projection = new THREE.Matrix4(), gaze = new THREE.Vector3(), lastSkyPosition = new THREE.Vector3();
     const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -.048), viewPlane = new THREE.Plane();
     const clip = new THREE.Vector4(), corner = new THREE.Vector4();
-    const imageSize = new THREE.Vector2(1, 1);
     const capturePosition = new THREE.Vector3(), captureRotation = new THREE.Quaternion();
     const captureProjection = new THREE.Matrix4();
     const previousPosition = new THREE.Vector3(), previousRotation = new THREE.Quaternion();
@@ -37,7 +38,7 @@
     texture.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
     let disposed = false, elapsed = Infinity, hasPreviousCamera = false;
     const uniforms = {
-      wetImage:{value:target.texture}, wetProjection:{value:projection}, wetSize:{value:imageSize},
+      wetImage:{value:target.texture}, wetProjection:{value:projection},
       wetAsphalt:{value:texture}, wetHasAsphalt:{value:0}, wetImageReady:{value:0}, wetMotion:{value:0}
     };
 
@@ -64,7 +65,6 @@
             varying vec4 wetClip;
             varying vec2 wetStreet;
             uniform sampler2D wetImage, wetAsphalt;
-            uniform vec2 wetSize;
             uniform float wetHasAsphalt, wetImageReady, wetMotion;
             float aggregate(vec2 p) { return fract(sin(dot(p,vec2(93.17,71.31)))*453.47); }
           `)
@@ -82,15 +82,12 @@
               + sin(wetStreet.y*1.29+wetStreet.x*.44)*.12);
             float viewAngle = max(0., dot(normal, normalize(vViewPosition)));
             float fresnel = pow(1. - viewAngle, 2.7);
-            vec2 smear = vec2(mix(3.9,1.1,puddle),mix(4.8,1.6,puddle))
-              * (1. + fresnel*.6 + wetMotion*1.8) / wetSize;
-            vec3 streetMirror = texture2D(wetImage, reflected).rgb * .32;
-            streetMirror += texture2D(wetImage, reflected + smear).rgb * .17;
-            streetMirror += texture2D(wetImage, reflected - smear).rgb * .17;
-            streetMirror += texture2D(wetImage, reflected + vec2(smear.x,-smear.y)).rgb * .17;
-            streetMirror += texture2D(wetImage, reflected + vec2(-smear.x,smear.y)).rgb * .17;
-            streetMirror /= 1.0 + .45 * max(streetMirror.r,max(streetMirror.g,streetMirror.b));
-            float reflectivity = (.16+.46*fresnel) * mix(.25,.94,puddle) * fade * mix(1.,.57,wetMotion)
+            // Sample averaged mip levels rather than moving individual window
+            // pixels across the pavement at grazing camera angles.
+            float roughMip = 1.75 + .90*(1.-puddle) + .62*fresnel + 1.38*wetMotion;
+            vec3 streetMirror = texture2D(wetImage, reflected, roughMip).rgb;
+            streetMirror /= 1.0 + .9 * max(streetMirror.r,max(streetMirror.g,streetMirror.b));
+            float reflectivity = (.14+.34*fresnel) * mix(.28,.88,puddle) * fade * mix(1.,.44,wetMotion)
               * smoothstep(.01,.4,wetClip.w) * wetImageReady;
             outgoingLight = outgoingLight * (1. - .34 * reflectivity) + streetMirror * reflectivity;
             gl_FragColor = vec4( outgoingLight, diffuseColor.a );
@@ -123,11 +120,14 @@
         || !captureProjection.equals(camera.projectionMatrix);
       if (uniforms.wetImageReady.value && !cameraMoved && elapsed < (compact ? .13 : .09)) return;
 
-      const width = Math.max(96, Math.round(Math.min(compact ? 300 : 472, camera.aspect * (compact ? 238 : 298))));
-      const height = Math.max(72, Math.min(compact ? 300 : 340, Math.round(width / camera.aspect)));
-      if (width !== imageSize.x || height !== imageSize.y) {
+      const portrait = camera.aspect < .8;
+      const wide = camera.aspect > 1.25;
+      // Both axes stay powers of two so the mirror's rough mip levels are
+      // available on WebGL 1 devices as well.
+      const width = portrait ? 128 : 256;
+      const height = wide || compact && !portrait ? 128 : 256;
+      if (width !== target.width || height !== target.height) {
         target.setSize(width, height);
-        imageSize.set(width, height);
       }
 
       camera.updateMatrixWorld();

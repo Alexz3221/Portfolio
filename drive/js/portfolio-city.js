@@ -122,10 +122,50 @@
 
   // The layout uses distinct districts instead of a repeating perimeter grid.
   // Low storefronts frame the streets. Tall volumes frame the Projects tower.
+  const arrivalFrontages = [
+    {id:'power-exchange',x:-18,z:-103,width:18,depth:26,style:3,side:-1},
+    {id:'glazed-sweep',x:17,z:-103,width:17,depth:26,style:6,side:1},
+    {id:'terrace-court',x:-23,z:-78,width:26,depth:19,style:4,side:-1},
+    {id:'split-lobby',x:20,z:-79,width:12.8,depth:23,style:0,side:1},
+    {id:'brick-spine',x:-21,z:-52,width:19,depth:25,style:1,side:-1},
+    {id:'exchange-canopy',x:24,z:-52,width:26,depth:30,style:6,side:1}
+  ].map(frontage=>({...frontage,podiumHeight:8.8}));
+  for (const a of arrivalFrontages) {
+    block(a.x,a.z,a.width,a.depth,a.podiumHeight,a.style,0,true).arrivalPodium=a.id;
+  }
+
+  // Ribbed structural shoulder, a hollow housing court, and two brick wings.
+  const arrivalRectangles = [
+    [-18,-103,18,26,9.1,3,8.8],[-19.25,-102.85,15.5,23.5,12.2,5,17.9],
+    [-20.3,-102.6,12.6,19.0,12.4,3,30.1],[-21.0,-103.5,8.4,13.2,3.5,5,42.5],
+    [-24.3,-78,23.4,19,4.6,2,8.8],[-25.4,-83.35,19.9,8.3,19.1,2,13.4],
+    [-23.6,-72.85,17.0,8.3,14.2,4,13.4],[-26.8,-82.85,16.5,7.1,16.5,2,32.5],
+    [-25.3,-73.2,13.1,6.7,19.2,3,27.6],[-27.8,-81.85,14.0,7.0,15.3,1,49],
+    [-31.8,-78,5.3,12.65,12.5,3,13.4],[-30.0,-77.6,6.3,7.55,3.4,4,27.95],
+    [-21.8,-52,16.15,22.7,8.7,1,8.8],[-23.1,-57.2,12.9,11.7,13.6,1,17.5],
+    [-21.8,-45.9,13.7,9.8,9.4,2,17.5],[-24.0,-57.8,10.6,9.8,13.5,1,31.1],
+    [-22.7,-45.6,11.2,7.8,8.6,1,26.9]
+  ];
+  arrivalRectangles.forEach((bounds,index)=> {
+    block(...bounds,true).arrivalStructure=index<4 ? 'power-exchange' : index<12 ? 'terrace-court' : 'brick-spine';
+  });
+
+  // The camera and vehicle share these conservative hulls for the shaped wings.
+  const arrivalColliders = [
+    [17.4,-103,17.15,25.7,12.2,6,8.8],[18.05,-102.3,15.2,21.8,16,6,21],
+    [18.6,-103.1,11.7,17.2,16.6,6,37],
+    [21.8,-84.7,16.15,10.4,13.6,4,8.8],[23.7,-85.6,16,9.4,18.4,4,22.4],
+    [25.9,-86.0,12.6,8.5,17.2,4,40.8],
+    [22.8,-74.0,16.9,10.3,16.3,0,8.8],[24.65,-73.8,16.7,10.8,19.3,0,25.1],
+    [27.35,-72.55,14.9,10.55,29.8,0,44.4],
+    [24.6,-52.1,26.7,29.0,8.6,0,8.8],[25.9,-51.8,23.6,25.2,16.1,0,17.4],
+    [26.9,-51.0,21.6,22.1,26.6,0,33.5]
+  ];
+  for (const bounds of arrivalColliders) collisionBlock(...bounds);
+  const transferPassage = {from:[-19,26.7,-80.1],to:[19,26.7,-74.5],width:4.9,height:4.05};
+  collisionBlock(0,-77.3,38.9,10.8,4.85,4,26.2);
+
   const frontages = [
-    [-18,-103,18,26,43,3,'slab'], [17,-103,17,26,51,6,'slab'],
-    [-23,-78,26,19,65,4,'steps'], [20,-79,20,23,77,0,'cantilever'],
-    [-21,-52,19,25,45,1,'podium'], [24,-52,26,30,58,6,'steps'],
     [-46,-41,17,18,18,1,'podium'], [-75,-42,21,14,25,2,'steps'],
     [-68,2,24,16,9,1,'slab'], [-85,10,14,17,19,3,'cantilever'],
     [-87,37,16,22,38,2,'steps'], [-125,28,15,20,51,2,'podium'],
@@ -192,6 +232,31 @@
 
   // Each contour is [height, X radius, Z radius, X setback, Z setback].
   // Upper shells are drawn separately from the conservative collision volumes.
+  const arrivalCurves = [
+    {id:'glazed-sweep',x:17,z:-103,style:6,power:3.75,yaw:.035,accent:0xffb8a4,ribStride:4,glass:0x7da79d,skin:0x5e5f61,
+      floors:[10,12.85,16.25,20.25,24.1,27.6,31.2,35.15,38.9,42.65,46.0],
+      contours:[[8.79,8.12,12.72],[12.65,8.13,12.52,.04,.05],[16.8,7.22,11.78,.44,.12],
+        [21,7.65,10.9,.62,.18],[32.3,7.05,10.2,.86,.33],[36,6.76,9.37,1.12,.56],
+        [45.1,5.79,8.22,1.34,.06],[51.1,4.71,6.25,1.61,-.67],[53.6,3.25,4.92,1.78,-.85]],
+      ledges:[[13.8,.47,.59],[17.3,.53,.83],[28.5,.45,.39],[36.4,.53,.84],[46.5,.49,.72]]},
+    {id:'split-lobby-south',x:21.8,z:-84.7,style:4,power:4,yaw:.06,beveled:true,accent:0xb0d8fa,ribStride:4,
+      glass:0x7791ad,skin:0x464a55,floors:[11.2,15.48,20.8,25.4,30.3,34.8,39.2,43.1,47.7,52],
+      contours:[[8.79,7.75,5.05],[12.4,7.8,4.96],[20,6.87,4.65,1.08,-.36],[25.3,7.7,4.24,2.1,-.55],
+        [36.5,7.37,4.11,3.0,-.91],[43,6.78,3.81,3.65,-1.07],[53.7,6.15,3.72,4.3,-1.34],[58,4.75,3.27,4.8,-1.5]],
+      ledges:[[14.05,.36,.34],[23.6,.61,.58],[35.7,.48,.64],[48.5,.40,.52]]},
+    {id:'split-lobby-north',x:22.7,z:-74.3,style:0,power:4,yaw:-.095,beveled:true,accent:0x82d9d1,ribStride:4,
+      glass:0x66a6a2,skin:0x434f4d,floors:[12.8,17.25,23.3,28.05,32.6,38.1,43.05,48.2,53.95,58.6,63.8,69.0],
+      contours:[[8.79,8.0,4.8],[13,8.23,4.82,.15,.08],[22,7.65,4.55,1.14,.52],[31,7.6,4.67,2.2,.64],
+        [42,7.05,4.62,3.45,.95],[51.7,6.4,4.46,4.21,1.29],[63.6,6.06,4.41,4.71,1.67],[74.2,5.1,3.22,5.4,1.87]],
+      ledges:[[10.52,.40,.56],[19.85,.59,.61],[30.5,.39,.34],[45.1,.50,.82],[63.25,.43,.6]]},
+    {id:'exchange-canopy',x:24.25,z:-52,style:0,power:2.2,yaw:.055,accent:0x84ffe3,ribStride:2,glass:0x5c928c,skin:0x405456,
+      floors:[11.4,14.7,19.0,23.15,27.6,32.1,36.8,41.8,46.1,50.7,54.3],
+      contours:[[8.79,12.45,14.18],[10.82,12.71,14.09,.18,-.14],[13.7,12.14,13.65,.32,.05],
+        [17.5,10.38,12.14,1.3,.18],[22.8,9.55,11.32,1.93,.58],[28,9.36,11.39,2.12,.83],
+        [33.4,10.35,11.59,2.42,1.11],[39.4,9.74,11.26,2.83,1.07],[47.7,8.7,10.44,2.96,1.1],
+        [54.2,7.72,9.0,3.03,1.27],[60.1,5.07,6.4,3.42,1.68]],
+      ledges:[[10.71,.76,.98],[14.1,.53,.83],[18.23,.50,.66],[30.7,.59,1.18],[39.22,.46,.56],[48.0,.39,.75]]}
+  ];
   const shapedTowers = [
     {id:'market-lantern-hall',x:-69.75,z:1.9,style:1,power:4.35,yaw:-.02,accent:0xffaa82,ribStride:4,
       contours:[[8.95,9.72,6.08],[10.35,10.56,6.48,-.2],[13.4,10.05,6.12,-.42,.06],[14.9,8.13,5.47,-.4,.6],
@@ -604,11 +669,23 @@
   }
 
   const contourSides = 32;
+  const beveledCorners = [[1,.60],[.74,1],[-.74,1],[-1,.60],[-1,-.60],[-.74,-1],[.74,-1],[1,-.60]];
 
   function contourPoint(tower, [y, radiusX, radiusZ, shiftX=0, shiftZ=0], sector) {
-    const angle=sector/contourSides*Math.PI*2;
-    const c=Math.cos(angle), s=Math.sin(angle), round=2/tower.power;
-    const px=Math.sign(c)*Math.abs(c)**round*radiusX, pz=Math.sign(s)*Math.abs(s)**round*radiusZ;
+    const t=sector/contourSides;
+    let profileX,profileZ;
+    if (tower.beveled) {
+      const corner=t*beveledCorners.length, at=Math.floor(corner), fraction=corner-at;
+      const [ax,az]=beveledCorners[at%beveledCorners.length];
+      const [bx,bz]=beveledCorners[(at+1)%beveledCorners.length];
+      profileX=ax+(bx-ax)*fraction;
+      profileZ=az+(bz-az)*fraction;
+    } else {
+      const c=Math.cos(t*Math.PI*2),s=Math.sin(t*Math.PI*2),round=2/tower.power;
+      profileX=Math.sign(c)*Math.abs(c)**round;
+      profileZ=Math.sign(s)*Math.abs(s)**round;
+    }
+    const px=profileX*radiusX,pz=profileZ*radiusZ;
     const yawCos=Math.cos(tower.yaw), yawSin=Math.sin(tower.yaw);
     return [tower.x+shiftX+px*yawCos+pz*yawSin,y,tower.z+shiftZ-px*yawSin+pz*yawCos];
   }
@@ -687,7 +764,155 @@
     return geometry;
   }
 
-  function addSculptedTowers(THREE,world,facadeMaterials,materials,instance,beam) {
+  function addCurvedGlazing(THREE,world,tower,materials,beam) {
+    const positions=[], colors=[];
+    const paneColor=new THREE.Color(tower.glass).convertSRGBToLinear();
+    const roomColor=new THREE.Color(tower.id==='glazed-sweep' ? 0xffc79a : 0x9fd8dc).convertSRGBToLinear();
+    for (const [floor,y] of tower.floors.entries()) {
+      const height=tower.id==='exchange-canopy' ? 1.24 : tower.beveled ? 1.85 : 1.39;
+      for (let sector=0;sector<contourSides;sector+=2) {
+        if ((sector/2+floor*3)%7===6) continue;
+        const lower=contourAt(tower,y-height*.5,.13),upper=contourAt(tower,y+height*.5,.13);
+        const a=contourPoint(tower,lower,sector+.13), b=contourPoint(tower,lower,sector+1.87);
+        const c=contourPoint(tower,upper,sector+.13), d=contourPoint(tower,upper,sector+1.87);
+        const occupied=(sector/2+floor*5)%6<2;
+        const tint=(occupied ? roomColor : paneColor).clone().multiplyScalar(occupied ? 1.25 : .60+(sector%6)*.083);
+        for (const point of [a,c,b,b,c,d]) {
+          positions.push(...point);
+          colors.push(tint.r,tint.g,tint.b);
+        }
+        for (const [low,high] of [[a,c],[b,d]]) beam('portfolio-arrival-window-mullions',materials.metal,low,high,.105,.13);
+        beam('portfolio-arrival-window-sills',materials.steel,a,b,.18,.096);
+        beam('portfolio-arrival-window-sills',materials.steel,c,d,.145,.077);
+        if (occupied && floor%3===1) beam('portfolio-arrival-window-interior-lights',materials.light,
+          contourPoint(tower,contourAt(tower,y+height*.33,.145),sector+.43),
+          contourPoint(tower,contourAt(tower,y+height*.33,.145),sector+1.46),.037,.056,tower.accent);
+      }
+    }
+    const geometry=new THREE.BufferGeometry();
+    geometry.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));
+    geometry.setAttribute('color',new THREE.Float32BufferAttribute(colors,3));
+    geometry.computeVertexNormals();
+    const mesh=new THREE.Mesh(geometry,new THREE.MeshStandardMaterial({vertexColors:true,roughness:.44,
+      metalness:.24,emissive:0x253641,emissiveIntensity:.38}));
+    mesh.name='portfolio-'+tower.id+'-real-glazing';
+    world.add(mesh);
+  }
+
+  function addArrivalDetails(materials,instance,beam,glass,litGlass) {
+    // Raking buttresses wrap both side returns and hold the exchange shoulder.
+    for (const z of [-114.75,-103.75,-100.1,-94.65,-91.45]) {
+      beam('portfolio-power-exchange-buttresses',materials.steel,[-8.94,8.91,z],[-9.32,16.7,z],.78,.71);
+      beam('portfolio-power-exchange-buttresses',materials.steel,[-9.32,16.7,z],[-11.04,30.18,z],.68,.54);
+      instance('portfolio-power-exchange-couplings',materials.copper,-8.90,12.32,z,.46,.77,1.14);
+      instance('portfolio-power-exchange-buttress-markers',materials.light,-8.65,12.30,z,.056,.16,.53,0,0xfeb087);
+    }
+    for (const side of [-1,1]) {
+      const z=-103+side*12.90;
+      for (const x of [-26.0,-21.9,-17.1,-12.2]) beam('portfolio-power-exchange-buttresses',materials.steel,
+        [x,9.0,z],[x-.68,26.1,z-side*1.62],.68,.47);
+      for (const y of [9.82,16.92,23.6]) instance('portfolio-power-exchange-couplings',materials.copper,-18.8,y,z,15.4,.37,.51);
+    }
+
+    // Real balcony decks partly surround the exposed west housing court.
+    for (const [x,z,y,w,d,accent] of [
+      [-13.21,-77.9,13.01,6.31,16.2,0xffb87d],[-15.91,-82.05,21.4,3.5,8.05,0xffc18e],
+      [-15.47,-73.1,25.9,3.39,7.0,0xa0d8ef],[-18.16,-82.6,32.7,4.14,8.1,0xeea47d],
+      [-13.42,-49.7,9.16,5.54,14.2,0xcde88b],[-16.24,-56.9,17.64,4.30,10.65,0xffab84],
+      [-14.88,-45.8,19.02,4.22,8.65,0xd99581],[-17.21,-45.9,27.12,4.50,9.2,0xffa884],
+      [-18.62,-57.25,31.28,5.59,11.65,0xeac89f]
+    ]) {
+      const roadX=x+w/2-.16;
+      instance('portfolio-arrival-terrace-decks',materials.steel,x,y,z,w,.39,d);
+      instance('portfolio-arrival-terrace-fascia',materials.copper,roadX,y,z,.24,.44,d+.13);
+      instance('portfolio-arrival-terrace-lights',materials.light,roadX+.14,y-.09,z,.055,.084,d*.69,0,accent);
+      instance('portfolio-arrival-terrace-fascia',materials.copper,roadX,y+1.1,z,.119,.126,d);
+      for (let rail=-d/2+.17;rail<d/2;rail+=1.7) instance('portfolio-arrival-terrace-fascia',materials.copper,
+        roadX,y+.62,z+rail,.10,1.0,.10);
+      for (const end of [-1,1]) instance('portfolio-arrival-terrace-fascia',materials.copper,x,y+1.1,z+end*d/2,w,.126,.136);
+      if (w>4.5) {
+        instance('portfolio-arrival-terrace-equipment',materials.steel,roadX-.91,y+.50,z+d*.33,.85,.59,1.68);
+        instance('portfolio-arrival-terrace-equipment',materials.steel,roadX-.74,y+.48,z-d*.31,.53,.56,.76);
+      }
+    }
+
+    for (const volume of buildings) {
+      const {arrivalStructure:id,x,z,width,depth,baseY,height} = volume;
+      if (!id || height<6.7) continue;
+      const housing=id!=='power-exchange';
+      const storyStep=housing ? 3.05 : 4.35;
+      for (let y=baseY+2.0,story=0;y<baseY+height-1.25;y+=storyStep,story++) {
+        for (const alongZ of [true,false]) for (const side of [-1,1]) {
+          const span=alongZ ? depth : width;
+          const count=Math.max(2,Math.floor(span/(housing ? 3.05 : 4.25)));
+          const spacing=span/(count+1);
+          for (let k=1;k<=count;k++) {
+            if ((k+story*3+Math.round(width)+side)%7===3) continue;
+            const along=-span/2+k*spacing;
+            const wx=x+(alongZ ? side*(width/2+.115) : along);
+            const wz=z+(alongZ ? along : side*(depth/2+.115));
+            if (id==='power-exchange' && wx>-9.4 && wz>-111.45 && wz<-104.6 && y<16.4) continue;
+            if (id==='terrace-court' && !alongZ && wz<-87.38 && y<16.25) continue;
+            const yaw=alongZ ? Math.PI/2 : 0;
+            const w=spacing*(housing ? .73 : .64),h=housing ? 1.23 : 2.23;
+            const material=(k*3+story+side)%5<1 ? litGlass : glass;
+            instance(material===glass ? 'portfolio-court-windows' : 'portfolio-court-windows-lit',material,wx,y,wz,w,h,.18,yaw);
+            instance('portfolio-court-window-reveals',materials.steel,wx,y-h*.58,wz,w+.31,.17,.44,yaw);
+            instance('portfolio-court-window-reveals',materials.steel,wx,y+h*.56,wz,w+.23,.12,.26,yaw);
+            if (housing) instance('portfolio-court-window-reveals',materials.steel,wx,y,wz,.062,h+.068,.19,yaw);
+          }
+        }
+      }
+    }
+
+    // Connect both older catwalks to their updated wall envelopes.
+    for (const [x,z,y,w] of [[-10.53,-92,17.44,2.88],[11.10,-92,17.44,3.68],[-13.34,-63,18.54,3.8],[13.89,-63,18.54,5.04]]) {
+      instance('portfolio-catwalk-landings',materials.steel,x,y,z,w,.46,2.12);
+      for (const side of [-1,1]) instance('portfolio-catwalk-landing-edges',materials.copper,x,y+.68,z+side*1.01,w,.137,.13);
+    }
+  }
+
+  function addTransferPassage(materials,instance,beam,glass) {
+    const {from,to,width,height}=transferPassage;
+    const [fx,y,fz]=from,[tx,,tz]=to;
+    const dx=tx-fx,dz=tz-fz,length=Math.hypot(dx,dz),yaw=Math.atan2(dx,dz);
+    const px=dz/length,pz=-dx/length;
+    const locate=(t,side,dy)=>[fx+dx*t+px*side,y+dy,fz+dz*t+pz*side];
+    const [x,,z]=locate(.5,0,0);
+    instance('portfolio-high-transfer-deck',materials.steel,x,y-.20,z,width,.60,length,yaw);
+    instance('portfolio-high-transfer-roof',materials.underside,x,y+height+.16,z,width+.61,.54,length,yaw);
+    for (const side of [-1,1]) {
+      const outer=side*(width/2-.09);
+      for (const rise of [.29,height-.22]) beam('portfolio-high-transfer-girder',materials.copper,
+        locate(0,outer,rise),locate(1,outer,rise),.39,.36);
+      beam('portfolio-high-transfer-girder',materials.steel,
+        locate(.012,outer*.85,-.59),locate(.986,outer*.85,-.59),.39,.56);
+      beam('portfolio-high-transfer-lighting',materials.light,
+        locate(.045,outer*1.04,.09),locate(.955,outer*1.04,.09),.079,.089,side<0 ? 0xffb36d : 0x8cffe7);
+      for (let i=0;i<10;i++) {
+        const a=(i+.08)/10,b=(i+.94)/10;
+        const [gx,gy,gz]=locate((a+b)/2,outer*.94,1.91);
+        instance('portfolio-high-transfer-glazing',glass,gx,gy,gz,.19,2.76,length*(b-a),yaw);
+        beam('portfolio-high-transfer-girder',materials.metal,locate(a,outer,.39),locate(a,outer,height-.27),.24,.34);
+        const climb=i%2===0;
+        beam('portfolio-high-transfer-girder',materials.metal,
+          locate(a,outer*1.018,climb ? .45 : height-.23),locate(b,outer*1.018,climb ? height-.23 : .45),.28,.28);
+        if (i%3!==2) beam('portfolio-high-transfer-lighting',materials.light,locate(a,outer*.91,height-.56),
+          locate(b,outer*.91,height-.56),.071,.082,0xa2ebd2);
+      }
+    }
+    for (const t of [.04,.15,.29,.45,.61,.77,.91,.98]) {
+      beam('portfolio-high-transfer-girder',materials.metal,
+        locate(t,-width/2,-.52),locate(t,width/2,-.52),.23,.29);
+    }
+    for (const t of [0,1]) {
+      const [lx,ly,lz]=locate(t,0,0);
+      instance('portfolio-high-transfer-sockets',materials.steel,lx,ly+1.98,lz,width+1.40,height+.72,2.7,yaw);
+      instance('portfolio-high-transfer-lighting',materials.light,lx,ly+height*.72,lz+2.35,.10,.105,width*1.09,0,0xffc397);
+    }
+  }
+
+  function addSculptedTowers(THREE,world,facadeMaterials,materials,instance,beam,grime) {
     const ledgeMaterial=new THREE.MeshStandardMaterial({color:0x283139,metalness:.36,roughness:.58});
     const curtainMaterials=new Map();
     function curtain(style) {
@@ -707,8 +932,10 @@
     }
 
     instance('portfolio-transfer-round-base',materials.steel,36.5,24.82,-27.5,17.5,4.64,18);
-    for (const tower of shapedTowers) {
-      shell(tower,'facade',[tower.contours],curtain(tower.style),false);
+    for (const tower of [...shapedTowers,...arrivalCurves]) {
+      const finish=tower.skin ? new THREE.MeshStandardMaterial({color:tower.skin,bumpMap:grime,bumpScale:.088,
+        roughness:.75,metalness:.13}) : curtain(tower.style);
+      shell(tower,'facade',[tower.contours],finish,false);
       const top=tower.contours.at(-1)[0];
       const racks=[...tower.ledges,[top+.17,.34,.24]];
       const plates=racks.map(([height,thickness,extend])=>[
@@ -738,6 +965,7 @@
             contourPoint(tower,lighting,i),contourPoint(tower,lighting,i+2),.085,.11,tower.accent);
         }
       }
+      if (tower.floors) addCurvedGlazing(THREE,world,tower,materials,beam);
       const [,rx,rz,xShift=0,zShift=0]=tower.contours.at(-1);
       const x=tower.x+xShift, z=tower.z+zShift;
       if (tower.id!=='service-relay-core') {
@@ -804,7 +1032,7 @@
           positions.push(g.x+x*cos+z*sin,.093,g.z+z*cos-x*sin);
           colors.push(color.r,color.g,color.b);
           uvs.push(u,v);
-          strengths.push(g.strength*(wetReflections ? .42 : 1));
+          strengths.push(g.strength*(wetReflections ? .61 : 1));
         }
       }
       geometry.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));
@@ -813,19 +1041,15 @@
       geometry.setAttribute('strength',new THREE.Float32BufferAttribute(strengths,1));
       const material = new THREE.ShaderMaterial({
         vertexColors:true, transparent:true, depthWrite:false, blending:THREE.AdditiveBlending,
-        uniforms:{uTime:{value:0}},
         vertexShader:`attribute float strength; varying vec2 vUv; varying vec3 tint; varying float power;
           void main(){vUv=uv; tint=color; power=strength; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}`,
-        fragmentShader:`varying vec2 vUv; varying vec3 tint; varying float power; uniform float uTime;
+        fragmentShader:`varying vec2 vUv; varying vec3 tint; varying float power;
           void main(){vec2 p=abs(vUv-.5)*2.; float edge=(1.-smoothstep(.1,1.,p.x))*(1.-smoothstep(.16,1.,p.y));
-          float smear=sin(vUv.x*68.+sin(vUv.y*13.)*.8)*.19 + sin(vUv.x*159.)*.16 + .57;
-          float ripple=.68+.32*sin(vUv.y*66.+vUv.x*51.+uTime*1.1);
-          gl_FragColor=vec4(tint,edge*power*(.105+smear*ripple*.55));}`
+          gl_FragColor=vec4(tint,edge*power*.43);}`
       });
       const reflection = new THREE.Mesh(geometry,material);
       reflection.name = 'portfolio-pavement-reflections';
       world.add(reflection);
-      return material;
     }
 
     function sign(x,y,z,w,h,heading,head,caption,color,{poleSpan=0,bracket=false}={}) {
@@ -956,14 +1180,21 @@
     const upperCladding = [null,brick,stone,titanium,null,titanium,stone,stone];
     const cladFacadeMaterials = upperCladding.map((finish,style) => finish &&
       facadeMaterial(THREE,style,grime,style===3 || style===5 ? servicePanels : null,finish));
+    const arrivalFinishes=[titanium,brick,stone,servicePanels,stone,titanium,boardConcrete];
+    const arrivalWallColors=[0x424b50,0x4c3533,0x505357,0x383743,0x494e54,0x343b41,0x524947];
+    const quietArrivalMaterials=arrivalWallColors.map((color,style)=>tileWallMaterial(THREE,
+      new THREE.MeshStandardMaterial({color:surfaceColor(color),roughness:.86,metalness:.1}),null,arrivalFinishes[style]));
     for (const [index,b] of buildings.entries()) {
       if (b.collisionOnly) continue;
       const {name,light:color}=facades[b.style];
       const arrival = Math.abs(b.x)<28 && b.z<-36;
       const finish = !arrival && b.detail && cladFacadeMaterials[b.style];
-      instance('portfolio-building-'+name+(finish ? '-clad' : ''),finish || facadeMaterials[b.style],
+      const quietArrival=b.arrivalPodium || b.arrivalStructure;
+      const placement=b.arrivalPodium ? 'portfolio-arrival-podium-'+b.arrivalPodium :
+        b.arrivalStructure ? 'portfolio-arrival-upper-'+name : 'portfolio-building-'+name+(finish ? '-clad' : '');
+      instance(placement,quietArrival ? quietArrivalMaterials[b.style] : finish || facadeMaterials[b.style],
         b.x,b.baseY+b.height/2,b.z,b.width,b.height,b.depth);
-      const detailed = b.detail && b.width > 3;
+      const detailed = !quietArrival && b.detail && b.width > 3;
       if (detailed && !b.baseY) {
         const tiledMarket = b.style===1 || (b.style===2 && b.x<0 && b.z<55);
         const footingName = tiledMarket ? 'portfolio-market-tile-footings' : 'portfolio-board-concrete-footings';
@@ -1004,7 +1235,13 @@
       }
     }
 
-    addSculptedTowers(THREE,world,facadeMaterials,materials,instance,beam);
+    const arrivalGlass=new THREE.MeshStandardMaterial({color:surfaceColor(0x709093),roughness:.41,metalness:.23,
+      emissive:0x42676a,emissiveIntensity:.29});
+    const occupiedGlass=new THREE.MeshStandardMaterial({color:surfaceColor(0x9a897e),roughness:.47,
+      emissive:0xb49a83,emissiveIntensity:.28});
+    addArrivalDetails(materials,instance,beam,arrivalGlass,occupiedGlass);
+    addTransferPassage(materials,instance,beam,arrivalGlass);
+    addSculptedTowers(THREE,world,facadeMaterials,materials,instance,beam,grime);
 
     for (const segment of testRamp) {
       instance('portfolio-ramp',materials.metal,segment.x,segment.centerY,segment.z,segment.width,.5,segment.slopeLength,0,null,segment.pitch);
@@ -1211,7 +1448,7 @@
       if (i%3===1) instance('portfolio-neon',materials.light,x,height-.6,z-12.5,14,.1,.15,0,0x607cc0);
     }
     flush();
-    const reflection = lights();
+    lights();
     const buffer = new Float32Array(150*6), rainGeometry = new THREE.BufferGeometry();
     const droplets = [], random = randomFrom(0x49b981);
     for (let i=0;i<150;i++) droplets.push({x:(random()-.5)*86,z:(random()-.5)*86,y:random()*31,speed:18+random()*13});
@@ -1221,7 +1458,6 @@
     rain.name='portfolio-rain';
     world.add(rain);
     function update(camera,dt) {
-      reflection.uniforms.uTime.value += dt;
       if (!camera) return;
       rain.position.set(camera.position.x,0,camera.position.z);
       for (const [i,drop] of droplets.entries()) {
@@ -1241,6 +1477,6 @@
     return {update,dispose};
   }
 
-  return {edge, roadHalfWidth, spawn, routeSamples, stops, buildings, networkRoads, highwaySegments, guardrails, supports, skyway, constrainCamera,
+  return {edge, roadHalfWidth, spawn, routeSamples, stops, buildings, arrivalFrontages, entryRibs, networkRoads, highwaySegments, guardrails, supports, skyway, constrainCamera,
     playProps, holograms, adPlacements, assetPlacements, distanceToRoad, build};
 });

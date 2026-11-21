@@ -11,8 +11,8 @@
     'fire-escape': 5.8, 'street-coupe': 1.69, 'street-shuttle': 1.07
   };
   const parkedVehicles = [
-    {id:'street-coupe', x:-81.6, z:-29.7, heading:Math.PI/2},
-    {id:'street-shuttle', x:-69.3, z:-10.7, heading:-Math.PI/2},
+    {id:'street-coupe', x:-84.7, z:-29.7, heading:Math.PI/2},
+    {id:'street-shuttle', x:-69.3, z:-13.12, heading:-Math.PI/2},
     {id:'street-shuttle', x:119.9, z:-78, heading:0},
     {id:'street-coupe', x:104, z:16.5, heading:0},
     {id:'street-coupe', x:-78.8, z:72.1, heading:Math.PI/2}
@@ -70,7 +70,8 @@
 
     async function addAssets(loader, id, items) {
       try {
-        const {scene: model} = await loader.loadAsync('assets/portfolio/' + id + '.glb');
+        const revision = id === 'street-coupe' ? '?v=2' : '';
+        const {scene: model} = await loader.loadAsync('assets/portfolio/' + id + '.glb' + revision);
         if (disposed) {
           disposeModels([model]);
           return 0;

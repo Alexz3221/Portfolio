@@ -62,6 +62,7 @@
   let cityVisual = null;
   let portfolioPlay = null;
   let portfolioHolograms = null, portfolioWet = null, portfolioAssets = null, portfolioSkyAds = null;
+  let arrivalMarket = null, arrivalSidewalks = null;
   let importedAssetScene = null;
   let worldGeneration = 0;
   let portfolio = null;
@@ -212,6 +213,9 @@
     portfolioHolograms?.dispose();
     portfolioAssets?.dispose();
     portfolioSkyAds?.dispose();
+    arrivalMarket?.dispose();
+    arrivalSidewalks?.dispose();
+    arrivalMarket = arrivalSidewalks = null;
     portfolioWet = portfolioHolograms = portfolioAssets = portfolioSkyAds = null;
     cityVisual?.dispose?.();
     physics?.dispose?.();
@@ -598,9 +602,10 @@
       });
       globalThis.DrivePortfolioStorefronts?.attach(THREE, world);
       globalThis.DrivePortfolioFacades?.attach(THREE, world, city);
-      portfolioSkyAds = globalThis.DrivePortfolioSkyAds?.attach(THREE, world, {
-        reducedMotion:window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches
-      });
+      const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
+      arrivalSidewalks = globalThis.DrivePortfolioArrivalSidewalks?.attach(THREE, world, physics);
+      arrivalMarket = globalThis.DrivePortfolioArrivalMarket?.attach(THREE, world, {reducedMotion});
+      portfolioSkyAds = globalThis.DrivePortfolioSkyAds?.attach(THREE, world, {reducedMotion});
       portfolioWet = globalThis.DrivePortfolioWet?.create(THREE, renderer, scene, world, sky, {
         compact:window.matchMedia?.('(pointer: coarse)')?.matches || window.innerWidth < 700
       });
@@ -1532,6 +1537,7 @@
       ? {position:{x:camera.position.x,y:camera.position.y,z:-camera.position.z}} : camera, delta);
     portfolioPlay?.update(driveDelta);
     portfolioSkyAds?.update(delta);
+    arrivalMarket?.update(delta);
     portfolio?.update(physics.body.position, motion.speed, motion.heading);
     if (!document.hidden) portfolioWet?.update(camera, delta);
     renderer.render(scene, camera);

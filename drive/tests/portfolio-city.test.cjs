@@ -5,6 +5,15 @@ const THREE = require('three');
 const physics = require('../js/physics');
 const city = require('../js/portfolio-city');
 const playground = require('../js/portfolio-play');
+const facades = require('../js/portfolio-facades');
+
+test('each arrival podium has its own design and recessed bays on all four elevations', () => {
+  const group = facades.attach(THREE, new THREE.Group(), city);
+  const elevations = group.userData.arrivalFacades;
+  assert.equal(elevations.length, 24);
+  assert.equal(new Set(elevations.map(elevation => elevation.kind)).size, 6);
+  for (const elevation of elevations) assert.ok(elevation.rooms > 0, elevation.building + ' · ' + elevation.face);
+});
 
 test('visible roof caps stand above the old roof plane', () => {
   const world = new THREE.Group();

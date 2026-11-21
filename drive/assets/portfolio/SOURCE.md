@@ -22,6 +22,6 @@ The site scales the models to the street and lights their existing screens and s
 
 `fire-escape.glb` adapts five pieces from [Modular Fire Escape by Juniix](https://polyhaven.com/a/modular_fire_escape), CC0. The platform, rails, and stair sections were assembled and given a lighter material setup for the browser.
 
-`street-coupe.glb` adapts [Cyberpunk Car by SamTheCaribbean](https://sketchfab.com/3d-models/cyberpunk-car-040f40e20e9344f5bd368e4db3d3b2ac), [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). The [downloaded GLB](https://renderlyst.site/models/cyberpunk-car) was simplified for parked use while retaining the livery.
+`street-coupe.glb` adapts [Cyberpunk Car by SamTheCaribbean](https://sketchfab.com/3d-models/cyberpunk-car-040f40e20e9344f5bd368e4db3d3b2ac), [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). The parked version preserves all 48,175 triangles and all embedded texture data from the [downloaded GLB](https://renderlyst.site/models/cyberpunk-car). Two body materials use opaque rendering so the fully opaque body textures write depth correctly.
 
 `street-shuttle.glb` adapts [Sci-Fi Vehicle 007 by Unity Fan](https://sketchfab.com/3d-models/free-sci-fi-vehicle-007-public-domain-cc0-5368ffca3bf84b19988c291fade4f3a2). The author dedicates the design to the public domain. The downloaded Objaverse GLB records [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/), under which the model is also credited here. The parked version omits animations and uses a less metallic body finish for night lighting.
