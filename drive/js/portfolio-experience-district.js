@@ -126,8 +126,17 @@
         box('iron',edge,pierX,1.13,z,.84,1.42,1.42);
         light(cold,pierX,4.63,z-.691,.105,2.47,.045);
         light(cold,pierX,4.63,z+.691,.105,2.47,.045);
-        pipe('iron',copper,[pierX+side*.61,.48,z-.28],[pierX+side*.61,5.79,z-.28],.12);
-        pipe('iron',oxidized,[pierX+side*.65,.51,z+.24],[pierX+side*.65,3.92,z+.24],.11);
+        for (const [offset,back,top,diameter,finish] of [
+          [.61,-.28,5.79,.12,copper],[.65,.24,3.92,.11,oxidized]
+        ]) {
+          const runX=pierX+side*offset,runZ=z+back;
+          pipe('iron',finish,[runX,y+.31,runZ],[runX,top,runZ],diameter);
+          pipe('iron',finish,[runX,top,runZ],[pierX+side*.32,top,runZ],diameter);
+          for (let at=y+1;at<top-.31;at+=1.06) {
+            box('iron',dark,pierX+side*.54,at,runZ,.31,.072,.23);
+            pipe('iron',edge,[runX,at-.048,runZ],[runX,at+.048,runZ],diameter+.037);
+          }
+        }
         box('iron',oxidized,pierX,7.10,z,1.47,.27,1.7);
         body(pierX,(y+7.11)/2,z,1.16,7.11-y,1.66);
       }

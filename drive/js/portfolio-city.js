@@ -380,22 +380,37 @@
   const tankPorts = [{rise:.05284,across:[-.16449,.17012],wallX:serviceTankWall+.08},
     {rise:.94716,across:[-.17012,.16449],wallX:serviceTankWall}];
 
+  const lampMounts = [
+    ...[-1,1].flatMap(side=>[[side*9,-66,.17,-side*east],[side*25.15,-34,.17,-side*east]]),
+    [-22.4,10.3,.185,east], [26.7,17.1,.185,west], [-23,32,.185,east], [22.8,31.1,.185,west]
+  ].map(([x,z,y,heading])=>({id:'streetlight',x,y,z,heading,height:6.7,seat:true}));
+  const airHandlers = [
+    {x:-31.48,z:-46,y:.29,heading:west,height:2.5,pad:[1.46,1.84],wallX:-30.58},
+    {x:45.02,z:31,y:.29,heading:east,height:2.4,pad:[1.42,1.79],wallX:44.20},
+    {x:-58,z:5.6,y:9.44,heading:east,height:2.5,pad:[1.46,1.84],grade:9.26}
+  ].map(placement=>({id:'ac-stacked',...placement}));
+  const aerialMounts = [
+    {id:'antenna',x:-12.92,z:83,y:81.44,height:6.5,pad:[5.68,6.04],grade:81.26},
+    {id:'antenna',x:90.15,z:-89.45,y:18.44,height:5.8,pad:[5.05,5.35],grade:18.26},
+    {id:'tv-tower',x:55,z:44,y:70.44,height:10,pad:[3.30,2.88],grade:70.26}
+  ];
+  const signRacks = [
+    {x:-70,z:-6.45,y:9.46,heading:north,height:4.0,pad:[6.10,2.23],grade:9.26},
+    {x:83,z:-86,y:18.44,heading:0,height:4.7,pad:[7.10,2.55],grade:18.26}
+  ].map(placement=>({id:'signs',...placement}));
+  const fireEscapeMounts = [
+    {x:-96.31,z:36.5,y:6.7,height:5.8,wallX:-95.25},
+    {x:127.37,z:23,y:5.9,height:5.2,wallX:128.15}
+  ].map(placement=>({id:'fire-escape',heading:west,...placement}));
+  const maintenancePlatform = {id:'platform',x:25,z:49,y:.27,heading:north,height:6,pad:[8.55,3.95],grade:.008};
+
   const assetPlacements = [
-    ...[-66,-37,9,32].flatMap(z => [-1,1].map(side => ({id:'streetlight',x:side*(z < -42 ? 9 : 23),z,y:.06,heading:side*Math.PI/2,height:6.7}))),
-    {id:'ac-stacked',x:-31,z:-46,y:0,heading:east,height:2.5},
-    {id:'ac-stacked',x:38,z:21,y:0,heading:west,height:2.4},
-    {id:'ac-stacked',x:-58,z:5.6,y:9.25,heading:north,height:2.5},
-    {id:'antenna',x:-12,z:83,y:81,heading:0,height:7.6},
-    {id:'antenna',x:135,z:-66,y:8,heading:east,height:5},
-    {id:'tv-tower',x:55,z:44,y:70,heading:0,height:10},
-    {id:'terminal',x:-8.4,z:-48,y:.06,heading:east,height:2.3},
-    {id:'terminal',x:20,z:23,y:.06,heading:west,height:2.8},
-    {id:'terminal',x:-120,z:39,y:0,heading:east,height:2.3},
-    ...serviceTankPads,
-    {id:'platform',x:25,z:49,y:.07,heading:north,height:6},
-    {id:'sushi-truck',x:-72,z:-30.5,y:.07,heading:east,height:3.4},
-    {id:'signs',x:-70,z:-5.78,y:9.25,heading:north,height:4.8},
-    {id:'signs',x:26,z:-47,y:6,heading:west,height:5.7}
+    ...lampMounts,...airHandlers,...aerialMounts,...fireEscapeMounts,...signRacks,...serviceTankPads,
+    {id:'terminal',x:-8.4,z:-48,y:.17,heading:east,height:2.3,seat:true},
+    {id:'terminal',x:20,z:23,y:.185,heading:west,height:2.8,seat:true},
+    {id:'terminal',x:-120,z:39,y:.17,heading:east,height:2.3,seat:true},
+    maintenancePlatform,
+    {id:'sushi-truck',x:-72,z:-29.4,y:.044,heading:east,height:3.4}
   ];
 
   const adPlacements = [
@@ -1133,6 +1148,65 @@
       buildings,obstacles:walkObstacles,publicSpaces:globalThis.DrivePortfolioPublicSpaces?.footprints,
       forecourts:globalThis.DrivePortfolioNeighborhoods?.forecourts,cacheLayout:true});
 
+    for (const {x,y,z,pad:[width,depth],grade} of [...airHandlers,...aerialMounts,...signRacks,maintenancePlatform]) {
+      const ground = grade ?? Math.min(...[-1,1].flatMap(sx=>[-1,1].map(sz=>
+        streets?.surfaceHeight(world,x+sx*width*.48,z+sz*depth*.48) || 0)));
+      const footing = Math.min(y-.06,ground-.018);
+      instance('portfolio-utility-pads',materials.concrete,x,(y+footing)/2,z,width,y-footing,depth);
+    }
+
+    for (const {x,y,z,height,heading,wallX} of airHandlers) {
+      const outward=Math.sin(heading);
+      const back=x-outward*height*.212;
+      for (const [rise,offset] of [[.28,-.18],[.73,.18]]) {
+        const yy=y+height*rise, zz=z+offset;
+        if (wallX !== undefined) {
+          beam('portfolio-air-handler-feed',materials.copper,[back,yy,zz],[wallX-outward*.025,yy,zz],.13,.11);
+          instance('portfolio-air-handler-couplings',materials.metal,wallX,yy,zz,.12,.23,.24);
+        } else {
+          const elbow=back-outward*.18;
+          beam('portfolio-air-handler-feed',materials.copper,[back,yy,zz],[elbow,yy,zz],.13,.11);
+          beam('portfolio-air-handler-feed',materials.copper,[elbow,yy,zz],[elbow,y-.21,zz],.13,.11);
+        }
+      }
+    }
+
+    for (const {x,y,z,height,heading} of signRacks) {
+      const nx=Math.sin(heading), nz=Math.cos(heading);
+      for (const [rise,reach,depth] of [[.105,.143,.076],[.402,.123,.08],[.819,.128,.093]]) {
+        instance('portfolio-utility-sign-rack',materials.steel,x+nx*height*reach,y+height*rise,z+nz*height*reach,
+          height*1.45,.12,height*depth,heading);
+      }
+      // The three thin plaques stand ahead of the folded display panels.
+      for (const slot of [-.593,-.387,-.181]) {
+        const along=slot*height, reach=height*.189;
+        instance('portfolio-utility-sign-rack',materials.steel,x+nz*along+nx*reach,y+height*.105,z-nx*along+nz*reach,
+          .22,.11,height*.055,heading);
+      }
+      for (const side of [-1,1]) {
+        const along=side*height*.67, xx=x+nz*along, zz=z-nx*along;
+        instance('portfolio-utility-sign-rack',materials.steel,xx+nx*height*.085,y+height*.447,zz+nz*height*.085,
+          .15,height*.894,height*.055,heading);
+        instance('portfolio-utility-sign-rack',materials.steel,xx+nx*height*.134,y+height*.105,zz+nz*height*.134,
+          .16,.14,height*.145,heading);
+      }
+    }
+    // Roof beams carry the market rack over the edge of the podium.
+    for (const x of [-72.04,-67.96]) {
+      beam('portfolio-market-utility-braces',materials.steel,[x,8.12,-5.98],[x,9.30,-7.37],.19,.23);
+      instance('portfolio-market-utility-plates',materials.metal,x,8.12,-6.015,.34,.39,.14);
+    }
+
+    for (const {x,y,z,height,wallX} of fireEscapeMounts) {
+      const landingX=x+height*.087;
+      for (const rise of [.06,.73]) for (const side of [-1,1]) {
+        const yy=y+height*rise, zz=z+side*height*.302;
+        beam('portfolio-fire-escape-anchors',materials.steel,[landingX,yy,zz],[wallX+.055,yy,zz],.14,.17);
+        beam('portfolio-fire-escape-anchors',materials.steel,[landingX,yy,zz],[wallX+.055,yy-.32,zz],.14,.15);
+        instance('portfolio-fire-escape-plates',materials.metal,wallX-.015,yy-.13,zz,.13,.56,.24);
+      }
+    }
+
     const tankTube = new THREE.CylinderGeometry(1,1,1,12).rotateZ(Math.PI/2);
     const tankPipeFinish = new THREE.MeshStandardMaterial({color:surfaceColor(0x926338),roughness:.60,metalness:.38});
     function tankPipe(name,material,fromX,toX,y,z,radius) {
@@ -1281,7 +1355,21 @@
             for (const side of [-1,1]) instance('portfolio-storefront-panels',materials.steel,b.x+inset,2.35,b.z+side*(b.depth/2+.14),.28,3.4,.39);
         } else if (b.style===3 || b.style===5 || b.style===6) {
           for (const side of [-1,1]) {
-            for (const off of [-.30,.26]) instance('portfolio-conduit-bundles',materials.copper,b.x+b.width*off,b.height*.39,b.z+side*(b.depth/2+.20),.35,b.height*.73,.55);
+            const wall=b.z+side*b.depth/2, riser=wall+side*.29;
+            const low=Math.max(.62,b.height*.025), high=b.height*.755;
+            for (const off of [-.30,.26]) {
+              const x=b.x+b.width*off;
+              instance('portfolio-conduit-bundles',materials.copper,x,(low+high)/2,riser,.25,high-low,.24);
+              for (const y of [low+.06,high-.06]) {
+                const face=wall+(y<2.2 ? .09*side : 0);
+                instance('portfolio-conduit-elbows',materials.copper,x,y,(face+riser)/2,.25,.24,Math.abs(riser-face)+.26);
+                instance('portfolio-conduit-couplings',materials.steel,x,y,face,.36,.35,.16);
+              }
+              for (const t of [.32,.68]) {
+                const y=low+(high-low)*t;
+                instance('portfolio-conduit-saddles',materials.metal,x,y,wall+side*.20,.34,.13,.48);
+              }
+            }
             instance('portfolio-vent-rails',materials.metal,b.x,3.25,b.z+side*(b.depth/2+.40),b.width*.85,.43,.84);
           }
         }

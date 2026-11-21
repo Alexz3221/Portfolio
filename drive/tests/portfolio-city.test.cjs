@@ -63,6 +63,38 @@ test('every overhead utility line terminates on an entrance gantry', () => {
   }
 });
 
+test('utility equipment has seated pads and façade conduits return into the wall', () => {
+  const world = new THREE.Group();
+  city.build(THREE, world);
+  world.updateMatrixWorld(true);
+  function boxes(name) {
+    const mesh = world.getObjectByName(name);
+    mesh.geometry.computeBoundingBox();
+    const matrix = new THREE.Matrix4();
+    return Array.from({length:mesh.count}, (_,index) => {
+      mesh.getMatrixAt(index,matrix);
+      return mesh.geometry.boundingBox.clone().applyMatrix4(matrix.premultiply(mesh.matrixWorld));
+    });
+  }
+  const pads = boxes('portfolio-utility-pads');
+  const equipment = city.assetPlacements.filter(placement=>placement.pad);
+  assert.equal(pads.length,equipment.length);
+  for (const {id,x,y,z,grade} of equipment) {
+    const pad = pads.find(box=>box.containsPoint(new THREE.Vector3(x,y-.002,z)));
+    assert.ok(pad && Math.abs(pad.max.y-y)<.001, `${id} meets its pad`);
+    if (grade!==undefined) assert.ok(pad.min.y<grade, `${id} pad reaches its roof or ground`);
+  }
+  assert.equal(boxes('portfolio-utility-sign-rack').length,20);
+  assert.equal(boxes('portfolio-fire-escape-plates').length,8);
+  const elbows = boxes('portfolio-conduit-elbows');
+  const couplings = boxes('portfolio-conduit-couplings');
+  for (const riser of boxes('portfolio-conduit-bundles')) {
+    const connected = elbows.filter(elbow=>elbow.intersectsBox(riser));
+    assert.ok(connected.length>=2, 'both riser ends turn toward the wall');
+    for (const elbow of connected) assert.ok(couplings.some(coupling=>coupling.intersectsBox(elbow)));
+  }
+});
+
 test('sign lettering keeps its proportions when fitted to wide or narrow faces', () => {
   const previousDocument = global.document;
   const scales = [];

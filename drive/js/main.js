@@ -62,6 +62,7 @@
   let cityVisual = null;
   let portfolioPlay = null;
   let portfolioHolograms = null, portfolioWet = null, portfolioAssets = null, portfolioSkyAds = null;
+  let sidewalkLife = null, sidewalkLifeReady = null;
   let portfolioCorporateAds = null;
   let arrivalMarket = null, arrivalSidewalks = null, streetSidewalks = null;
   let portfolioPublicSpaces = null, portfolioAirship = null;
@@ -221,6 +222,8 @@
     portfolioWet?.dispose();
     portfolioHolograms?.dispose();
     portfolioAssets?.dispose();
+    sidewalkLife?.dispose();
+    sidewalkLife = sidewalkLifeReady = null;
     portfolioSkyAds?.dispose();
     portfolioCorporateAds?.dispose();
     portfolioAirship?.dispose();
@@ -649,6 +652,11 @@
       portfolioAirship = globalThis.DrivePortfolioAirship?.attach(THREE, world, {reducedMotion});
       portfolioSkyAds = globalThis.DrivePortfolioSkyAds?.attach(THREE, world, {reducedMotion});
       portfolioCorporateAds = globalThis.DrivePortfolioCorporateAds?.attach(THREE, world, {reducedMotion});
+      const generation=worldGeneration;
+      sidewalkLifeReady=Promise.resolve(portfolioAssets?.ready).then(()=>{
+        if(generation!==worldGeneration || !isPortfolioCity()) return;
+        sidewalkLife=globalThis.DrivePortfolioSidewalkLife?.attach(THREE,world,city);
+      });
       portfolioWet = globalThis.DrivePortfolioWet?.create(THREE, renderer, scene, world, sky, {
         compact:window.matchMedia?.('(pointer: coarse)')?.matches || window.innerWidth < 700
       });
@@ -1661,11 +1669,13 @@
     window.auditPortfolioCity = async function () {
       await import('./portfolio-scene-audit.js?v=2');
       const generation = worldGeneration;
-      await Promise.all([portfolioHolograms?.ready, portfolioCorporateAds?.ready, portfolioAirship?.ready]);
+      await Promise.all([portfolioHolograms?.ready, portfolioCorporateAds?.ready, portfolioAirship?.ready, sidewalkLifeReady]);
       if (!isPortfolioCity() || generation !== worldGeneration) {
         throw new Error('Open Portfolio City before checking scene clipping.');
       }
-      return globalThis.DrivePortfolioSceneAudit.run(THREE, world, city);
+      const report=globalThis.DrivePortfolioSceneAudit.run(THREE, world, city);
+      report.checked.sidewalkItems=sidewalkLife?.group.userData.itemCount || 0;
+      return report;
     };
     window.auditPortfolioCity().then(report => {
       console.info('Portfolio City clipping audit', report.checked);

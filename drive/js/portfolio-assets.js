@@ -16,11 +16,7 @@
     {id:'street-shuttle', x:119.9, z:-78, heading:0},
     {id:'street-coupe', x:104, z:16.5, heading:0},
     {id:'street-coupe', x:-78.8, z:72.1, heading:Math.PI/2}
-  ].map(placement => ({...placement, parked:true, y:.055}));
-  const fireEscapes = [
-    {id:'fire-escape', x:-95.58, z:36.5, y:6.7, heading:-Math.PI/2},
-    {id:'fire-escape', x:127.35, z:23, y:5.9, heading:-Math.PI/2, height:5.2}
-  ];
+  ].map(placement => ({...placement, parked:true, y:.044}));
 
   function disposeModels(models) {
     const geometries = new Set(), materials = new Set(), textures = new Set();
@@ -61,7 +57,7 @@
     const parkedBodies = [];
     let disposed = false;
     const byId = new Map();
-    for (const placement of [...placements, ...fireEscapes, ...parkedVehicles]) {
+    for (const placement of [...placements, ...parkedVehicles]) {
       const {id} = placement;
       if (!Object.prototype.hasOwnProperty.call(heights, id)) continue;
       if (!byId.has(id)) byId.set(id, []);
@@ -85,10 +81,12 @@
         model.position.sub(center);
         model.position.y += height / 2;
         lightPanels(model);
-        for (const {x, y = 0, z, heading = 0, height: meters = heights[id], parked} of items) {
+        for (const {x, y = 0, z, heading = 0, height: meters = heights[id], parked, seat} of items) {
+          const origin = seat ? Math.max(y,globalThis.DrivePortfolioStreets?.surfaceHeight(world,x,z) || 0,
+            globalThis.DrivePortfolioArrivalSidewalks?.surfaceHeight(x,z) || 0) : y;
           const instance = new THREE.Group();
           instance.name = 'portfolio-prop-' + id;
-          instance.position.set(x, y, z);
+          instance.position.set(x, origin, z);
           instance.rotation.y = heading;
           instance.scale.setScalar(meters / height);
           instance.add(model.clone(true));
@@ -96,7 +94,7 @@
           if (parked && Cannon && physics) {
             const scale = meters / height;
             const half = new Cannon.Vec3(size.x*scale*.45, meters*.40, size.z*scale*.47);
-            const body = new Cannon.Body({mass:0, position:new Cannon.Vec3(x,y+half.y,z)});
+            const body = new Cannon.Body({mass:0, position:new Cannon.Vec3(x,origin+half.y,z)});
             body.addShape(new Cannon.Box(half));
             body.quaternion.setFromAxisAngle(new Cannon.Vec3(0,1,0),heading);
             physics.world.addBody(body);

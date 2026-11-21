@@ -166,7 +166,7 @@
     const ground=buildings.filter(building=>building.baseY===0);
     const destinations=ground.filter(({width,depth,height,collisionOnly})=>
       !collisionOnly && width>=4.5 && depth>=4.5 && height>=6);
-    if (!destinations.length) return {area:network,access:[]};
+    if (!destinations.length) return {area:network,access:[],paths:[]};
 
     const decks=Object.values(publicSpaces || {});
     // Continue underneath the beveled edges until the higher deck takes over.
@@ -270,7 +270,7 @@
       addPath(start,next);
     }
 
-    if (!lotAreas.length) return {area:network,access};
+    if (!lotAreas.length) return {area:network,access,paths:connectors};
     const links=streetFootprint(connectors,[],0,12,.42);
     const lot=polygons.difference(polygons.union(links,...lotAreas),...deckSlabs);
     // Tuck the slab edge just inside the wall to avoid coplanar curb faces.
@@ -278,7 +278,7 @@
     // Patch enclosed scraps between the widened sidewalks and access paths.
     // Leave full courtyards open, then restore the actual road and wall cuts.
     const paved=polygons.union(network,lot).map(([outline,...gaps])=>[outline,...gaps.filter(gap=>ringArea(gap)>=16)]);
-    return {area:polygons.difference(paved,road,premium || [],obstructionArea),access};
+    return {area:polygons.difference(paved,road,premium || [],obstructionArea),access,paths:connectors};
   }
 
   function chamferHeight(area,x,z) {
@@ -328,10 +328,10 @@
     const exclusions = premium?.length ? [premium] : [];
     const network = polygons.difference(offset,granite,...exclusions);
     const routingRoad = buildings.length ? streetFootprint(roads,areas,curbDepth+.40) : granite;
-    const {area:sidewalk,access}=buildingWalks(network,granite,routingRoad,premium,buildings,obstacles,publicSpaces);
+    const {area:sidewalk,access,paths}=buildingWalks(network,granite,routingRoad,premium,buildings,obstacles,publicSpaces);
     const apron = polygons.difference(granite,chamfer,...exclusions);
     const bevel = polygons.difference(chamfer,pavement,...exclusions);
-    return {pavement,sidewalk,access,apron,bevel,premium,plazaJoin};
+    return {pavement,sidewalk,access,paths,apron,bevel,premium,plazaJoin};
   }
 
   function build(THREE, world, {roads, areas, asphalt, curb, buildings=empty, obstacles=empty, publicSpaces,premium,
@@ -345,7 +345,7 @@
       premium===undefined ? authoredFootprint?.() : premium,forecourts);
     if (cacheLayout && !hit) cachedLayout={inputs,layout};
     if (!layout) return;
-    const {pavement,sidewalk,access,apron,bevel,premium:covered,plazaJoin}=layout;
+    const {pavement,sidewalk,access,paths,apron,bevel,premium:covered,plazaJoin}=layout;
     surface(THREE,world,pavement,.044,asphalt,'portfolio-streets',4);
     const slabs=curb.clone();
     slabs.color.multiplyScalar(1.42);
@@ -363,7 +363,7 @@
     // step down to it and to the road, including along the curves of a junction.
     curbSides(THREE,world,sidewalk,surfaceY,wall,'portfolio-sidewalk-faces',covered);
     curbSides(THREE,world,bevel,kerbY,innerWall,'portfolio-curb-faces',covered);
-    if (slabMesh) sidewalkSurfaces.set(world,{pavement,sidewalk,apron,bevel,slabMesh,lipMesh,bevelMesh,access,plazaJoin});
+    if (slabMesh) sidewalkSurfaces.set(world,{pavement,sidewalk,apron,bevel,slabMesh,lipMesh,bevelMesh,access,paths,plazaJoin});
   }
 
   function activeSurfaces(world) {
@@ -419,6 +419,10 @@
     return activeSurfaces(world)?.access || [];
   }
 
+  function buildingPaths(world) {
+    return activeSurfaces(world)?.paths || [];
+  }
+
   function attachSidewalkPhysics(world, physics) {
     const active=activeSurfaces(world);
     if (!active || !physics?.addStaticSurface) return null;
@@ -443,5 +447,5 @@
     return {dispose() { for(const body of bodies) physics.world.removeBody(body); }};
   }
 
-  return {build,attachSidewalkPhysics,surfaceHeight,buildingAccess,finishPlazaJoin};
+  return {build,attachSidewalkPhysics,surfaceHeight,buildingAccess,buildingPaths,finishPlazaJoin};
 });

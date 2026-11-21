@@ -41,15 +41,15 @@
     [-8.89,-115.5,east], [8.40,-98.8,west], [-9.89,-74.2,east], [13.53,-82.9,west],
     [-11.40,-59.4,east], [10.89,-45.0,west], [-74.8,-34.89,0], [-61,-6.11,north],
     [-56.7,-6.11,north], [-38.9,28.89,north], [34.9,19.88,north], [125.5,-50.4,west],
-    [125.5,-69.7,west], [96.10,-89,west]
+    [125.5,-69.7,west], [96.10,-89,east]
   ];
   const waste = [
     [-8.14,-110.0,east], [7.62,-109.0,west], [-8.16,-101.7,east], [7.65,-91.0,west],
     [-8.28,-72.2,east], [9.65,-61.8,west], [-10.4,-48.0,east], [10.3,-43.2,west],
-    [-63.8,-29.4,0], [-80.3,-11.0,north], [-83.5,-10.4,north], [-70.1,-10.85,north],
+    [-63.8,-32.1,0], [-80.3,-11.0,north], [-83.5,-10.4,north], [-70.1,-10.85,north],
     [-64.8,-11.0,north], [-53.5,-26.4,0], [-35.3,27.2,north],
     [24.5,23.6,west], [25.2,33.7,west],
-    [98.8,-83.3,0], [-116.98,34.7,east], [-45.1,91.7,north]
+    [98.8,-83.3,0], [-119.04,34.7,east], [-45.1,91.7,north]
   ];
   const vendorTables = [
     [-77.7,-8.87,north,0x9c625b], [-59.0,-7.75,north,0x50837d], [-85.1,-33.5,0,0x876678]
@@ -201,9 +201,13 @@
     const line = new THREE.Vector3(), midpoint = new THREE.Vector3(), upward = new THREE.Vector3(0,1,0);
     const transform = new THREE.Object3D(), yawRotation = new THREE.Quaternion(), localRotation = new THREE.Quaternion();
 
-    function frontage(x,z,yaw) {
+    function frontage(x,z,yaw,landing=0) {
       const cosine = Math.cos(yaw), sine = Math.sin(yaw);
-      const elevation = globalThis.DrivePortfolioArrivalSidewalks?.surfaceHeight(x,z) || 0;
+      const gx=x+landing*sine,gz=z+landing*cosine;
+      const elevation=Math.max(
+        globalThis.DrivePortfolioArrivalSidewalks?.surfaceHeight(gx,gz) ?? 0,
+        globalThis.DrivePortfolioStreets?.surfaceHeight(world,gx,gz) ?? 0
+      );
       yawRotation.setFromAxisAngle(upward,yaw);
       function batch(kind,material,lx,y,lz,w,h,d,color,rotation=0,tilt=0) {
         const key = kind+'-'+material;
@@ -249,7 +253,7 @@
     }
 
     for (const [index,[x,z,yaw,w, , ,type]] of shops.entries()) {
-      const surface = frontage(x,z,yaw);
+      const surface = frontage(x,z,yaw,.51);
       const {cube,light,display} = surface;
       const style = shopTypes[type];
       const left = index % 2 ? -1 : 1;
@@ -305,13 +309,23 @@
     }
 
     for (const [index,[x,z,yaw]] of fixtures.entries()) {
-      const {cube,pipe,display,light} = frontage(x,z,yaw);
+      const {cube,pipe,display,light} = frontage(x,z,yaw,.36);
       const rust = index%2 ? 0x78615a : 0x5e6770;
-      // Wall ducts turn under the unit and continue as a small overhead conduit.
+      // Both pipe runs return into wall glands. The exposed clamps extend
+      // back into the stone, including at facades with a shallow setback.
       pipe(-.48,.17,.29,-.48,3.20,.29,.082,rust);
       pipe(-.48,3.20,.29,.59,3.20,.29,.083,rust);
       pipe(.59,3.20,.29,.59,3.78,.29,.083,rust);
-      for (const y of [.62,1.31,2.21,3.19]) cube(-.48,y,.29,.241,.083,.24,0x363840);
+      for (const [u,y] of [[-.48,.17],[.59,3.78]]) {
+        pipe(u,y,.31,u,y,-.19,.081,rust);
+        cube(u,y,-.075,.25,.27,.24,0x4a4b50);
+        pipe(u,y,.24,u,y,.38,.093,0x45474c);
+      }
+      for (const y of [.62,1.31,2.21,3.19]) {
+        cube(-.48,y,.29,.241,.083,.24,0x363840);
+        cube(-.48,y,.073,.12,.102,.53,0x42464b);
+      }
+      cube(.23,2.04,.014,1.16,.75,.44,0x454a4c);
       cube(.23,2.04,.27,1.08,.67,.45,0x606161);
       cube(.23,2.04,.507,.95,.53,.027,0x2f343d);
       for (let y=1.82;y<2.29;y+=.092) cube(.23,y,.540,.88,.036,.052,0x70716f);
@@ -344,8 +358,8 @@
       const {cube,sack,pipe} = frontage(x,z,yaw);
       const size = .34+(index%3)*.05;
       for (const [offset,db,scale,angle] of [[-.23,.08,1,.5],[.16,-.19,.82,-.7],[.39,.26,.62,.3]]) {
-        sack(offset,.055+size*scale*.45,db,size*1.3*scale,size*scale,size*1.12*scale,index%2 ? 0x353738 : 0x262d34,angle);
-        sack(offset,.055+size*scale*1.02,db-.018,.10*scale,.09*scale,.07*scale,0x4e4a49,angle);
+        sack(offset,size*scale*.48,db,size*1.3*scale,size*scale,size*1.12*scale,index%2 ? 0x353738 : 0x262d34,angle);
+        sack(offset,size*scale*.98,db-.018,.10*scale,.09*scale,.07*scale,0x4e4a49,angle);
       }
       if (index % 3 === 0) {
         cube(-.78,.31,-.12,.61,.60,.55,0x4b5557,.06);
@@ -355,9 +369,9 @@
         cube(-.66,.18,-.16,.47,.34,.42,0x8a725c,.25);
         cube(-.66,.352,-.16,.035,.012,.40,0xb9a287,.25);
       }
-      cube(.32,.079,.53,.22,.007,.14,0x9b8c73,index*.47);
-      cube(-.35,.084,.43,.17,.014,.09,0x526467,-index*.65);
-      pipe(.51,.102,.35,.60,.107,.35,.041,index%2 ? 0x805a55 : 0x5b696e);
+      cube(.32,.009,.53,.22,.007,.14,0x9b8c73,index*.47);
+      cube(-.35,.014,.43,.17,.014,.09,0x526467,-index*.65);
+      pipe(.51,.038,.35,.60,.043,.35,.041,index%2 ? 0x805a55 : 0x5b696e);
     }
 
     for (const [key,{kind,material,parts}] of batches) {
