@@ -88,10 +88,15 @@
         ] : [[left,near],[right,near],[right,far],[left,far]];
         return boundary.flatMap(([x,z],i)=>{
           const previous=boundary[(i+boundary.length-1)%boundary.length], next=boundary[(i+1)%boundary.length];
-          return [previous,next].map(([px,pz])=>{
+          const [from,to]=[previous,next].map(([px,pz])=>{
             const dx=px-x, dz=pz-z, length=Math.hypot(dx,dz);
             const reach=Math.min(corner,length*.43)/length;
             return [x+dx*reach,z+dz*reach];
+          });
+          if (!approach) return [from,to];
+          return Array.from({length:11},(_,step)=>{
+            const t=step/10, s=1-t;
+            return [s*s*from[0]+2*s*t*x+t*t*to[0],s*s*from[1]+2*s*t*z+t*t*to[1]];
           });
         });
       }

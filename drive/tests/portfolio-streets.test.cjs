@@ -68,12 +68,11 @@ test('forecourts extend the walk while preserving the road and building cutouts'
 test('the raised network joins plaza paths, keeps road centers clear and defers to authored walks', () => {
   const world = new THREE.Group();
   const material = new THREE.MeshStandardMaterial();
-  const areas = [{x:0,z:4,w:48,d:84},{x:78,z:-53,w:40,d:38},{x:-75,z:-20,w:29,d:22}];
-  streets.build(THREE,world,{roads:city.networkRoads,areas,asphalt:material,curb:material,premium:arrival.footprint()});
+  streets.build(THREE,world,{roads:city.networkRoads,areas:city.pavedAreas,asphalt:material,curb:material,premium:arrival.footprint()});
   for (const road of city.networkRoads) {
     assert.equal(streets.surfaceHeight(world,(road.x1+road.x2)/2,(road.z1+road.z2)/2),0);
   }
-  for (const [x,z,y] of [[122.25,-40,.17],[124.9,-40,.17],[-120.15,25,.17],[-48,125.5,.17],[-25,8,.17],
+  for (const [x,z,y] of [[122.25,-40,.17],[124.9,-40,.17],[-120.15,25,.17],[-48,125.5,.17],[-26.1,8,.17],[-25,8,0],
     [7.6,-73.6,0],[11.25,-86,0],[-71,-10.3,0],[112,-40,0],[-108,25,0]]) {
     assert.equal(streets.surfaceHeight(world,x,z),y,`${x}, ${z}`);
   }
@@ -82,7 +81,7 @@ test('the raised network joins plaza paths, keeps road centers clear and defers 
   const sidewalkPhysics=streets.attachSidewalkPhysics(world,simulation);
   assert.ok(sidewalkPhysics);
   assert.ok(simulation.world.bodies.length-bodyCount<75,'walks are grouped into local static surfaces');
-  for (const [x,z,height] of [[122.25,-40,.17],[124.9,-40,.17],[-120.15,25,.17],[-48,125.5,.17],[-25,8,.17],
+  for (const [x,z,height] of [[122.25,-40,.17],[124.9,-40,.17],[-120.15,25,.17],[-48,125.5,.17],[-26.1,8,.17],[-25,8,0],
     [112,-40,0],[-108,25,0],[7.6,-73.6,0]]) {
     const result=new CANNON.RaycastResult();
     simulation.world.raycastClosest(new CANNON.Vec3(x,1,z),new CANNON.Vec3(x,-1,z),{skipBackfaces:true},result);
@@ -98,9 +97,8 @@ test('the raised network joins plaza paths, keeps road centers clear and defers 
 test('ground-floor building approaches reach the street network and meet both public decks', t => {
   const world=new THREE.Group();
   const material=new THREE.MeshStandardMaterial();
-  const areas=[{x:0,z:4,w:48,d:84},{x:78,z:-53,w:40,d:38},{x:-75,z:-20,w:29,d:22}];
   const obstacles=city.supports.map(({x,z,width:w,depth:d})=>({x,z,w,d}));
-  streets.build(THREE,world,{roads:city.networkRoads,areas,asphalt:material,curb:material,
+  streets.build(THREE,world,{roads:city.networkRoads,areas:city.pavedAreas,asphalt:material,curb:material,
     premium:arrival.footprint(),buildings:city.buildings,obstacles,publicSpaces:publicSpaces.footprints});
   const access=streets.buildingAccess(world);
   const buildings=city.buildings.filter(({baseY,collisionOnly,width,depth,height})=>
@@ -130,6 +128,18 @@ test('ground-floor building approaches reach the street network and meet both pu
   assert.ok(sidewalkHeight(-51.8,1.3)>.165,'paved corner between the Market frontage and side walk');
   for (const [x,z] of [[-44,5],[-44.55,8.25],[-42.8,11],[-39.9,9],[-33.55,5.98]])
     assert.ok(sidewalkHeight(x,z)>.165,`continuous Corner Press approach at ${x}, ${z}`);
+  const pavement=world.getObjectByName('portfolio-streets');
+  const ray=new THREE.Raycaster(new THREE.Vector3(),new THREE.Vector3(0,-1,0));
+  for (const [edgeX,z] of [[-31,4],[-28.40,5.5],[-26.30,7],[-25.21,8]]) {
+    const roadX=edgeX+.09;
+    ray.ray.origin.set(roadX,1,z);
+    assert.ok(ray.intersectObject(pavement).length,`asphalt reaches the curved edge at z=${z}`);
+    assert.equal(city.distanceToRoad(roadX,z),0);
+    assert.ok(Math.abs(sidewalkHeight(roadX,z))<.002);
+    ray.ray.origin.x=edgeX-.1;
+    assert.equal(ray.intersectObject(pavement).length,0,`asphalt stops at the curb at z=${z}`);
+    assert.ok(Math.abs(sidewalkHeight(edgeX-.80,z)-.17)<.005,`the curb leads to a solid sidewalk at z=${z}`);
+  }
   assert.equal(streets.surfaceHeight(world,-50,-31.8),0,'leaves the Skyway support base clear');
   for (const {x1,z1,x2,z2} of city.networkRoads) {
     assert.equal(streets.surfaceHeight(world,(x1+x2)/2,(z1+z2)/2),0);

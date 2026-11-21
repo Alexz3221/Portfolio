@@ -41,9 +41,10 @@
 
   // Enter through the transfer tunnel, then take the concourse directly to
   // Projects or turn into the market and maintenance streets from the plaza.
+  const marketBend = road(-29,-4,-63,-20,16);
   const networkRoads = [
     road(0,-135,0,-38,14,'main'), road(0,-38,0,56,19,'main'),
-    road(0,-4,-29,-4,15), road(-29,-4,-63,-20,16), road(-63,-20,-91,-20,16), road(-91,-20,-108,-2,17),
+    road(0,-4,-29,-4,15), marketBend, road(-63,-20,-91,-20,16), road(-91,-20,-108,-2,17),
     road(0,8,28,8,15), road(28,8,60,-12,17), road(60,-12,91,-12,21), road(91,-12,112,5,18),
     road(-108,-91,-108,76,17), road(112,-100,112,75,19),
     road(-108,-91,-76,-111,16), road(-76,-111,-46,-128,17), road(-46,-128,15,-128,17),
@@ -53,10 +54,11 @@
     road(-83,79,-67,106,16), road(-67,106,-33,123,16), road(-33,123,41,123,16), road(41,123,82,92,16),
     road(112,-54,65,-54,18), road(-108,-53,-140,-53,14), road(112,45,139,45,16)
   ];
-  const plaza = {x:0,z:4,w:48,d:84};
+  const plaza = {x:0,z:4,w:48,d:84,curbReturn:westPlazaCurb};
   const playBay = {x:78,z:-53,w:40,d:38};
   const shops = {x:-75,z:-20,w:29,d:22};
   const pavedAreas = [plaza,playBay,shops];
+  const plazaWestEdge = westPlazaCurb(0);
   const skyway = {
     west:{id:'skyway-west',title:'Skyway West',x:-108,z:-27.5,heading:east},
     east:{id:'skyway-east',title:'Skyway East',x:112,z:-27.5,heading:west},
@@ -113,9 +115,32 @@
     return Math.hypot(x-street.x1-dx*t,z-street.z1-dz*t);
   }
 
+  function westPlazaCurb(margin) {
+    const {x1,z1,x2,z2,width,length}=marketBend;
+    const dx=(x1-x2)/length, dz=(z1-z2)/length;
+    const startX=x1-2*dx-width/2*dz, startZ=z1-2*dz+width/2*dx;
+    const endX=plaza.x-plaza.w/2, endZ=10.4;
+    // The handle is the intersection of the market shoulder and plaza edge.
+    // Offset from the same curve normal for each nested curb band.
+    const handleZ=startZ+(endX-startX)*dz/dx;
+    return Array.from({length:33},(_,index)=>{
+      const t=index/32, s=1-t;
+      const tx=s*(endX-startX), tz=s*(handleZ-startZ)+t*(endZ-handleZ);
+      const speed=Math.hypot(tx,tz);
+      return [s*s*startX+(1-s*s)*endX-margin*tz/speed,
+        s*s*startZ+2*s*t*handleZ+t*t*endZ+margin*tx/speed];
+    });
+  }
+
   function distanceToRoad(x,z) {
     for (const area of pavedAreas) {
       if (Math.abs(x-area.x) <= area.w/2 && Math.abs(z-area.z) <= area.d/2) return 0;
+    }
+    const [startX,startZ]=plazaWestEdge[0], [endX,endZ]=plazaWestEdge.at(-1);
+    if (x>startX && x<endX && z>startZ && z<endZ) {
+      const index=plazaWestEdge.findIndex(point=>point[0]>=x);
+      const [ax,az]=plazaWestEdge[index-1], [bx,bz]=plazaWestEdge[index];
+      if (z<=az+(bz-az)*(x-ax)/(bx-ax)) return 0;
     }
     let nearest = distanceToCenter(x,z,skywayRoad) + roadHalfWidth - skywayRoad.width/2;
     for (const street of networkRoads)
@@ -1523,6 +1548,6 @@
   }
 
   const skyMall = {deck:mallDeck,loop:mallLoop,branches:branchRoutes,destination:mall.destination};
-  return {edge, roadHalfWidth, spawn, routeSamples, stops, buildings, arrivalFrontages, entryRibs, networkRoads, highwaySegments, guardrails, supports, skyway, skyMall, constrainCamera,
+  return {edge, roadHalfWidth, spawn, routeSamples, stops, buildings, arrivalFrontages, entryRibs, networkRoads, pavedAreas, highwaySegments, guardrails, supports, skyway, skyMall, constrainCamera,
     playProps, holograms, adPlacements, assetPlacements, distanceToRoad, build};
 });

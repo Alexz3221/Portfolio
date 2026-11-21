@@ -53,9 +53,15 @@
       }
       shapes.push([ring]);
     }
-    for (const {x,z,w,d} of areas) {
+    for (const {x,z,w,d,curbReturn} of areas) {
       const a = w/2+margin, b = d/2+margin;
       shapes.push([[[x-a,z-b],[x+a,z-b],[x+a,z+b],[x-a,z+b]]]);
+      if (curbReturn && margin<walkWidth) {
+        const edge=curbReturn(margin);
+        const [ax,az]=edge[0], [bx,bz]=edge.at(-1);
+        // Close the patch inside the street so the union leaves one edge.
+        shapes.push([[...edge,[bx+.08,bz],[bx+.08,az-1],[ax,az-.08]]]);
+      }
     }
     return shapes.length ? polygons.union(...shapes) : [];
   }
