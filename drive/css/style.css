@@ -25,7 +25,9 @@
 /* Long desktop control hints wrap above the garage instead of overlapping it. */
 @media(min-width:1101px){.drive-help{max-width:calc(100vw - 470px);line-height:1.8}}
 
-.swatch.hypercar{background:#e14839}
+.swatch.hypercar{background:#9ba6ac}
+.hud-top{display:flex;justify-content:space-between;align-items:baseline;gap:.65em;width:100%}
+.hud-fps{margin-left:auto;color:#c2d0d2;font:10px ui-monospace,Consolas,monospace;white-space:nowrap;font-variant-numeric:tabular-nums}
 .garage-options button{font-size:11px;padding-left:5px;padding-right:5px;gap:5px}
 
 #modelStatus{font-size:9px;color:#b6c6c8;margin-bottom:4px}

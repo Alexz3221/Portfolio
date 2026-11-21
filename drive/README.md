@@ -4,7 +4,7 @@ Static Three.js driving playground and interactive portfolio. Serve the reposito
 
 ## Cars and maps
 
-Five cars share a 120 Hz rigid-body, four-wheel raycast suspension engine: Comet (141 mph target), Rally (115 mph), Pickup (99 mph), Hypercar (205 mph), and the hidden Yangwang U9 Xtreme (313 mph target). Actual speed depends on drag and terrain. The HUD uses mph; physics uses metres, seconds, and kilograms.
+Five cars share a 120 Hz rigid-body, four-wheel raycast suspension engine: Comet (141 mph target), Rally (115 mph), Pickup (99 mph), DeLorean (205 mph using the game’s Hypercar setup), and the hidden Yangwang U9 Xtreme (313 mph target). Actual speed depends on drag and terrain. The HUD uses mph. Physics uses metres, seconds, and kilograms.
 
 The selector offers two separate cities, the mountain, and a Racetrack / stunt course group:
 
@@ -29,7 +29,7 @@ Open **Records** in Ghost Challenge on the stunt course. **Copy race link** shar
 
 Portfolio City has a flat collision plane beneath its roads and jump ramp. Mountain and racetrack retain 200 m half-width boundaries. The mountain road follows its heightfield triangle sampler. Changing maps resets onto the selected route. Changing cars preserves position and orientation while stopping momentum. World geometry, materials, and textures are disposed on rebuild.
 
-Portfolio City joins street and curb surfaces through bends and intersections. Its wet asphalt captures planar reflections from the current camera when it moves. Weathered concrete, painted steel, and ceramic tiles add detail to the lower walls. The [Comet Night edition](assets/portfolio-car-model/SOURCE.md) adapts a licensed model by 4d_Bob and uses the Comet driving setup. See the [model and texture sources](assets/portfolio/SOURCE.md) and [display art, wall textures, and type](assets/portfolio-type/SOURCE.md).
+Portfolio City joins street and curb surfaces through bends and intersections. Its wet asphalt softens bright reflections while the camera moves. Curved towers, balconies, fire escapes and recessed window bays shape the Market, Campus, and Service districts. The side streets have parked futuristic vehicles, and rooftop emitters project animated ads. The [Comet Night edition](assets/portfolio-car-model/SOURCE.md) adapts a licensed model by 4d_Bob and uses the Comet driving setup. See the [model and texture sources](assets/portfolio/SOURCE.md) and [display art, wall textures, and type](assets/portfolio-type/SOURCE.md).
 
 ## Imported city
 
@@ -41,17 +41,17 @@ A real CSLModernMap export is now converted in `data/imported-city/`: 293 detail
 
 ## Portfolio stops
 
-Portfolio City's six stops are About, Projects, Experience, Education, Skills, and Contact. The guide lists all six and shows the nearest stop while driving. Each story can also send the car to its parking bay. The home page links to both cities.
+Portfolio City's six stops are About, Projects, Experience, Education, Skills, and Interests. About includes public profile links. Interests links to Media Reviews under the blog. The City Guide lists all six and shows the nearest stop while driving. Each story can send the car to its parking bay.
 
 ## Controls and mobile
 
 WASD or arrows drive, Space brakes, E opens a nearby City stop when moving slowly, M toggles the City map, 1–4 select garage cars, and 6 selects the hidden Yangwang U9 Xtreme. C cycles chase/wide/hood cameras, F rights the car in place, and R returns to the route start. Drag or swipe the scene to look around; the view recenters four seconds after release. In the air, up/down apply pitch torque and left/right apply roll torque. Touch pedals support independent fingers. Blur or hiding the tab releases held controls. Committing a route releases selector focus so keyboard driving resumes.
 
-The Full Screen button uses the browser API where supported. On iPhone, the help panel explains Add to Home Screen / Open as Web App. The manifest does not add offline support. Touch targets and safe-area spacing support phone portrait and landscape layouts.
+The HUD reports rendered frames per second. The Full Screen button uses the browser API where supported. On iPhone, the help panel explains Add to Home Screen / Open as Web App. Touch targets and safe-area spacing support phone portrait and landscape layouts.
 
 ## Vehicle assets and credits
 
-The garage uses **Generic passenger car pack** by **Comrade1280**, under **CC BY 4.0**: Coupe (Comet), Hatchback (Rally), Pickup, and Sport (Hypercar). See [visible credits](credits.html), [license](assets/vehicles/passenger/LICENSE.txt), and [conversion provenance](assets/vehicles/passenger/SOURCE.md). Only the selected GLB loads; later selections are cached. Procedural cars remain playable fallbacks if a model fails.
+The garage adapts a rally hatch, an armored pickup, and a DeLorean DMC-12 to the existing chassis setups. Outside Portfolio City, the standard Comet adapts the Coupe from **Generic Passenger Car Pack** by **Comrade1280**, under **CC BY 4.0**. See [visible credits](credits.html) and the [garage sources](assets/vehicles/garage/SOURCE.md). The selected GLB loads on demand and later selections are cached. Procedural cars remain playable fallbacks if a model fails.
 
 The hidden key-6 car lazily loads the user-supplied [2024 Yangwang U9 model](assets/vehicles/u9-xtreme/SOURCE.md) with its original proportions, materials, interior, and exterior details. Only uniform size conversion and four animated wheel pivots are applied for the simulator. Its appearance is the regular U9, while the driving setup uses U9 Xtreme specifications. A lightweight procedural visual remains as a loading and failure fallback. The downloaded mesh is marked **CC BY-NC-SA 4.0**, and its uploader states that it derives from a *Need for Speed Mobile* model; review the [provenance and license notes](assets/vehicles/u9-xtreme/SOURCE.md) before public redistribution. Physics mass, power, and top-speed target follow [BYD's published specifications](https://media.byd.com/focus-technique-de-la-yangwang-u9-a-la-yangwang-u9-xtreme-detentrice-du-record-mondial-de-vitesse/?lang=fra) and [503.17 km/h speed record](https://media.byd.com/the-fastest-gets-faster-yangwang-u9-xtreme-tops-500kmh-to-set-new-global-speed-record-in-abu-dhabi/?lang=eng). Engine force and grip are game tuning; this is not a validated vehicle dynamics model.
 

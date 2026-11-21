@@ -19,7 +19,7 @@
     {id:'experience', title:'Experience', x:112, z:25, heading:0, color:'#ffc082'},
     {id:'education', title:'Education', x:-108, z:34, heading:0, color:'#be9eff'},
     {id:'skills', title:'Skills', x:-52, z:79, heading:west, color:'#b8f19f'},
-    {id:'contact', title:'Contact', x:63, z:-108, heading:east, color:'#ff7dc4'}
+    {id:'contact', title:'Interests', x:63, z:-108, heading:east, color:'#ff7dc4'}
   ];
   const holoLocations = [
     [-7.2,6.15,-51,north,7.4], [0,14.6,47.68,north,29], [125,7.4,25,west,15],
@@ -93,7 +93,12 @@
   // Footprints double as Cannon collision boxes. Upper levels sit on a shared podium.
   const buildings = [];
   function block(x,z,width,depth,height,style,baseY = 0,detail = false) {
-    buildings.push({x,z,width,depth,height,style,baseY,detail});
+    const volume = {x,z,width,depth,height,style,baseY,detail};
+    buildings.push(volume);
+    return volume;
+  }
+  function collisionBlock(...dimensions) {
+    block(...dimensions).collisionOnly = true;
   }
   function tower(x,z,width,depth,height,style,shape,detail = false) {
     if (shape === 'podium') {
@@ -126,7 +131,7 @@
     [-87,37,16,22,38,2,'steps'], [-125,28,15,20,51,2,'podium'],
     [-52,31,19,26,49,2,'twins'], [-34,36,15,14,32,1,'podium'],
     [39,31,16,22,45,0,'cantilever'], [58,44,21,21,70,4,'steps'],
-    [83,15,30,21,15,5,'slab'], [87,-89,18,12,18,5,'slab'],
+    [83,15,30,21,8.85,5,'slab'], [87,-89,18,12,18,5,'slab'],
     [139,19,22,20,23,3,'steps'], [130,-60,13,25,37,5,'twins'],
     [64,-133,25,20,27,6,'steps'], [46,-83,16,21,20,3,'cantilever'],
     [-87,115,15,12,23,2,'podium'], [-43,101,15,15,14,7,'cantilever'],
@@ -147,36 +152,85 @@
     block(x,z,w,d,9.5,style,0,true);
     const opening = skyway.width+1.8, wing = (d-opening)/2;
     for (const side of [-1,1]) block(x,z+side*(opening+wing)/2,w,wing,13,style,9.5);
-    block(x,z,w,d,h*.37,style,22.5,true);
-    block(x-1.4,z+.9,w*.76,d*.74,h*.23,style,22.5+h*.37,true);
-    block(x+1.2,z-1.1,w*.46,d*.46,h*.17,style,22.5+h*.60,true);
+    const upperBlock = x < 0 ? block : collisionBlock;
+    upperBlock(x,z,w,d,h*.37,style,22.5,true);
+    upperBlock(x-1.4,z+.9,w*.76,d*.74,h*.23,style,22.5+h*.37,true);
+    upperBlock(x+1.2,z-1.1,w*.46,d*.46,h*.17,style,22.5+h*.60,true);
   }
 
   const marketTerrace = {x:-61.2,z:14.5,width:13,depth:8.3};
   block(marketTerrace.x,marketTerrace.z,13,8.3,17,2,0,true);
-  block(-64.45,14.5,6.15,8.3,43,1,17,true);
+  collisionBlock(-64.45,14.5,6.15,8.3,43,1,17,true);
   block(-57.25,14.5,4.45,8.3,58,2,17,true);
   block(-60.5,14.5,13,8.3,2.5,3,42,true);
   // The west bend needs its own silhouette even with the rest of the market
   // behind the driver. These stepped setbacks climb alongside the approach.
   block(-92.5,-43.5,11.2,14,16,1,0,true);
-  block(-94.0,-44.0,8.5,10.8,17,2,16,true);
-  block(-95.2,-46.0,6.1,8.8,18,2,33,true);
-  block(-96.0,-47.4,4.7,5.3,11,3,51,true);
+  collisionBlock(-94.0,-44.0,8.5,10.8,17,2,16,true);
+  collisionBlock(-95.2,-46.0,6.1,8.8,18,2,33,true);
+  collisionBlock(-96.0,-47.4,4.7,5.3,11,3,51,true);
 
   const campus = {southX:-63.5,northX:-55.8,south:62.4,north:94.5};
-  block(campus.southX,campus.south,15,13,31,7,0,true);
-  block(campus.southX-.9,campus.south,10.8,10,39,7,31,true);
-  block(campus.northX,campus.north,13,12,45,4,0,true);
-  block(campus.northX+1.8,campus.north,10.5,11,33,7,45,true);
+  block(campus.southX,campus.south,15,13,22,7,0,true);
+  collisionBlock(campus.southX,campus.south,15,13,9,7,22);
+  collisionBlock(campus.southX-.9,campus.south,10.8,10,39,7,31);
+  block(campus.northX,campus.north,13,12,23,4,0,true);
+  collisionBlock(campus.northX,campus.north,13,12,22,4,23);
+  collisionBlock(campus.northX+1.8,campus.north,10.5,11,33,7,45);
 
   const relayTower = {x:133.3,z:-30.4};
   block(relayTower.x,relayTower.z,16.8,15.2,12.8,5,0,true);
-  block(relayTower.x,relayTower.z,10.6,10.6,43,4,12.8,true);
-  block(relayTower.x,relayTower.z,6.8,6.8,20,4,55.8,true);
+  collisionBlock(relayTower.x,relayTower.z,10.6,10.6,43,4,12.8);
+  collisionBlock(relayTower.x,relayTower.z,6.8,6.8,20,4,55.8);
   block(129.0,1.2,13.5,12,22,5,0,true);
   block(130.3,2.7,11,9.6,34,0,22,true);
   block(131.8,-14.3,6.8,29.0,3.45,0,28.9,true);
+  collisionBlock(83.7,14.8,31.6,22.4,6.95,0,8.85);
+  collisionBlock(86.1,16.4,20.8,14,13.1,0,15.8);
+  collisionBlock(-69.6,1.8,21.2,12.8,5,1,9);
+  collisionBlock(-70.0,2.5,16.0,10.6,11.8,1,14);
+
+  // Each contour is [height, X radius, Z radius, X setback, Z setback].
+  // Upper shells are drawn separately from the conservative collision volumes.
+  const shapedTowers = [
+    {id:'market-lantern-hall',x:-69.75,z:1.9,style:1,power:4.35,yaw:-.02,accent:0xffaa82,ribStride:4,
+      contours:[[8.95,9.72,6.08],[10.35,10.56,6.48,-.2],[13.4,10.05,6.12,-.42,.06],[14.9,8.13,5.47,-.4,.6],
+        [17.8,7.51,5.20,-.35,.85],[22.4,7.08,4.88,-.35,.93],[25.8,5.02,3.89,-.12,1.00]],
+      ledges:[[10.32,.54,.82],[15.1,.58,1.24],[20.5,.34,.50],[24.71,.36,.68]]},
+    {id:'service-overlook',x:83,z:15,style:0,power:3.55,yaw:.11,accent:0x8beded,ribStride:2,
+      contours:[[8.81,14.47,10.15],[10.4,15.80,11.1,.51,-.30],[13.8,14.95,10.54,.85,-.2],
+        [15,12.58,8.95,1.55,.52],[17.3,9.80,6.72,2.85,1.43],[21,8.59,6.07,3.41,1.7],
+        [25,7.88,5.73,3.61,1.98],[28.9,5.14,4.21,4.08,2.22]],
+      ledges:[[10.38,.45,1.10],[14.5,.58,1.36],[18,.52,.90],[23.5,.42,.54],[26.9,.35,.68]]},
+    {id:'morrow-spindle',x:36.5,z:-27.5,style:4,power:2.7,yaw:.12,accent:0x83ebe0,ribStride:4,
+      contours:[[27.1,8.7,9.0],[30,9.45,9.4,-.35],[43,9.1,9.0,-.6],[57,8.05,8.65,-1.5,.35],
+        [69,7.2,7.6,-1.35,.83],[81,5.85,6.35,-.2,1.1],[89,3.8,4.6,1.2,1.65],[94,2.45,2.6,1.66,1.45]],
+      ledges:[[30, .60,1.1],[44,.50,.47],[58,.51,1.12],[70,.46,.66],[82,.39,.87],[90,.30,.66]]},
+    {id:'campus-library',x:campus.southX,z:campus.south,style:7,power:4.1,yaw:.0,accent:0xd4eca2,ribStride:4,
+      contours:[[21.96,7.2,6.4],[25,7.6,6.45,.25,.04],[33,6.5,5.85,-.50,-.26],[38,5.2,4.65,-1.15,-.5],
+        [52,4.6,4.2,-1.13,-.5],[58,4.63,4.55,-1.01,-.6],[60,5.7,5.4,-.61,-.45],
+        [65,5.7,5.35,-.48,-.45],[70,4.5,4.25,-.4,-.6]],
+      ledges:[[24,.65,.62],[32.2,.63,1.1],[38,.49,1.32],[48,.40,.41],[60,.52,.78],[65.2,.48,.77],[70,.58,.46]]},
+    {id:'north-campus-observatory',x:campus.northX,z:campus.north,style:4,power:2.35,yaw:-.12,accent:0x9faedc,ribStride:4,
+      contours:[[22.98,6.35,5.9],[28,6.63,5.6],[35,6.29,5.73,.35,.05],[42,6.01,5.55,.70,.42],
+        [49,5.43,5.6,.94,.6],[52,4.27,4.7,1.5,.6],[63,3.7,4.8,1.66,.4],[70,4.38,5.02,1.73,.3],
+        [75,4.1,4.65,1.8,.29],[78,3.0,3.25,1.85,.2]],
+      ledges:[[23.4,.58,.72],[30,.53,.94],[41,.52,.55],[49,.53,.89],[63.3,.49,.54],[70,.69,1.32],[75,.44,.83]]},
+    {id:'market-west-ribbon',x:-64.45,z:14.5,style:1,power:3.1,yaw:.02,accent:0xffad86,ribStride:8,
+      contours:[[16.95,3.05,4.08],[21,3.27,4.35,-.12],[36,3.0,4.16,-.19,.12],
+        [44,2.9,4.05,-.19,.45],[50,2.42,3.65,-.43,.60],[57,2.43,3.68,-.43,.6],[60,1.9,2.85,-.58,.68]],
+      ledges:[[18,.54,.63],[30.2,.38,.81],[42.8,.56,.55],[52,.43,.55],[59.6,.32,.46]]},
+    {id:'western-terrace',x:-92.5,z:-43.5,style:2,power:3.55,yaw:-.07,accent:0xffa789,ribStride:8,
+      contours:[[15.94,5.47,6.58],[19.5,5.19,6.36,-.36,-.45],[27,4.64,5.65,-.80,-.8],
+        [32,4.19,5.19,-1.25,-1.03],[33,3.64,4.85,-1.65,-1.3],[42,3.38,4.39,-2.39,-2.35],
+        [50,2.95,3.46,-2.90,-2.7],[54,2.6,3.1,-3.50,-2.98],[61.7,1.80,2.48,-3.8,-3.42]],
+      ledges:[[16.4,.60,1.06],[22.3,.53,.72],[27.6,.39,1.12],[33,.66,1.34],[38.2,.37,.81],
+        [45.7,.55,1.22],[51.7,.58,.94],[59.7,.45,.65]]},
+    {id:'service-relay-core',x:relayTower.x,z:relayTower.z,style:5,power:2,yaw:.0,accent:0xa6e7dc,ribStride:4,
+      contours:[[12.74,5.33,5.32],[21.5,4.62,5.15],[29,4.29,4.7],[41,3.9,4.6],
+        [52,3.55,4.09],[56.42,3.5,4.0],[62,3.0,3.8],[67,3.40,3.7],[75.8,1.58,1.68]],
+      ledges:[[13,.61,.64],[26.8,.43,.85],[42.3,.42,.73],[52.65,.55,.77],[61.5,.39,.92],[72,.31,.89]]}
+  ];
 
   const rnd = randomFrom(0x23052d);
   function clearFootprint(x,z,w,d) {
@@ -217,7 +271,7 @@
     ...[-66,-37,9,32].flatMap(z => [-1,1].map(side => ({id:'streetlight',x:side*(z < -42 ? 9 : 23),z,y:.06,heading:side*Math.PI/2,height:6.7}))),
     {id:'ac-stacked',x:-31,z:-46,y:0,heading:east,height:2.5},
     {id:'ac-stacked',x:38,z:21,y:0,heading:west,height:2.4},
-    {id:'ac-stacked',x:-68,z:2,y:9,heading:north,height:2.5},
+    {id:'ac-stacked',x:-58,z:5.6,y:9.25,heading:north,height:2.5},
     {id:'antenna',x:-12,z:83,y:81,heading:0,height:7.6},
     {id:'antenna',x:135,z:-66,y:8,heading:east,height:5},
     {id:'tv-tower',x:55,z:44,y:70,heading:0,height:10},
@@ -228,7 +282,7 @@
     {id:'tank',x:102,z:-70,y:0,heading:west,height:4.4},
     {id:'platform',x:25,z:49,y:.07,heading:north,height:6},
     {id:'sushi-truck',x:-72,z:-30.5,y:.07,heading:east,height:3.4},
-    {id:'signs',x:-70,z:2,y:9,heading:north,height:4.8},
+    {id:'signs',x:-70,z:-5.78,y:9.25,heading:north,height:4.8},
     {id:'signs',x:26,z:-47,y:6,heading:west,height:5.7}
   ];
 
@@ -333,16 +387,17 @@
     return texture;
   }
 
-  function tileWallMaterial(THREE,material,facade,surface) {
+  function tileWallMaterial(THREE,material,facade,surface,upperCladding) {
     if (!facade && !surface) return material;
-    material.customProgramCacheKey = () => `wall:${Boolean(facade)}:${Boolean(surface)}`;
+    material.customProgramCacheKey = () => `wall:${Boolean(facade)}:${Boolean(surface)}:${Boolean(upperCladding)}`;
     material.onBeforeCompile = shader => {
       const point = 'districtPoint.xy';
       const facadeUv = `(${point} / districtPeriod)`;
       let uniforms = '';
       if (facade) {
-        uniforms += 'uniform vec2 districtPeriod;\n';
+        uniforms += 'uniform vec2 districtPeriod; uniform vec3 districtRoof;\n';
         shader.uniforms.districtPeriod = {value:new THREE.Vector2(facade.width,facade.height)};
+        shader.uniforms.districtRoof = {value:new THREE.Color(facade.wall).convertSRGBToLinear().multiplyScalar(.39)};
       }
       if (surface) {
         uniforms += 'uniform sampler2D districtSurface; uniform vec2 districtSurfacePeriod;\n'
@@ -351,6 +406,14 @@
         shader.uniforms.districtSurfacePeriod = {value:new THREE.Vector2(surface.width,surface.height)};
         shader.uniforms.districtSurfaceMix = {value:new THREE.Vector4(surface.opacity,surface.fadeStart,surface.fadeEnd,surface.tint)};
         shader.uniforms.districtSurfaceReady = surface.ready;
+      }
+      if (upperCladding) {
+        uniforms += 'uniform sampler2D masonryColor; uniform vec2 masonryPeriod;\n'
+          + 'uniform vec2 masonryTone; uniform float masonryReady;\n';
+        shader.uniforms.masonryColor = {value:upperCladding.texture};
+        shader.uniforms.masonryPeriod = {value:new THREE.Vector2(upperCladding.width,upperCladding.height)};
+        shader.uniforms.masonryTone = {value:new THREE.Vector2(upperCladding.opacity,upperCladding.tint)};
+        shader.uniforms.masonryReady = upperCladding.ready;
       }
       shader.vertexShader = `varying vec4 districtPoint;\n${shader.vertexShader}`
         .replace('#include <uv_vertex>',`#include <uv_vertex>
@@ -366,9 +429,23 @@
       shader.fragmentShader = `varying vec4 districtPoint;\n${uniforms}${shader.fragmentShader}`;
       if (facade) {
         shader.fragmentShader = shader.fragmentShader
-          .replace('#include <map_fragment>',THREE.ShaderChunk.map_fragment.replace('vUv',facadeUv))
-          .replace('#include <emissivemap_fragment>',THREE.ShaderChunk.emissivemap_fragment.replace('vUv',facadeUv))
-          .replace('#include <bumpmap_pars_fragment>',THREE.ShaderChunk.bumpmap_pars_fragment.replace(/\bvUv\b/g,`(${facadeUv} * 4.8)`));
+          .replace('#include <map_fragment>',`${THREE.ShaderChunk.map_fragment.replace('vUv',facadeUv)}
+            diffuseColor.rgb = mix(districtRoof, diffuseColor.rgb, districtPoint.w);`)
+          .replace('#include <emissivemap_fragment>',`${THREE.ShaderChunk.emissivemap_fragment.replace('vUv',facadeUv)}
+            totalEmissiveRadiance *= districtPoint.w;`)
+          .replace('#include <roughnessmap_fragment>',`#include <roughnessmap_fragment>
+            roughnessFactor = mix(.92, roughnessFactor, districtPoint.w);`)
+          .replace('#include <bumpmap_pars_fragment>',THREE.ShaderChunk.bumpmap_pars_fragment.replace(/\bvUv\b/g,`(${facadeUv} * 4.8)`))
+          .replace('#include <normal_fragment_maps>',THREE.ShaderChunk.normal_fragment_maps
+            .replace('dHdxy_fwd()', 'dHdxy_fwd() * districtPoint.w'));
+      }
+      if (upperCladding) {
+        // Emissive alpha encodes wall material behind lit and unlit window bays.
+        shader.fragmentShader = shader.fragmentShader.replace('#include <color_fragment>',`#include <color_fragment>
+          float masonryMask = texture2D(emissiveMap, ${facadeUv}).a * districtPoint.w;
+          vec3 masonry = sRGBToLinear(texture2D(masonryColor, ${point} / masonryPeriod)).rgb;
+          float finishBlend = smoothstep(5.5,12.0,districtPoint.z) * masonryMask * masonryTone.x * masonryReady;
+          diffuseColor.rgb = mix(diffuseColor.rgb,masonry*masonryTone.y,finishBlend);`);
       }
       if (surface) {
         // Blend the cladding into the wall color before lighting.
@@ -383,7 +460,7 @@
     return material;
   }
 
-  function facadeMaterial(THREE,style,grime,surface) {
+  function facadeMaterial(THREE,style,grime,surface,upperCladding) {
     const facade = facades[style];
     const size = 128, bytes = size*size*4;
     const diffuse = new Uint8Array(bytes), emission = new Uint8Array(bytes);
@@ -395,10 +472,11 @@
       const u=x/size,v=y/size,tileX=x%32,tileY=y%32,i=(y*size+x)*4;
       const occupied=occupancy[Math.floor(y/16)*8+Math.floor(x/16)];
       const grain=.75+.38*random(), corrosion=.90+.12*Math.sin(u*35+Math.cos(v*14)*.8);
-      let shade=1, glow=0;
+      let shade=1, glow=0, masonry=1;
       switch (style) {
         case 0: { // Tall sections of tinted glass and narrow mullions.
           const mullion=x%16 < 2 || tileY<3;
+          masonry=mullion ? 1 : 0;
           shade=mullion ? 1.23 : .29+(.38+u*.16)*(tileY/32);
           if (!mullion && occupied>.71) glow=(.26+.23*occupied)*(1-tileY/64);
           break;
@@ -407,6 +485,7 @@
           const row=Math.floor(y/4), brick=(x+(row%2)*6)%12;
           shade=y%4===0 || brick<1 ? .47 : .92+(row%3)*.12;
           if (tileX>=8 && tileX<24 && tileY>8 && tileY<25) {
+            masonry=0;
             shade=tileX===16 || tileY===18 ? .42 : .25;
             if (occupied>.58 && tileX!==16 && tileY!==18) glow=.49+tileY*.012;
           }
@@ -415,6 +494,7 @@
         case 2: { // Ribbed balcony slabs and deep, asymmetrical recesses.
           shade=tileY<4 ? 1.5 : tileY<10 ? .30 : .70;
           if (tileX>9 && tileX<27 && tileY>10 && tileY<21) {
+            masonry=0;
             shade=tileX%4===0 ? .55 : .20;
             if (occupied>.63 && tileX%4!==0) glow=.34+(x%3)*.055;
           }
@@ -428,6 +508,7 @@
         }
         case 4: { // Tall server cassettes with instrument LEDs.
           shade=x%16<2 || y%24<2 ? 1.3 : y%4<2 ? .55 : .24;
+          masonry=x%16<2 || y%24<2 ? 1 : 0;
           if (x%16===5 && y%12===4 && occupied>.23) glow=.93;
           if (x%32<3 && y%39>8 && y%39<34 && occupied>.47) glow=.28;
           break;
@@ -436,6 +517,7 @@
           shade=.61+(y%5)*.14;
           if (tileX===1 || tileY===1) shade=.42;
           if (tileY>24 && tileX>5 && tileX<27) {
+            masonry=0;
             shade=y%2===0 ? .30 : 1.13;
             if (y%2!==0 && occupied>.60) glow=.41;
           }
@@ -450,19 +532,20 @@
         }
         case 7: { // Heavy timber-colored posts and large library windows.
           const frame=tileX<5 || tileY<8 || tileY>26;
+          masonry=frame ? 1 : 0;
           shade=frame ? 1.25 : .22+(tileY%9)*.06;
           if (!frame && tileX%11!==0 && occupied>.54) glow=.45;
           break;
         }
       }
       diffuse.set([wall.r*shade*grain*corrosion*255,wall.g*shade*grain*255,wall.b*shade*grain*255,255],i);
-      emission.set([light.r*glow*255,light.g*glow*255,light.b*glow*255,255],i);
+      emission.set([light.r*glow*255,light.g*glow*255,light.b*glow*255,masonry*255],i);
     }
     const material = new THREE.MeshStandardMaterial({map:repeatedTexture(THREE,diffuse,size),
       emissiveMap:repeatedTexture(THREE,emission,size),emissive:0xffffff,emissiveIntensity:1.1,
       roughness:facade.roughness,metalness:.21,bumpMap:grime,bumpScale:.045});
     // Repeat every tile in world metres so one material fits buildings of different sizes.
-    return tileWallMaterial(THREE,material,facade,surface);
+    return tileWallMaterial(THREE,material,facade,surface,upperCladding);
   }
 
   function surfaceTexture(THREE,slabs) {
@@ -518,6 +601,151 @@
     const texture = new THREE.CanvasTexture(canvas);
     texture.encoding = THREE.sRGBEncoding;
     return texture;
+  }
+
+  const contourSides = 32;
+
+  function contourPoint(tower, [y, radiusX, radiusZ, shiftX=0, shiftZ=0], sector) {
+    const angle=sector/contourSides*Math.PI*2;
+    const c=Math.cos(angle), s=Math.sin(angle), round=2/tower.power;
+    const px=Math.sign(c)*Math.abs(c)**round*radiusX, pz=Math.sign(s)*Math.abs(s)**round*radiusZ;
+    const yawCos=Math.cos(tower.yaw), yawSin=Math.sin(tower.yaw);
+    return [tower.x+shiftX+px*yawCos+pz*yawSin,y,tower.z+shiftZ-px*yawSin+pz*yawCos];
+  }
+
+  function contourAt(tower, y, extend=0) {
+    const rings=tower.contours;
+    let next=rings.findIndex(([height])=>height>=y);
+    if (next<0) next=rings.length-1;
+    const a=rings[Math.max(0,next-1)], b=rings[next];
+    const mix=a===b ? 0 : Math.max(0,Math.min(1,(y-a[0])/(b[0]-a[0])));
+    const value=i=>(a[i]||0)+((b[i]||0)-(a[i]||0))*mix;
+    return [y,value(1)+extend,value(2)+extend,value(3),value(4)];
+  }
+
+  function contourGeometry(THREE,tower,sections,uPeriod,vPeriod,closed) {
+    const positions=[], uv=[], indices=[], seams=[];
+    // Use one circumference for every level. Recomputing it at each setback
+    // shears window columns as the wall tapers.
+    const reference=tower.contours[0];
+    const arc=[0];
+    let prior=contourPoint(tower,reference,0);
+    for (let i=1;i<=contourSides;i++) {
+      const next=contourPoint(tower,reference,i);
+      arc.push(arc[i-1]+Math.hypot(next[0]-prior[0],next[2]-prior[2]));
+      prior=next;
+    }
+    const circumference=arc.at(-1);
+    const tiles=Math.max(1,Math.round(circumference/uPeriod));
+    function append(point,u,v) {
+      const index=positions.length/3;
+      positions.push(...point);
+      uv.push(u,v);
+      return index;
+    }
+    function cap(ring,upper) {
+      const [y,,,x=0,z=0]=ring;
+      const middle=append([tower.x+x,y,tower.z+z],.5,.5);
+      for (let i=0;i<contourSides;i++) {
+        const a=append(contourPoint(tower,ring,i),0,0);
+        const b=append(contourPoint(tower,ring,i+1),1,1);
+        indices.push(middle,upper ? b : a,upper ? a : b);
+      }
+    }
+    for (const section of sections) {
+      let previousStart=-1;
+      for (const ring of section) {
+        const start=positions.length/3;
+        for (let i=0;i<=contourSides;i++) {
+          const point=contourPoint(tower,ring,i);
+          append(point,arc[i]*tiles/circumference,ring[0]/vPeriod);
+          if (i<contourSides && previousStart>=0) {
+            const a=previousStart+i, b=start+i;
+            indices.push(a,b,a+1,b,b+1,a+1);
+          }
+        }
+        seams.push([start,start+contourSides]);
+        previousStart=start;
+      }
+      if (closed) {
+        cap(section[0],false);
+        cap(section.at(-1),true);
+      }
+    }
+    const geometry=new THREE.BufferGeometry();
+    geometry.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));
+    geometry.setAttribute('uv',new THREE.Float32BufferAttribute(uv,2));
+    geometry.setIndex(indices);
+    geometry.computeVertexNormals();
+    const normal=geometry.attributes.normal;
+    const blend=new THREE.Vector3(), other=new THREE.Vector3();
+    for (const [a,b] of seams) {
+      blend.fromBufferAttribute(normal,a).add(other.fromBufferAttribute(normal,b)).normalize();
+      normal.setXYZ(a,blend.x,blend.y,blend.z);
+      normal.setXYZ(b,blend.x,blend.y,blend.z);
+    }
+    return geometry;
+  }
+
+  function addSculptedTowers(THREE,world,facadeMaterials,materials,instance,beam) {
+    const ledgeMaterial=new THREE.MeshStandardMaterial({color:0x283139,metalness:.36,roughness:.58});
+    const curtainMaterials=new Map();
+    function curtain(style) {
+      if (!curtainMaterials.has(style)) {
+        const source=facadeMaterials[style];
+        curtainMaterials.set(style,new THREE.MeshStandardMaterial({map:source.map,emissiveMap:source.emissiveMap,
+          emissive:0xc9d9e8,emissiveIntensity:.80,roughness:source.roughness,metalness:.24}));
+      }
+      return curtainMaterials.get(style);
+    }
+    function shell(tower,name,sections,material,closed) {
+      const {width,height}=facades[tower.style];
+      const mesh=new THREE.Mesh(contourGeometry(THREE,tower,sections,width,height,closed),material);
+      mesh.name='portfolio-'+tower.id+'-'+name;
+      mesh.userData.portfolioAuditSolid = true;
+      world.add(mesh);
+    }
+
+    instance('portfolio-transfer-round-base',materials.steel,36.5,24.82,-27.5,17.5,4.64,18);
+    for (const tower of shapedTowers) {
+      shell(tower,'facade',[tower.contours],curtain(tower.style),false);
+      const top=tower.contours.at(-1)[0];
+      const racks=[...tower.ledges,[top+.17,.34,.24]];
+      const plates=racks.map(([height,thickness,extend])=>[
+        contourAt(tower,height-thickness/2,extend*.84),contourAt(tower,height+thickness/2,extend)
+      ]);
+      shell(tower,'terraces',plates,ledgeMaterial,true);
+
+      const minY=tower.contours[0][0];
+      for (let sector=0;sector<contourSides;sector+=tower.ribStride) {
+        for (let i=1;i<tower.contours.length;i++) {
+          const [lower]=tower.contours[i-1], [upper]=tower.contours[i];
+          const start=Math.max(lower,minY+.34), end=Math.min(upper,top-.06);
+          if (end-start<.30) continue;
+          beam('portfolio-architecture-frames',materials.metal,
+            contourPoint(tower,contourAt(tower,start,.09),sector),contourPoint(tower,contourAt(tower,end,.09),sector),.28,.24);
+        }
+      }
+      for (const [height,thickness,extend] of tower.ledges) {
+        if (extend<.75) continue;
+        const trim=contourAt(tower,height+thickness/2+.04,extend*.90);
+        const lighting=contourAt(tower,height-.12,extend+.06);
+        for (let i=0;i<contourSides;i+=2) {
+          const a=contourPoint(tower,trim,i), b=contourPoint(tower,trim,i+2);
+          beam('portfolio-architecture-rails',materials.metal,[a[0],a[1]+.84,a[2]],[b[0],b[1]+.84,b[2]],.095,.099);
+          instance('portfolio-architecture-rails',materials.metal,a[0],a[1]+.37,a[2],.085,.83,.085);
+          if (i%8<4) beam('portfolio-architecture-ledge-lights',materials.light,
+            contourPoint(tower,lighting,i),contourPoint(tower,lighting,i+2),.085,.11,tower.accent);
+        }
+      }
+      const [,rx,rz,xShift=0,zShift=0]=tower.contours.at(-1);
+      const x=tower.x+xShift, z=tower.z+zShift;
+      if (tower.id!=='service-relay-core') {
+        instance('portfolio-architecture-roof-plant',materials.steel,x,top+.97,z,rx*.93,1.5,rz*.94,tower.yaw);
+        instance('portfolio-architecture-roof-plant',materials.metal,x-rx*.42,top+2.4,z+.37,.54,4.4,.58);
+        instance('portfolio-architecture-roof-markers',materials.light,x-rx*.42,top+4.63,z+.37,.23,.13,.23,0,0xf77d60);
+      }
+    }
   }
 
   function build(THREE,world,{wetReflections=false}={}) {
@@ -576,7 +804,7 @@
           positions.push(g.x+x*cos+z*sin,.093,g.z+z*cos-x*sin);
           colors.push(color.r,color.g,color.b);
           uvs.push(u,v);
-          strengths.push(g.strength*(wetReflections ? .28 : 1));
+          strengths.push(g.strength*(wetReflections ? .42 : 1));
         }
       }
       geometry.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));
@@ -705,6 +933,7 @@
       });
       texture.name = file;
       texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+      texture.anisotropy = 4;
       wallTextures.push(texture);
       return {texture,ready,width,height,opacity,fadeStart,fadeEnd,tint};
     }
@@ -721,9 +950,19 @@
       new THREE.MeshStandardMaterial({color:surfaceColor(0x554947),roughness:.68}),null,marketTile);
     const facadeMaterials = facades.map((_,style) => facadeMaterial(THREE,style,grime,
       style===3 || style===5 ? servicePanels : null));
+    const brick = loadWallTexture('terrace-brick.webp',{width:2.65,height:2.2,opacity:.76,tint:.8});
+    const stone = loadWallTexture('cast-stone.webp',{width:4.2,height:3.7,opacity:.68,tint:.41});
+    const titanium = loadWallTexture('ribbed-titanium.webp',{width:3.6,height:5.0,opacity:.74,tint:1.0});
+    const upperCladding = [null,brick,stone,titanium,null,titanium,stone,stone];
+    const cladFacadeMaterials = upperCladding.map((finish,style) => finish &&
+      facadeMaterial(THREE,style,grime,style===3 || style===5 ? servicePanels : null,finish));
     for (const [index,b] of buildings.entries()) {
+      if (b.collisionOnly) continue;
       const {name,light:color}=facades[b.style];
-      instance('portfolio-building-'+name,facadeMaterials[b.style],b.x,b.baseY+b.height/2,b.z,b.width,b.height,b.depth);
+      const arrival = Math.abs(b.x)<28 && b.z<-36;
+      const finish = !arrival && b.detail && cladFacadeMaterials[b.style];
+      instance('portfolio-building-'+name+(finish ? '-clad' : ''),finish || facadeMaterials[b.style],
+        b.x,b.baseY+b.height/2,b.z,b.width,b.height,b.depth);
       const detailed = b.detail && b.width > 3;
       if (detailed && !b.baseY) {
         const tiledMarket = b.style===1 || (b.style===2 && b.x<0 && b.z<55);
@@ -745,7 +984,7 @@
       }
       if (b.height < 8) continue;
       const roof=b.baseY+b.height;
-      instance('portfolio-roofs',materials.steel,b.x,roof-.28,b.z,b.width+.11,.56,b.depth+.11);
+      instance('portfolio-roofs',materials.steel,b.x,roof+.115,b.z,b.width+.11,.29,b.depth+.11);
       // Give each district matching details and leave background silhouettes quiet.
       if (detailed && (index%3 === 0 || b.style===0 || b.style===4)) {
         for (const side of [-1,1]) {
@@ -764,6 +1003,8 @@
         }
       }
     }
+
+    addSculptedTowers(THREE,world,facadeMaterials,materials,instance,beam);
 
     for (const segment of testRamp) {
       instance('portfolio-ramp',materials.metal,segment.x,segment.centerY,segment.z,segment.width,.5,segment.slopeLength,0,null,segment.pitch);
@@ -876,10 +1117,6 @@
     }
     for (const side of [-1,1]) instance('portfolio-service-bridge-lights',materials.light,
       131.8+side*3.44,32.3,-14.3,.095,.9,27.8,0,0x8ce9da);
-    for (const [x,y,z,width] of [[-92.5,16,-37,11.5],[-94,33,-38.6,8.85],[-95.2,51,-41.4,6.45],[-96,62,-44.8,5.0]]) {
-      instance('portfolio-market-terrace-railing',materials.copper,x,y+.41,z,width,.85,.13);
-      instance('portfolio-market-terrace-lights',materials.light,x,y+.61,z+.08,width*.87,.091,.074,0,0xfab18e);
-    }
     const relayAssembly = new THREE.Group();
     relayAssembly.name='portfolio-service-beacon';
     relayAssembly.position.set(relayTower.x,0,relayTower.z);
@@ -959,7 +1196,7 @@
       [24,5.7,-4,11,2.2,north,'SERVICE DISTRICT','EXPERIENCE / TEST BAY',0xffbf79,8.5],
       [-82,4.4,-9.1,6.5,1.8,north,'MARKET','FOOD / REPAIRS',0xff90ae,5.6],
       [-30,3.8,66.5,7.5,2.1,east,'CAMPUS','SKILLS',0xc1eda9,5.6],
-      [112,5.3,-95,10.2,2.1,0,'SOUTH STREET','CONTACT',0xfa93a7,21.4]
+      [112,5.3,-95,10.2,2.1,0,'SOUTH STREET','INTERESTS',0xfa93a7,21.4]
     ];
     for (const [x,y,z,w,h,facing,head,sub,color,poleSpan] of marquees) {
       sign(x,y,z,w,h,facing,head,sub,color,{poleSpan});

@@ -21,3 +21,19 @@ The three wall textures were created with the built-in ImageGen tool and encoded
 ### `market-tile.webp`
 
 > Use case: photorealistic-natural. Asset type: repeating albedo texture for a browser 3D game in a dense near-future city. Square perfectly seamless texture of stained rectangular ceramic tile straight on, the facade of a decades-old underground market entrance near the street. Small subway-format tiles in even running bond, around eight rows tall and around five tiles wide. Muted dingy desaturated bone, soot gray, subtle old olive, with a few replacement tiles very slightly lighter. Uneven three-decade accumulation of faint grime in grout, subtle mineral stains, small glaze chips and rough speckling. Tone and scale consistent across the image. Match top/bottom and left/right grout and colors seamlessly. Flat orthographic close-up material scan fills the frame. Even diffuse light and medium-low contrast. No highlights or directional shadows baked into the image, no floor horizon, loose pieces, lettering, labels or framing.
+
+## Upper-storey cladding
+
+The built-in ImageGen tool created these three wall finishes. They were encoded as 768 × 768 WebP tiles for the brick, metal and cast-stone bays and tower cladding.
+
+### `ribbed-titanium.webp`
+
+> Use case: photorealistic-natural. Asset type: seamless upper-building façade material albedo for a rainy near-future browser game. Square edge-to-edge orthographic material scan: smoked blue charcoal architectural titanium or anodized aluminum standing-seam panels, with restrained repetitive fine vertical ribs, shallow rectangular panel joints, small convincing maintenance fasteners, slight streaking and faint uneven abrasion. Aim for an actual scale around 3 meters edge to edge, around 9 to 13 narrow ribs in the image, subtly varying warm/cool dark slate metallic surface value. Clean mostly industrial palette with light wear, not wrecked. Medium contrast readable in a night scene. Flat diffuse exposure with no baked highlights. Opposite edges must tile continuously, no border, perspective, props, room, windows, art, lighting gradient, shadow, logo, or text.
+
+### `terrace-brick.webp`
+
+> Use case: photorealistic-natural. Asset type: seamless albedo for the upper floors of mid-century housing in a compact near-future night market. Square straight-on close scan of warm soot-stained umber brown and terracotta architectural brick, slender long kiln fired bricks in a neat running bond, slightly warped texture, graphite lime mortar, faint mineral staining and a few repaired bricks, muted earth palette with recognizable differentiation between individual bricks. About 3 m edge to edge, around 13 to 16 courses tall, evenly crisp close surface detail, balanced no one conspicuous stain. Use uniform diffuse exposure, fill all corners edge-to-edge, match horizontal and vertical boundaries so it repeats invisibly. No windows, building in perspective, directional shading, lighting gradient, lettering, branding, borders, or stickers.
+
+### `cast-stone.webp`
+
+> Use case: photorealistic-natural. Asset type: seamless square albedo texture for precision cast stone and pale warm concrete upper floors of a futuristic campus. A flat orthographic close scan of wide, smooth, light warm-gray architectural precast cladding panels with narrow shallow horizontal and vertical panel seams, softly pitted limestone aggregate, tiny chips near joints, a few pale streaks and restrained everyday patina. Four to six panels believable at around 4 meters scale; slightly varied values, soft oyster and stone tones, avoid pure white. Readable diffuse physical texture from a street camera with no harsh contrast. Tile top to bottom and left to right. Whole frame is the material. No actual window, perspective, vignette, light source, ambient shadows, strong baked specular, props, logo, text or border.

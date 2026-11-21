@@ -1,7 +1,8 @@
-/* Comrade1280's Generic passenger car pack, CC BY 4.0. See /drive/credits.html. */
+/* Garage model credits and licenses are listed in /drive/credits.html. */
 (function(root) {
   'use strict';
-  const files = {comet:'comet',rally:'rally',pickup:'pickup',hypercar:'hypercar'};
+  const files = {comet:'passenger/comet.glb',rally:'garage/rally.glb',pickup:'garage/pickup.glb',hypercar:'garage/delorean.glb'};
+  const credits = {comet:'Comrade1280 · CC BY 4.0',rally:'tevy · CC0',pickup:'Quaternius · CC0',hypercar:'JandroS · CC BY 4.0'};
   const wheelNames = ['wheel-back-right','wheel-front-right','wheel-back-left','wheel-front-left'];
   function prepare(source, spec) {
     source.updateMatrixWorld(true);
@@ -62,9 +63,9 @@
   }
   function load(type,spec,success,failure) {
     if(!THREE.GLTFLoader){failure(new Error('Vehicle loader unavailable'));return;}
-    new THREE.GLTFLoader().load('assets/vehicles/passenger/'+files[type]+'.glb',gltf=>{
+    new THREE.GLTFLoader().load('assets/vehicles/'+files[type],gltf=>{
       try{success(prepare(gltf.scene,spec));}catch(error){failure(error);}
     },undefined,failure);
   }
-  root.DriveVehicleAssets={load,prepare,files};
+  root.DriveVehicleAssets={load,prepare,files,credits};
 })(typeof globalThis!=='undefined'?globalThis:this);

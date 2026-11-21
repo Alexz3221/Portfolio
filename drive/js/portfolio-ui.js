@@ -9,8 +9,9 @@
   const stories = {
     about: {
       title: 'About',
-      body: `<p>I study computer science at CU Boulder. My projects include this driving game, a local story and image app, and tools for testing language models.</p>
-        <div class="city-link-row"><a href="../" class="city-inline-link">Home</a><a href="../blog/" class="city-inline-link">Blog</a></div>`
+      body: `<p>I’m Alex Zhou, a computer science grad student at CU Boulder. I studied computer science and math there as an undergrad.</p>
+        <p>My projects range from this driving game to a local app for writing branching stories. I also work on small language models and video workflows at Spectrum.</p>
+        <div class="city-link-row"><a href="https://github.com/Alexz3221" target="_blank" rel="noopener noreferrer" class="city-inline-link">GitHub</a><a href="https://www.linkedin.com/in/alex-zhou2/" target="_blank" rel="noopener noreferrer" class="city-inline-link">LinkedIn</a><a href="../" class="city-inline-link">Home</a></div>`
     },
     projects: {
       title: 'Projects',
@@ -44,20 +45,19 @@
     skills: {
       title: 'Skills',
       body: `<div class="city-tool-grid">
-        <div><span>Languages</span><p>Python, TypeScript, JavaScript, C/C++, Java, SQL, and Bash.</p></div>
-        <div><span>Web and infrastructure</span><p>React, Node, Express, Firebase, GCP, and Jenkins.</p></div>
-        <div><span>Data and machine learning</span><p>Databricks, Spark, video workflows, and small language models.</p></div>
+        <div><span>Web and 3D</span><p>JavaScript, TypeScript, React, and Three.js. This city runs in the browser with a fixed-step vehicle simulation, streamed models, and a custom reflection pass.</p></div>
+        <div><span>Backends and tooling</span><p>Node, Express, Firebase, GCP, Jenkins, SQL, and Bash. I’ve worked on an event-driven backend and built the records and replay sharing for this game.</p></div>
+        <div><span>Data and machine learning</span><p>Python, Spark, and Databricks. I’ve built LLM dataset pipelines, worked on a materials prediction project, and written tools for inspecting individual model neurons.</p></div>
+        <div><span>Systems</span><p>C, C++, and Java. My co-op work includes systems software and video packaging workflows.</p></div>
         </div>`
     },
     contact: {
-      title: 'Contact',
-      body: `<div class="city-signal-links">
-        <a href="https://www.linkedin.com/in/alex-zhou2/" target="_blank" rel="noopener noreferrer"><strong>LinkedIn</strong></a>
-        <a href="https://github.com/Alexz3221" target="_blank" rel="noopener noreferrer"><strong>GitHub</strong></a>
-        </div>`
+      title: 'Interests',
+      body: `<p>I like games with places worth getting lost in, branching stories, and translated novels. Those interests show up in this city, the story editor, and my private reader.</p>
+        <div class="city-link-row"><a href="../blog/?section=reviews" class="city-inline-link">Media Reviews</a><a href="../blog/" class="city-inline-link">Blog and story drafts</a><a href="../reader/" class="city-inline-link">One More Chapter</a></div>`
     }
   };
-  const labels = {about: 'About', projects: 'Projects', experience: 'Experience', education: 'Education', skills: 'Skills', contact: 'Contact'};
+  const labels = {about: 'About', projects: 'Projects', experience: 'Experience', education: 'Education', skills: 'Skills', contact: 'Interests'};
   const obamnasAmericaCenters = {
     'center-4_-2': 'Downtown Core',
     'center-0_3': 'North Center',

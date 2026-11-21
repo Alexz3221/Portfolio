@@ -6,6 +6,26 @@ const physics = require('../js/physics');
 const city = require('../js/portfolio-city');
 const playground = require('../js/portfolio-play');
 
+test('visible roof caps stand above the old roof plane', () => {
+  const world = new THREE.Group();
+  city.build(THREE, world);
+  const roofs = world.getObjectByName('portfolio-roofs');
+  const matrix = new THREE.Matrix4();
+  const position = new THREE.Vector3(), scale = new THREE.Vector3(), rotation = new THREE.Quaternion();
+  assert.ok(roofs.count > 30);
+  for (let index = 0; index < roofs.count; index++) {
+    roofs.getMatrixAt(index, matrix);
+    matrix.decompose(position, rotation, scale);
+    const top = position.y + scale.y / 2;
+    const source = city.buildings.find(building => !building.collisionOnly &&
+      Math.abs(building.x - position.x) < .001 && Math.abs(building.z - position.z) < .001 &&
+      Math.abs(building.width + .11 - scale.x) < .001 && Math.abs(building.depth + .11 - scale.z) < .001 &&
+      Math.abs(building.baseY + building.height - top) < .6);
+    assert.ok(source, 'each cap has a corresponding roof');
+    assert.ok(top - (source.baseY + source.height) > .1, 'the visible faces have real separation');
+  }
+});
+
 test('the portfolio city has six drivable stops and collision-backed buildings', () => {
   assert.notEqual(city, physics.city);
   assert.deepEqual(city.stops.map(stop => stop.id).sort(),

@@ -28,16 +28,17 @@
     const imageSize = new THREE.Vector2(1, 1);
     const capturePosition = new THREE.Vector3(), captureRotation = new THREE.Quaternion();
     const captureProjection = new THREE.Matrix4();
+    const previousPosition = new THREE.Vector3(), previousRotation = new THREE.Quaternion();
     const texture = new THREE.TextureLoader().load('assets/portfolio/asphalt-diffuse.jpg', image => {
       if (disposed) image.dispose();
       else uniforms.wetHasAsphalt.value = 1;
     }, undefined, () => { /* Procedural aggregate is available before the texture arrives. */ });
     texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
     texture.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
-    let disposed = false, elapsed = Infinity;
+    let disposed = false, elapsed = Infinity, hasPreviousCamera = false;
     const uniforms = {
       wetImage:{value:target.texture}, wetProjection:{value:projection}, wetSize:{value:imageSize},
-      wetAsphalt:{value:texture}, wetHasAsphalt:{value:0}, wetImageReady:{value:0}
+      wetAsphalt:{value:texture}, wetHasAsphalt:{value:0}, wetImageReady:{value:0}, wetMotion:{value:0}
     };
 
     for (const material of materials) {
@@ -64,7 +65,7 @@
             varying vec2 wetStreet;
             uniform sampler2D wetImage, wetAsphalt;
             uniform vec2 wetSize;
-            uniform float wetHasAsphalt, wetImageReady;
+            uniform float wetHasAsphalt, wetImageReady, wetMotion;
             float aggregate(vec2 p) { return fract(sin(dot(p,vec2(93.17,71.31)))*453.47); }
           `)
           .replace('#include <color_fragment>', `#include <color_fragment>
@@ -81,11 +82,15 @@
               + sin(wetStreet.y*1.29+wetStreet.x*.44)*.12);
             float viewAngle = max(0., dot(normal, normalize(vViewPosition)));
             float fresnel = pow(1. - viewAngle, 2.7);
-            vec2 smear = vec2(mix(2.6,.54,puddle),mix(3.4,.76,puddle)) / wetSize;
-            vec3 streetMirror = texture2D(wetImage, reflected).rgb * .46;
-            streetMirror += texture2D(wetImage, reflected + smear).rgb * .27;
-            streetMirror += texture2D(wetImage, reflected - smear).rgb * .27;
-            float reflectivity = (.17+.5*fresnel) * mix(.22,1.,puddle) * fade
+            vec2 smear = vec2(mix(3.9,1.1,puddle),mix(4.8,1.6,puddle))
+              * (1. + fresnel*.6 + wetMotion*1.8) / wetSize;
+            vec3 streetMirror = texture2D(wetImage, reflected).rgb * .32;
+            streetMirror += texture2D(wetImage, reflected + smear).rgb * .17;
+            streetMirror += texture2D(wetImage, reflected - smear).rgb * .17;
+            streetMirror += texture2D(wetImage, reflected + vec2(smear.x,-smear.y)).rgb * .17;
+            streetMirror += texture2D(wetImage, reflected + vec2(-smear.x,smear.y)).rgb * .17;
+            streetMirror /= 1.0 + .45 * max(streetMirror.r,max(streetMirror.g,streetMirror.b));
+            float reflectivity = (.16+.46*fresnel) * mix(.25,.94,puddle) * fade * mix(1.,.57,wetMotion)
               * smoothstep(.01,.4,wetClip.w) * wetImageReady;
             outgoingLight = outgoingLight * (1. - .34 * reflectivity) + streetMirror * reflectivity;
             gl_FragColor = vec4( outgoingLight, diffuseColor.a );
@@ -96,6 +101,18 @@
 
     function update(camera, delta) {
       elapsed += delta;
+      if (hasPreviousCamera && delta > 0) {
+        const displacement = camera.position.distanceTo(previousPosition);
+        const rotation = 2 * Math.acos(Math.min(1, Math.abs(camera.quaternion.dot(previousRotation))));
+        const pan = THREE.MathUtils.smoothstep(rotation / delta, .16, 1.65);
+        const travel = THREE.MathUtils.smoothstep(displacement / delta, 3.5, 25);
+        const motion = Math.max(pan, travel);
+        const factor = 1 - Math.exp(-(motion > uniforms.wetMotion.value ? 24 : 6) * delta);
+        uniforms.wetMotion.value = THREE.MathUtils.lerp(uniforms.wetMotion.value, motion, factor);
+      }
+      previousPosition.copy(camera.position);
+      previousRotation.copy(camera.quaternion);
+      hasPreviousCamera = true;
       if (plane.distanceToPoint(camera.position) < .085) {
         uniforms.wetImageReady.value = 0;
         return;

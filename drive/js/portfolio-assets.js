@@ -7,8 +7,20 @@
 
   const heights = {
     'ac-stacked': 2.4, antenna: 7, platform: 9, signs: 4,
-    streetlight: 6, 'sushi-truck': 3.4, tank: 3, terminal: 2.2, 'tv-tower': 5
+    streetlight: 6, 'sushi-truck': 3.4, tank: 3, terminal: 2.2, 'tv-tower': 5,
+    'fire-escape': 5.8, 'street-coupe': 1.69, 'street-shuttle': 1.07
   };
+  const parkedVehicles = [
+    {id:'street-coupe', x:-81.6, z:-29.7, heading:Math.PI/2},
+    {id:'street-shuttle', x:-69.3, z:-10.7, heading:-Math.PI/2},
+    {id:'street-shuttle', x:119.9, z:-78, heading:0},
+    {id:'street-coupe', x:104, z:16.5, heading:0},
+    {id:'street-coupe', x:-78.8, z:72.1, heading:Math.PI/2}
+  ].map(placement => ({...placement, parked:true, y:.055}));
+  const fireEscapes = [
+    {id:'fire-escape', x:-95.58, z:36.5, y:6.7, heading:-Math.PI/2},
+    {id:'fire-escape', x:127.35, z:23, y:5.9, heading:-Math.PI/2, height:5.2}
+  ];
 
   function disposeModels(models) {
     const geometries = new Set(), materials = new Set(), textures = new Set();
@@ -42,13 +54,14 @@
     }
   }
 
-  function attach(THREE, world, placements = []) {
+  function attach(THREE, world, placements = [], {Cannon, physics} = {}) {
     const root = new THREE.Group();
     root.name = 'portfolio-imported-assets';
     const templates = new Set();
+    const parkedBodies = [];
     let disposed = false;
     const byId = new Map();
-    for (const placement of placements) {
+    for (const placement of [...placements, ...fireEscapes, ...parkedVehicles]) {
       const {id} = placement;
       if (!Object.prototype.hasOwnProperty.call(heights, id)) continue;
       if (!byId.has(id)) byId.set(id, []);
@@ -66,11 +79,12 @@
         const box = new THREE.Box3().setFromObject(model);
         const height = box.max.y - box.min.y;
         if (!Number.isFinite(height) || height <= 0) return 0;
+        const size = box.getSize(new THREE.Vector3());
         const center = box.getCenter(new THREE.Vector3());
         model.position.sub(center);
         model.position.y += height / 2;
         lightPanels(model);
-        for (const {x, y = 0, z, heading = 0, height: meters = heights[id]} of items) {
+        for (const {x, y = 0, z, heading = 0, height: meters = heights[id], parked} of items) {
           const instance = new THREE.Group();
           instance.name = 'portfolio-prop-' + id;
           instance.position.set(x, y, z);
@@ -78,6 +92,15 @@
           instance.scale.setScalar(meters / height);
           instance.add(model.clone(true));
           root.add(instance);
+          if (parked && Cannon && physics) {
+            const scale = meters / height;
+            const half = new Cannon.Vec3(size.x*scale*.45, meters*.40, size.z*scale*.47);
+            const body = new Cannon.Body({mass:0, position:new Cannon.Vec3(x,y+half.y,z)});
+            body.addShape(new Cannon.Box(half));
+            body.quaternion.setFromAxisAngle(new Cannon.Vec3(0,1,0),heading);
+            physics.world.addBody(body);
+            parkedBodies.push(body);
+          }
         }
         return items.length;
       } catch (error) {
@@ -96,6 +119,7 @@
       if (disposed) return;
       disposed = true;
       root.parent?.remove(root);
+      for (const body of parkedBodies) physics.world.removeBody(body);
       disposeModels(templates);
       templates.clear();
       root.clear();

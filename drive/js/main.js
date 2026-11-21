@@ -19,7 +19,7 @@
   const carSpecs = Object.fromEntries(Object.entries({
     comet: {name:'Comet',color:0x4e83df},
     rally: {name:'Rally',color:0xe3d57b},
-    hypercar: {name:'Hypercar',color:0xe14839},
+    hypercar: {name:'DeLorean',color:0x9ba6ac},
     pickup: {name:'Pickup',color:0x25975b},
     u9xtreme: {name:'Yangwang U9 Xtreme',color:0x252a31}
   }).map(([type,style]) => [type,{...DrivePhysics.vehicles[type],...style,wheelRadius:DrivePhysics.vehicles[type].radius}]));
@@ -61,7 +61,7 @@
   let samples = [];
   let cityVisual = null;
   let portfolioPlay = null;
-  let portfolioHolograms = null, portfolioWet = null, portfolioAssets = null;
+  let portfolioHolograms = null, portfolioWet = null, portfolioAssets = null, portfolioSkyAds = null;
   let importedAssetScene = null;
   let worldGeneration = 0;
   let portfolio = null;
@@ -211,7 +211,8 @@
     portfolioWet?.dispose();
     portfolioHolograms?.dispose();
     portfolioAssets?.dispose();
-    portfolioWet = portfolioHolograms = portfolioAssets = null;
+    portfolioSkyAds?.dispose();
+    portfolioWet = portfolioHolograms = portfolioAssets = portfolioSkyAds = null;
     cityVisual?.dispose?.();
     physics?.dispose?.();
     if (importedAssetScene) {
@@ -592,8 +593,14 @@
       portfolioHolograms = globalThis.DrivePortfolioHolograms?.create(THREE, world, city.holograms || [], {
         adverts:city.adPlacements || []
       });
-      portfolioAssets = globalThis.DrivePortfolioAssets?.attach(THREE, world, city.assetPlacements || []);
+      portfolioAssets = globalThis.DrivePortfolioAssets?.attach(THREE, world, city.assetPlacements || [], {
+        Cannon:globalThis.CANNON, physics
+      });
       globalThis.DrivePortfolioStorefronts?.attach(THREE, world);
+      globalThis.DrivePortfolioFacades?.attach(THREE, world, city);
+      portfolioSkyAds = globalThis.DrivePortfolioSkyAds?.attach(THREE, world, {
+        reducedMotion:window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches
+      });
       portfolioWet = globalThis.DrivePortfolioWet?.create(THREE, renderer, scene, world, sky, {
         compact:window.matchMedia?.('(pointer: coarse)')?.matches || window.innerWidth < 700
       });
@@ -1007,7 +1014,7 @@
     if (usesPortfolioComet(type)) return 'Comet · Night edition';
     if (type === 'u9xtreme') return carModels[type].assetState === 'ready' ? 'Ddiaz Design · CC BY-NC-SA'
       : carModels[type].assetState === 'failed' ? 'U9 Xtreme model unavailable · fallback visual' : 'Loading U9 Xtreme model…';
-    return carModels[type].assetState === 'ready' ? 'Comrade1280 · CC BY 4.0 model'
+    return carModels[type].assetState === 'ready' ? DriveVehicleAssets.credits?.[type] || 'Model loaded'
       : carModels[type].assetState === 'failed' ? 'Model unavailable · fallback car' : 'Loading car model…';
   }
   // Load only the selected car. Keep a playable fallback if an asset fails.
@@ -1366,7 +1373,12 @@
   }
   window.addEventListener('blur', () => { driveFocused = false; releaseControls(); });
   window.addEventListener('focus', () => { driveFocused = true; });
-  document.addEventListener('visibilitychange', () => { if (document.hidden) releaseControls(); });
+  const fpsValue = document.querySelector('#fpsValue');
+  let fpsStart = null, fpsFrames = 0;
+  document.addEventListener('visibilitychange', () => {
+    fpsStart = null;
+    if (document.hidden) releaseControls();
+  });
   const preventSelection = event => event.preventDefault();
   document.querySelectorAll('[data-key]').forEach(button => {
     const key = button.dataset.key;
@@ -1510,7 +1522,7 @@
   }
 
   let firstFrame = true;
-  function animate() {
+  function animate(frameTime) {
     const delta = Math.min(clock.getDelta(), .05);
     const driveDelta = document.hidden || !driveFocused || portfolio?.isOpen() || stuntRecords?.isOpen() ? 0 : delta;
     updateVehicle(driveDelta);
@@ -1519,9 +1531,22 @@
     cityVisual?.update?.(mirroredCityView()
       ? {position:{x:camera.position.x,y:camera.position.y,z:-camera.position.z}} : camera, delta);
     portfolioPlay?.update(driveDelta);
+    portfolioSkyAds?.update(delta);
     portfolio?.update(physics.body.position, motion.speed, motion.heading);
     if (!document.hidden) portfolioWet?.update(camera, delta);
     renderer.render(scene, camera);
+    if (fpsValue && Number.isFinite(frameTime)) {
+      if (fpsStart === null) { fpsStart = frameTime; fpsFrames = 0; }
+      else {
+        fpsFrames++;
+        const elapsed = frameTime - fpsStart;
+        if (elapsed >= 500) {
+          fpsValue.textContent = String(Math.round(fpsFrames * 1000 / elapsed));
+          fpsStart = frameTime;
+          fpsFrames = 0;
+        }
+      }
+    }
     if (firstFrame) { message.classList.add('done'); firstFrame = false; }
     requestAnimationFrame(animate);
   }

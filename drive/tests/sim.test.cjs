@@ -270,7 +270,7 @@ test('hood camera stays on the car at high speed rather than trailing behind', (
 });
 
 
-test('fourth garage option selects Hypercar using button and key 4',()=>{
+test('fourth garage option selects the DeLorean slot using button and key 4',()=>{
   const {sim,window,cars,document}=harness();
   cars[3].listeners.click();assert.equal(cars[3].attributes['aria-pressed'],'true');
   assert.equal(document.querySelector('#topSpeedValue').textContent,'205 mph target top speed');
@@ -335,7 +335,11 @@ test('key 6 loads the supplied U9 GLB once and swaps out the fallback visual',()
 
 test('lazy models cache once, late completion never changes selection, and failures retain fallback',()=>{
   const pending={},calls={};
-  const {sim,document}=harness({load(type,spec,success,failure){calls[type]=(calls[type]||0)+1;pending[type]={success,failure};}});
+  const garageAsset = {
+    credits:{hypercar:'JandroS · CC BY 4.0'},
+    load(type,spec,success,failure){calls[type]=(calls[type]||0)+1;pending[type]={success,failure};}
+  };
+  const {sim,document}=harness(garageAsset);
   assert.equal(calls.comet,1);assert.equal(calls.hypercar,undefined);
   sim.chooseCar('hypercar');sim.chooseCar('rally');
   const imported=()=>({body:new THREE.Mesh(new THREE.BoxGeometry(2,1,5),new THREE.MeshBasicMaterial()),wheels:Array.from({length:4},()=>new THREE.Group())});
@@ -344,6 +348,6 @@ test('lazy models cache once, late completion never changes selection, and failu
   assert.equal(sim.carModels.rally.assetState,'failed');assert.ok(sim.carModels.rally.group.children.length>4);
   assert.match(document.querySelector('#modelStatus').textContent,/fallback/);
   sim.chooseCar('hypercar');assert.equal(calls.hypercar,1);assert.equal(sim.carModels.hypercar.group.visible,true);
-  assert.equal(document.querySelector('#modelStatus').textContent,'Comrade1280 · CC BY 4.0 model');
+  assert.equal(document.querySelector('#modelStatus').textContent,'JandroS · CC BY 4.0');
   sim.chooseMap('city');sim.chooseMap('mountain');assert.equal(calls.hypercar,1);
 });
