@@ -8,7 +8,7 @@ Five cars share a 120 Hz rigid-body, four-wheel raycast suspension engine: Comet
 
 The selector offers two separate cities, the mountain, and a Racetrack / stunt course group:
 
-- **Portfolio City** is the default map. Drive through a compact neon district with six portfolio stops, wet streets, and a test bay with a jump and movable pylons. Signs and colored parking bays point to stops. Use the City Guide to open a stop directly or slow down near one and press E.
+- **Portfolio City** is the default map. Follow the lit arrival street beneath two catwalks to the Projects plaza. The side routes pass a market, a campus, and a test bay with a jump and movable pylons. Floating 3D signs and colored parking bays mark portfolio stops. Use the City Guide to open a stop directly or slow down near one and press E.
 - **Cities: Skylines** is the imported free-drive map. Select it in the menu or open `/drive/?map=skylines` directly. The first visit loads the terrain and nearby streets. Its map offers district and street jumps.
 - **Cliffside mountain** is an 894 m winding ledge with 7 m asphalt, real collision cliffs, and a steep ascent and descent. Falling off requires a reset.
 - **Racetrack / stunt course** is a 1.19 km ordered route with a 9 m overpass, slalom gates, an 8 m jump gap, a lower crossing, and a narrow balance bridge. Its road slabs are the colliders; there is no paved shortcut around a stunt. Approach the orange jump around 52–63 mph and slow down for the blue bridge.
@@ -28,6 +28,8 @@ Open **Records** in Ghost Challenge on the stunt course. **Copy race link** shar
 **Post best lap** publishes the replay under your public driver name using the records API on the hosted reader backend. The community board shows the fastest posted lap for each name, and every ranked lap has **Race** and **Copy link** actions. The API keeps previous race links usable after a driver improves. Times are recorded by the game client and driver names are unreserved. The static site can also copy a longer link containing the replay when a lap has no public record ID.
 
 Portfolio City has a flat collision plane beneath its roads and jump ramp. Mountain and racetrack retain 200 m half-width boundaries. The mountain road follows its heightfield triangle sampler. Changing maps resets onto the selected route. Changing cars preserves position and orientation while stopping momentum. World geometry, materials, and textures are disposed on rebuild.
+
+Portfolio City uses a planar reflection pass for signs, buildings, and cars in the asphalt. Its Comet Night edition has original bodywork and uses the Comet driving setup. See the [model and texture sources](assets/portfolio/SOURCE.md) and [display art and type](assets/portfolio-type/SOURCE.md).
 
 ## Imported city
 

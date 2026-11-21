@@ -1,0 +1,7 @@
+# Portfolio display assets
+
+`display.json` is an uppercase and digit subset of Barlow Condensed Bold by Jeremy Tribby. The outlines were converted to Three.js typeface format and renamed Portfolio Display. The [original font and license](https://github.com/google/fonts/tree/main/ofl/barlowcondensed) are distributed under the SIL Open Font License 1.1. See `OFL.txt`.
+
+`district-display.webp` was made with the built-in ImageGen tool. The image was encoded as WebP at 1024 pixels wide for the game.
+
+> Use case: stylized-concept. Asset type: wide landscape illustration for an LED billboard in a browser game's original cyberpunk city. Create a striking graphic illustration of three translucent architectural rings orbiting a dark suspended crystal data core above a night-time transit concourse, like an abstract promotional screen for a futuristic district. Deep ink-black background, hot vermilion and coral as the main colors, electric violet interference and tiny icy white highlights. Editorial graphic design with sharp layered print textures, halftone lines, high-contrast silhouettes and signal distortion contained in the composition. One clear central focal shape that reads from across a street. Leave the outer 8 percent dark for cropping and use a wide cinematic composition. Fill the frame with the billboard art itself, with no physical frame or environment mockup. No words, characters, brand logos, watermark, or reference to an existing game.

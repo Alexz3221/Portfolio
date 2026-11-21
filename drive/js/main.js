@@ -27,7 +27,7 @@
   let city = portfolioCity, skylinesCity = null, skylinesLoad = null;
   let mapRequest = 0;
   const maps = {
-    city: {name: 'Portfolio City', caption: 'Follow the signs or open the City Guide.', ground: 0x121620, fog: 0x130f25, skyLow: 0x121329, skyHigh: 0x030611, seed: 41732},
+    city: {name: 'Portfolio City', caption: 'Follow the road lights to Projects.', ground: 0x121620, fog: 0x191a2b, skyLow: 0x161b2b, skyHigh: 0x030611, seed: 41732},
     skylines: {name: 'Cities: Skylines', caption: 'Free drive. Open the map to jump to a district.', ground: 0x202a38, fog: 0x0c1728, skyLow: 0x263447, skyHigh: 0x050b18, seed: 65941},
     mountain: {name: 'Cliffside mountain', caption: 'A narrow road along the cliff.', ground: 0x817969, fog: 0x9caeae, skyLow: 0xcbd8d2, skyHigh: 0x416b92, mountain: 0x83908b, seed: 93217,
       roadHalfWidth: 3.5, shoulderWidth: .5, points: DrivePhysics.mountainPoints},
@@ -48,6 +48,7 @@
   const coursePicker = document.querySelector('#coursePicker');
   const courseSelect = document.querySelector('#courseSelect');
   function isCityMap() { return selectedMap === 'city' || selectedMap === 'skylines'; }
+  function isPortfolioCity() { return selectedMap === 'city' && city !== DrivePhysics.city; }
   function isRaceCourse() { return selectedMap === 'racetrack'; }
   function isStuntCourse() { return isRaceCourse() && selectedCourse === 'racetrack'; }
   function activeCourse() {
@@ -60,6 +61,7 @@
   let samples = [];
   let cityVisual = null;
   let portfolioPlay = null;
+  let portfolioHolograms = null, portfolioWet = null, portfolioAssets = null;
   let importedAssetScene = null;
   let worldGeneration = 0;
   let portfolio = null;
@@ -206,6 +208,10 @@
     // Dispose shared resources once when changing maps, never accumulate old scenery.
     portfolioPlay?.dispose();
     portfolioPlay = null;
+    portfolioWet?.dispose();
+    portfolioHolograms?.dispose();
+    portfolioAssets?.dispose();
+    portfolioWet = portfolioHolograms = portfolioAssets = null;
     cityVisual?.dispose?.();
     physics?.dispose?.();
     if (importedAssetScene) {
@@ -236,7 +242,9 @@
     scene.background = new THREE.Color(config.fog);
     sky.material.uniforms.low.value.setHex(config.skyLow);
     sky.material.uniforms.high.value.setHex(config.skyHigh);
-    scene.fog.density = selectedMap === 'city' ? .0026 : urban ? .0032 : imported ? .0015 : .0048;
+    scene.fog.density = selectedMap === 'city' ? .0042 : urban ? .0032 : imported ? .0015 : .0048;
+    camera.fov = isPortfolioCity() ? 70 : 66;
+    camera.updateProjectionMatrix();
     renderer.toneMappingExposure = urban ? 1.05 : .9;
     sun.visible = sunGlow.visible = !urban;
     ambientLight.intensity = urban ? .7 : .9;
@@ -573,10 +581,22 @@
       addGate(316, 0x89bdff);
     }
     if (urban) {
-      cityVisual = city.build(THREE, world, {showPortfolioStops: selectedMap === 'city'});
+      cityVisual = city.build(THREE, world, {
+        showPortfolioStops:selectedMap === 'city', wetReflections:isPortfolioCity() && !!globalThis.DrivePortfolioWet
+      });
     }
     if (selectedMap === 'city' && city.playProps?.length && globalThis.DrivePortfolioPlay) {
       portfolioPlay = DrivePortfolioPlay.create(globalThis.CANNON, THREE, world, physics, city.playProps);
+    }
+    if (isPortfolioCity()) {
+      portfolioHolograms = globalThis.DrivePortfolioHolograms?.create(THREE, world, city.holograms || [], {
+        reducedMotion:window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches,
+        adverts:city.adPlacements || []
+      });
+      portfolioAssets = globalThis.DrivePortfolioAssets?.attach(THREE, world, city.assetPlacements || []);
+      portfolioWet = globalThis.DrivePortfolioWet?.create(THREE, renderer, scene, world, sky, {
+        compact:window.matchMedia?.('(pointer: coarse)')?.matches || window.innerWidth < 700
+      });
     }
 
     portfolio?.setCity(city, selectedMap);
@@ -693,6 +713,12 @@
   }
 
   Object.entries(carSpecs).forEach(([type, spec]) => { carModels[type] = buildCar(type, spec); });
+  const portfolioComet = globalThis.DrivePortfolioCar?.create(THREE, carSpecs.comet);
+  if (portfolioComet) {
+    portfolioComet.group.visible = false;
+    vehicle.add(portfolioComet.group);
+  }
+  function usesPortfolioComet(type) { return !!portfolioComet && type === 'comet' && isPortfolioCity(); }
   function formatGhostTime(seconds) {
     const tenths = Math.floor(Math.max(0, seconds) * 10);
     return Math.floor(tenths / 600) + ':' + String(Math.floor(tenths / 10) % 60).padStart(2, '0') + '.' + tenths % 10;
@@ -978,6 +1004,7 @@
     }
   }
   function modelStatus(type) {
+    if (usesPortfolioComet(type)) return 'Comet · Night edition';
     if (type === 'u9xtreme') return carModels[type].assetState === 'ready' ? 'Ddiaz Design · CC BY-NC-SA'
       : carModels[type].assetState === 'failed' ? 'U9 Xtreme model unavailable · fallback visual' : 'Loading U9 Xtreme model…';
     return carModels[type].assetState === 'ready' ? 'Comrade1280 · CC BY 4.0 model'
@@ -1239,9 +1266,11 @@
       document.querySelectorAll('[data-key]').forEach(button=>button.classList.remove('pressed'));
     }
     selectedCar = type;
-    loadCarAsset(type);
+    const useCustom = usesPortfolioComet(type);
+    if (!useCustom) loadCarAsset(type);
     document.querySelector('#modelStatus').textContent = modelStatus(type);
-    Object.entries(carModels).forEach(([name, model]) => { model.group.visible = name === type; });
+    Object.entries(carModels).forEach(([name, model]) => { model.group.visible = name === type && !useCustom; });
+    if (portfolioComet) portfolioComet.group.visible = useCustom;
     motion.speed = THREE.MathUtils.clamp(motion.speed, -carSpecs[type].maxSpeed * .45, carSpecs[type].maxSpeed);
     document.querySelectorAll('[data-car]').forEach(button => {
       button.classList.toggle('active', button.dataset.car === type);
@@ -1405,13 +1434,14 @@
       vehicle.position.copy(physics.renderPosition).add(offset);
       const forward=new THREE.Vector3(0,0,1).applyQuaternion(vehicle.quaternion);
       if (Math.hypot(forward.x,forward.z)>.15) motion.heading=Math.atan2(forward.x,forward.z);
-      carModels[selectedCar].wheels.forEach(({wheel,pivot},i)=>{
+      const model = usesPortfolioComet(selectedCar) ? portfolioComet : carModels[selectedCar];
+      model.wheels.forEach(({wheel,pivot},i)=>{
         const w=physics.renderWheels[i];
         pivot.position.y=1.05-drop+physics.car.wheelInfos[i].chassisConnectionPointLocal.y-w.suspensionLength;
         // CANNON's Y-up wheel angle decreases while the car moves along +Z.
         pivot.rotation.y=w.steering;wheel.rotation.x=-w.rotation;
       });
-      const braking=keys.has(' ')||throttle<0, model=carModels[selectedCar];
+      const braking=keys.has(' ')||throttle<0;
       if(model.brakeMaterials?.length) model.brakeMaterials.forEach(material => {material.emissiveIntensity=braking?1.5:.22;});
       else model.rearLamp.color.setHex(braking?0xff8090:0xff354e);
       document.querySelector('#speedValue').textContent=String(Math.round(physics.body.velocity.length()*2.236936));
@@ -1449,9 +1479,9 @@
       desired.set(0,eyeHeight,hoodOffset).applyQuaternion(vehicle.quaternion).add(vehicle.position);
       target.set(Math.sin(orbit.yaw)*22,eyeHeight-Math.sin(orbit.pitch)*22,Math.cos(orbit.yaw)*22).applyQuaternion(vehicle.quaternion).add(vehicle.position);
     } else {
-      const authoredCity = selectedMap === 'city' && city !== DrivePhysics.city;
+      const authoredCity = isPortfolioCity();
       const narrowCityView = authoredCity && camera.aspect < .85;
-      const distance = cameraMode === 1 ? 16 : narrowCityView ? 11.6 : authoredCity ? 9 : 7.8;
+      const distance = cameraMode === 1 ? 16 : narrowCityView ? 11.6 : authoredCity ? 9.7 : 7.8;
       const height = cameraMode === 1 ? 8 : 4.3;
       const elevation = THREE.MathUtils.clamp(Math.atan2(height - 1.2, distance) + orbit.pitch, .08, 1.25);
       const radius = Math.hypot(distance, height - 1.2);
@@ -1481,7 +1511,9 @@
     cityVisual?.update?.(mirroredCityView()
       ? {position:{x:camera.position.x,y:camera.position.y,z:-camera.position.z}} : camera, delta);
     portfolioPlay?.update(driveDelta);
+    portfolioHolograms?.update(delta);
     portfolio?.update(physics.body.position, motion.speed, motion.heading);
+    if (!document.hidden) portfolioWet?.update(camera, delta);
     renderer.render(scene, camera);
     if (firstFrame) { message.classList.add('done'); firstFrame = false; }
     requestAnimationFrame(animate);

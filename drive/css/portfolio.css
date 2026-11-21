@@ -92,6 +92,9 @@
 .city-minimap-player::before { content: ''; position: absolute; left: 50%; top: -9px; transform: translateX(-50%); border-left: 4px solid transparent; border-right: 4px solid transparent; border-bottom: 7px solid white; }
 @media (min-width: 761px) and (min-height: 601px) {
   .city-map-active .garage { top: 294px; right: clamp(18px, 4vw, 60px); left: auto; bottom: auto; }
+  .portfolio-city-active .garage { width: 290px; top: auto; bottom: 78px; padding: 11px; }
+  .portfolio-city-active .garage-options button { min-height: 47px; padding: 7px 4px; gap: 4px; font-size: 11px; }
+  .portfolio-city-active .drive-hud > strong { font-size: clamp(37px, 4vw, 53px); }
 }
 .city-overlay {
   position: fixed;
