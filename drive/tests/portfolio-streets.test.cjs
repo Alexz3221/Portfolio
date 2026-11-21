@@ -32,8 +32,24 @@ test('an angled road joint has one paved surface and a continuous curb', () => {
   assert.equal(at(1,-4.4,pavement).length, 0);
   assert.equal(at(1,-4.4,curb).length, 1);
   assert.equal(at(1,-6,curb).length, 1);
-  assert.equal(at(1,-6.6,curb).length, 0);
+  assert.equal(at(1,-7.7,curb).length, 1);
+  assert.equal(at(1,-8.3,curb).length, 0);
   assert.equal(streets.surfaceHeight(world,1,-6),.17);
+});
+
+test('an authored sidewalk joint preserves both top edges without an exposed dividing wall', () => {
+  const world=new THREE.Group();
+  const material=new THREE.MeshStandardMaterial();
+  const premium=[[[[-3,4.25],[3,4.25],[3,8.5],[-3,8.5]]]];
+  streets.build(THREE,world,{roads:[{x1:-20,z1:0,x2:20,z2:0,width:8}],areas:[],
+    asphalt:material,curb:material,premium});
+  const sides=world.getObjectByName('portfolio-sidewalk-faces');
+  const towardJoint=new THREE.Raycaster(new THREE.Vector3(0,.08,6),new THREE.Vector3(-1,0,0),0,5);
+  const towardOuterCurb=new THREE.Raycaster(new THREE.Vector3(8,.08,10),new THREE.Vector3(0,0,-1),0,3);
+  assert.equal(streets.surfaceHeight(world,-3.1,6),.17);
+  assert.equal(streets.surfaceHeight(world,-2.9,6),0);
+  assert.equal(towardJoint.intersectObject(sides).length,0);
+  assert.equal(towardOuterCurb.intersectObject(sides).length,1);
 });
 
 test('the raised network joins plaza paths, keeps road centers clear and defers to authored walks', () => {
@@ -44,7 +60,7 @@ test('the raised network joins plaza paths, keeps road centers clear and defers 
   for (const road of city.networkRoads) {
     assert.equal(streets.surfaceHeight(world,(road.x1+road.x2)/2,(road.z1+road.z2)/2),0);
   }
-  for (const [x,z,y] of [[122.25,-40,.17],[-118,25,.17],[-48,125.5,.17],[-25,8,.17],
+  for (const [x,z,y] of [[122.25,-40,.17],[124.9,-40,.17],[-120.15,25,.17],[-48,125.5,.17],[-25,8,.17],
     [7.6,-73.6,0],[11.25,-86,0],[-71,-10.3,0],[112,-40,0],[-108,25,0]]) {
     assert.equal(streets.surfaceHeight(world,x,z),y,`${x}, ${z}`);
   }
@@ -53,7 +69,7 @@ test('the raised network joins plaza paths, keeps road centers clear and defers 
   const sidewalkPhysics=streets.attachSidewalkPhysics(world,simulation);
   assert.ok(sidewalkPhysics);
   assert.ok(simulation.world.bodies.length-bodyCount<75,'walks are grouped into local static surfaces');
-  for (const [x,z,height] of [[122.25,-40,.17],[-118,25,.17],[-48,125.5,.17],[-25,8,.17],
+  for (const [x,z,height] of [[122.25,-40,.17],[124.9,-40,.17],[-120.15,25,.17],[-48,125.5,.17],[-25,8,.17],
     [112,-40,0],[-108,25,0],[7.6,-73.6,0]]) {
     const result=new CANNON.RaycastResult();
     simulation.world.raycastClosest(new CANNON.Vec3(x,1,z),new CANNON.Vec3(x,-1,z),{skipBackfaces:true},result);
@@ -91,13 +107,15 @@ test('ground-floor building approaches reach the street network and meet both pu
   }
   for (const {building,x,z,surface} of access) {
     const sinceWall=Math.max(Math.abs(x-building.x)-building.width/2,Math.abs(z-building.z)-building.depth/2);
-    assert.ok(sinceWall>0 && sinceWall<2.45,`approaches exterior ${building.x}, ${building.z}`);
+    assert.ok(sinceWall>0 && sinceWall<3.4,`approaches exterior ${building.x}, ${building.z}`);
     const minHeight=surface==='arrival' ? .065 : .165;
     assert.ok(sidewalkHeight(x,z)>=minHeight,`paved approach at ${x}, ${z}`);
   }
   // Follow the actual apron and deck continuously across the former dirt gaps.
   for (let x=32.25;x<=33.85;x+=.06) assert.ok(sidewalkHeight(x,28)>.165,`plaza join at x=${x}`);
   for (let z=38.15;z<=42;z+=.06) assert.ok(sidewalkHeight(-130,z)>.165,`park join at z=${z}`);
+  assert.ok(sidewalkHeight(-51.8,1.3)>.165,'paved corner between the Market frontage and side walk');
+  assert.ok(sidewalkHeight(-44,5)<.01,'open courtyard beyond the Market frontage');
   assert.equal(streets.surfaceHeight(world,-50,-31.8),0,'leaves the Skyway support base clear');
   for (const {x1,z1,x2,z2} of city.networkRoads) {
     assert.equal(streets.surfaceHeight(world,(x1+x2)/2,(z1+z2)/2),0);

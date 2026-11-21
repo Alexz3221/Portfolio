@@ -7,12 +7,12 @@
 })(globalThis, function (polygons) {
   'use strict';
 
-  const surfaceY=.17, graniteY=.146, kerbY=.117, chamferWidth=.075, curbDepth=.30, walkWidth=2.35;
+  const surfaceY=.17, graniteY=.146, kerbY=.117, chamferWidth=.075, curbDepth=.30, walkWidth=4.0;
   const sidewalkSurfaces = new WeakMap();
   const empty=[];
   let cachedLayout;
 
-  function streetFootprint(roads, areas, margin, roundSteps=32) {
+  function streetFootprint(roads, areas, margin, roundSteps=32, cornerAllowance=0) {
     const junctions = new Map();
     const shapes = [];
     for (const {x1,z1,x2,z2,width} of roads) {
@@ -26,18 +26,30 @@
       ]]);
       for (const [x,z] of [[x1,z1],[x2,z2]]) {
         const key = x + ',' + z;
-        const previous = junctions.get(key);
-        if (!previous || previous.radius < radius) junctions.set(key,{x,z,radius});
+        const junction = junctions.get(key);
+        if (junction) {
+          junction.radius=Math.max(junction.radius,radius);
+          junction.branches++;
+        } else junctions.set(key,{x,z,radius,branches:1});
       }
     }
 
     // The rounded caps fill the outside of bends and blend into connecting
     // streets. Unioning the caps and strips removes shared triangle faces.
-    for (const {x,z,radius} of junctions.values()) {
+    for (const {x,z,radius,branches} of junctions.values()) {
+      let throughWidth=0;
+      if (cornerAllowance) for (const {x1,z1,x2,z2,width} of roads) {
+        const dx=x2-x1, dz=z2-z1, length=Math.hypot(dx,dz);
+        if (length<.01) continue;
+        const along=((x-x1)*dx+(z-z1)*dz)/length;
+        if (along>.1 && along<length-.1 && Math.abs((x-x1)*dz-(z-z1)*dx)/length<.1)
+          throughWidth=Math.max(throughWidth,width);
+      }
+      const roundedRadius=branches>=3 || throughWidth ? Math.max(radius,throughWidth/2+margin)+cornerAllowance : radius;
       const ring = [];
       for (let step=0; step<roundSteps; step++) {
         const angle = step*2*Math.PI/roundSteps;
-        ring.push([x+Math.cos(angle)*radius,z+Math.sin(angle)*radius]);
+        ring.push([x+Math.cos(angle)*roundedRadius,z+Math.sin(angle)*roundedRadius]);
       }
       shapes.push([ring]);
     }
@@ -75,11 +87,20 @@
     return mesh;
   }
 
-  function curbSides(THREE, world, area, y, material, name) {
+  function curbSides(THREE, world, area, y, material, name, covered) {
     const positions=[];
     for (const polygon of area) for (const ring of polygon) {
       for (let i=0; i<ring.length-1; i++) {
         const [x,z]=ring[i], [nx,nz]=ring[i+1];
+        const length=Math.hypot(nx-x,nz-z);
+        if (length<.00001) continue;
+        // Premium walks meet the slab across this border. Leave the top seam
+        // intact and omit the artificial vertical face between the surfaces.
+        if (covered?.length) {
+          const midX=(x+nx)*.5, midZ=(z+nz)*.5;
+          const ox=(nz-z)/length*.012, oz=(x-nx)/length*.012;
+          if (contains(covered,midX+ox,midZ+oz) || contains(covered,midX-ox,midZ-oz)) continue;
+        }
         positions.push(x,.002,z,nx,.002,nz,nx,y,nz, x,.002,z,nx,y,nz,x,y,z);
       }
     }
@@ -117,6 +138,12 @@
     return box;
   }
 
+  function ringArea(ring) {
+    let area=0;
+    for (let i=1;i<ring.length;i++) area+=ring[i-1][0]*ring[i][1]-ring[i][0]*ring[i-1][1];
+    return Math.abs(area)*.5;
+  }
+
   function boxArea({minX,maxX,minZ,maxZ}) {
     return [[[minX,minZ],[maxX,minZ],[maxX,maxZ],[minX,maxZ]]];
   }
@@ -139,7 +166,7 @@
     // Continue underneath the beveled edges until the higher deck takes over.
     const deckSlabs=decks.map(box=>boxArea(expand(box,-.34)));
     const blocks=[...ground.map(footprint),...obstacles.map(({x,z,w,d})=>footprint({x,z,width:w,depth:d}))];
-    const spacing=1.55, pathWidth=1.86, lotWidth=2.45;
+    const spacing=1.55, pathWidth=2.6, lotWidth=3.4;
     const obstruction=pathWidth/2+.10;
     // Start one search from the existing walks and public decks. The shared
     // search lets a row of buildings use the same passage back to the street.
@@ -238,11 +265,14 @@
     }
 
     if (!lotAreas.length) return {area:network,access};
-    const links=streetFootprint(connectors,[],0,12);
+    const links=streetFootprint(connectors,[],0,12,.42);
     const lot=polygons.difference(polygons.union(links,...lotAreas),...deckSlabs);
     // Tuck the slab edge just inside the wall to avoid coplanar curb faces.
     const obstructionArea=polygons.union(...blocks.map(box=>boxArea(expand(box,-.018))));
-    return {area:polygons.difference(polygons.union(network,lot),road,premium || [],obstructionArea),access};
+    // Patch enclosed scraps between the widened sidewalks and access paths.
+    // Leave full courtyards open, then restore the actual road and wall cuts.
+    const paved=polygons.union(network,lot).map(([outline,...gaps])=>[outline,...gaps.filter(gap=>ringArea(gap)>=16)]);
+    return {area:polygons.difference(paved,road,premium || [],obstructionArea),access};
   }
 
   function chamferHeight(area,x,z) {
@@ -275,14 +305,14 @@
     if (!pavement.length) return null;
     const chamfer = streetFootprint(roads,areas,chamferWidth);
     const granite = streetFootprint(roads,areas,curbDepth);
-    const offset = streetFootprint(roads,areas,walkWidth);
+    const offset = streetFootprint(roads,areas,walkWidth,32,.7);
     const exclusions = premium?.length ? [premium] : [];
     const network = polygons.difference(offset,granite,...exclusions);
     const routingRoad = buildings.length ? streetFootprint(roads,areas,curbDepth+.40) : granite;
     const {area:sidewalk,access}=buildingWalks(network,granite,routingRoad,premium,buildings,obstacles,publicSpaces);
     const apron = polygons.difference(granite,chamfer,...exclusions);
     const bevel = polygons.difference(chamfer,pavement,...exclusions);
-    return {pavement,sidewalk,access,apron,bevel};
+    return {pavement,sidewalk,access,apron,bevel,premium};
   }
 
   function build(THREE, world, {roads, areas, asphalt, curb, buildings=empty, obstacles=empty, publicSpaces,premium,cacheLayout=false}) {
@@ -295,7 +325,7 @@
       premium===undefined ? authoredFootprint?.() : premium);
     if (cacheLayout && !hit) cachedLayout={inputs,layout};
     if (!layout) return;
-    const {pavement,sidewalk,access,apron,bevel}=layout;
+    const {pavement,sidewalk,access,apron,bevel,premium:covered}=layout;
     surface(THREE,world,pavement,.044,asphalt,'portfolio-streets',4);
     const slabs=curb.clone();
     slabs.color.multiplyScalar(1.42);
@@ -311,8 +341,8 @@
     weatherMesh(THREE,slabMesh);
     // The narrow granite strip sits below the slabs. Separate vertical faces
     // step down to it and to the road, including along the curves of a junction.
-    curbSides(THREE,world,sidewalk,surfaceY,wall,'portfolio-sidewalk-faces');
-    curbSides(THREE,world,bevel,kerbY,innerWall,'portfolio-curb-faces');
+    curbSides(THREE,world,sidewalk,surfaceY,wall,'portfolio-sidewalk-faces',covered);
+    curbSides(THREE,world,bevel,kerbY,innerWall,'portfolio-curb-faces',covered);
     if (slabMesh) sidewalkSurfaces.set(world,{pavement,sidewalk,apron,bevel,slabMesh,lipMesh,bevelMesh,access});
   }
 

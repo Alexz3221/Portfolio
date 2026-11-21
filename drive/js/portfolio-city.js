@@ -1,7 +1,10 @@
 (function(root, factory) {
-  if (typeof module === 'object' && module.exports) module.exports = factory(require('./portfolio-exchange'));
-  else root.DrivePortfolioCity = factory(root.DrivePortfolioExchange);
-})(typeof globalThis !== 'undefined' ? globalThis : this, function(exchange) {
+  if (typeof module === 'object' && module.exports) {
+    module.exports = factory(require('./portfolio-exchange'),require('./portfolio-underwriting'),require('./portfolio-sublight'));
+  } else {
+    root.DrivePortfolioCity = factory(root.DrivePortfolioExchange,root.DrivePortfolioUnderwriting,root.DrivePortfolioSublight);
+  }
+})(typeof globalThis !== 'undefined' ? globalThis : this, function(exchange,underwriting,sublight) {
   'use strict';
 
   const driveBase = typeof document !== 'undefined' && document.currentScript?.src
@@ -153,10 +156,10 @@
   const arrivalColliders = [
     [17.4,-103,17.15,25.7,12.2,6,8.8],[18.05,-102.3,15.2,21.8,16,6,21],
     [18.6,-103.1,11.7,17.2,16.6,6,37],
-    [21.8,-84.7,16.15,10.4,13.6,4,8.8],[23.7,-85.6,16,9.4,18.4,4,22.4],
-    [25.9,-86.0,12.6,8.5,17.2,4,40.8],
-    [22.8,-74.0,16.9,10.3,16.3,0,8.8],[24.65,-73.8,16.7,10.8,19.3,0,25.1],
-    [27.35,-72.55,14.9,10.55,29.8,0,44.4],
+    [21.8,-84.7,16.3,10.4,13.78,4,8.8],[23.7,-85.6,16,9.4,18.36,4,22.58],
+    [25.9,-86.0,12.6,8.5,17.82,4,40.94],
+    [22.8,-74.0,16.9,10.3,16.28,0,8.8],[24.65,-73.8,16.7,10.8,19.34,0,25.08],
+    [27.35,-72.55,14.9,10.55,30.73,0,44.42],
     [24.6,-52.1,26.7,29.0,8.6,0,8.8],[25.9,-51.8,23.6,25.2,16.1,0,17.4],
     [26.9,-51.0,21.6,22.1,26.6,0,33.5]
   ];
@@ -229,34 +232,19 @@
   collisionBlock(-69.6,1.8,21.2,12.8,5,1,9);
   collisionBlock(-70.0,2.5,16.0,10.6,11.8,1,14);
 
+  const recordsVault = {x:17,z:-103};
+  const transitWings = [
+    {id:'split-lobby-south',x:21.8,z:-84.7},
+    {id:'split-lobby-north',x:22.7,z:-74.3}
+  ];
   // Each contour is [height, X radius, Z radius, X setback, Z setback].
-  // Upper shells are drawn separately from the conservative collision volumes.
-  const arrivalCurves = [
-    {id:'glazed-sweep',x:17,z:-103,style:6,power:3.75,yaw:.035,accent:0xffb8a4,ribStride:4,glass:0x7da79d,skin:0x5e5f61,
-      floors:[10,12.85,16.25,20.25,24.1,27.6,31.2,35.15,38.9,42.65,46.0],
-      contours:[[8.79,8.12,12.72],[12.65,8.13,12.52,.04,.05],[16.8,7.22,11.78,.44,.12],
-        [21,7.65,10.9,.62,.18],[32.3,7.05,10.2,.86,.33],[36,6.76,9.37,1.12,.56],
-        [45.1,5.79,8.22,1.34,.06],[51.1,4.71,6.25,1.61,-.67],[53.6,3.25,4.92,1.78,-.85]],
-      ledges:[[13.8,.47,.59],[17.3,.53,.83],[28.5,.45,.39],[36.4,.53,.84],[46.5,.49,.72]]},
-    {id:'split-lobby-south',x:21.8,z:-84.7,style:4,power:4,yaw:.06,beveled:true,accent:0xb0d8fa,ribStride:4,
-      glass:0x7791ad,skin:0x464a55,floors:[11.2,15.48,20.8,25.4,30.3,34.8,39.2,43.1,47.7,52],
-      contours:[[8.79,7.75,5.05],[12.4,7.8,4.96],[20,6.87,4.65,1.08,-.36],[25.3,7.7,4.24,2.1,-.55],
-        [36.5,7.37,4.11,3.0,-.91],[43,6.78,3.81,3.65,-1.07],[53.7,6.15,3.72,4.3,-1.34],[58,4.75,3.27,4.8,-1.5]],
-      ledges:[[14.05,.36,.34],[23.6,.61,.58],[35.7,.48,.64],[48.5,.40,.52]]},
-    {id:'split-lobby-north',x:22.7,z:-74.3,style:0,power:4,yaw:-.095,beveled:true,accent:0x82d9d1,ribStride:4,
-      glass:0x66a6a2,skin:0x434f4d,floors:[12.8,17.25,23.3,28.05,32.6,38.1,43.05,48.2,53.95,58.6,63.8,69.0],
-      contours:[[8.79,8.0,4.8],[13,8.23,4.82,.15,.08],[22,7.65,4.55,1.14,.52],[31,7.6,4.67,2.2,.64],
-        [42,7.05,4.62,3.45,.95],[51.7,6.4,4.46,4.21,1.29],[63.6,6.06,4.41,4.71,1.67],[74.2,5.1,3.22,5.4,1.87]],
-      ledges:[[10.52,.40,.56],[19.85,.59,.61],[30.5,.39,.34],[45.1,.50,.82],[63.25,.43,.6]]},
-    {id:'exchange-canopy',x:24.25,z:-52,style:0,power:2.2,yaw:.055,accent:0x84ffe3,ribStride:2,glass:0x5c928c,skin:0x405456,
-      floors:[11.4,14.7,19.0,23.15,27.6,32.1,36.8,41.8,46.1,50.7,54.3],
+  const shapedTowers = [
+    {id:'exchange-canopy',x:24.25,z:-52,style:0,power:2.2,yaw:.055,accent:0x84ffe3,ribStride:2,skin:0x405456,
       contours:[[8.79,12.45,14.18],[10.82,12.71,14.09,.18,-.14],[13.7,12.14,13.65,.32,.05],
         [17.5,10.38,12.14,1.3,.18],[22.8,9.55,11.32,1.93,.58],[28,9.36,11.39,2.12,.83],
         [33.4,10.35,11.59,2.42,1.11],[39.4,9.74,11.26,2.83,1.07],[47.7,8.7,10.44,2.96,1.1],
         [54.2,7.72,9.0,3.03,1.27],[60.1,5.07,6.4,3.42,1.68]],
-      ledges:[[10.71,.76,.98],[14.1,.53,.83],[18.23,.50,.66],[30.7,.59,1.18],[39.22,.46,.56],[48.0,.39,.75]]}
-  ];
-  const shapedTowers = [
+      ledges:[[10.71,.76,.98],[14.1,.53,.83],[18.23,.50,.66],[30.7,.59,1.18],[39.22,.46,.56],[48.0,.39,.75]]},
     {id:'market-lantern-hall',x:-69.75,z:1.9,style:1,power:4.35,yaw:-.02,accent:0xffaa82,ribStride:4,
       contours:[[8.95,9.72,6.08],[10.35,10.56,6.48,-.2],[13.4,10.05,6.12,-.42,.06],[14.9,8.13,5.47,-.4,.6],
         [17.8,7.51,5.20,-.35,.85],[22.4,7.08,4.88,-.35,.93],[25.8,5.02,3.89,-.12,1.00]],
@@ -674,22 +662,10 @@
   }
 
   const contourSides = 32;
-  const beveledCorners = [[1,.60],[.74,1],[-.74,1],[-1,.60],[-1,-.60],[-.74,-1],[.74,-1],[1,-.60]];
-
   function contourPoint(tower, [y, radiusX, radiusZ, shiftX=0, shiftZ=0], sector) {
-    const t=sector/contourSides;
-    let profileX,profileZ;
-    if (tower.beveled) {
-      const corner=t*beveledCorners.length, at=Math.floor(corner), fraction=corner-at;
-      const [ax,az]=beveledCorners[at%beveledCorners.length];
-      const [bx,bz]=beveledCorners[(at+1)%beveledCorners.length];
-      profileX=ax+(bx-ax)*fraction;
-      profileZ=az+(bz-az)*fraction;
-    } else {
-      const c=Math.cos(t*Math.PI*2),s=Math.sin(t*Math.PI*2),round=2/tower.power;
-      profileX=Math.sign(c)*Math.abs(c)**round;
-      profileZ=Math.sign(s)*Math.abs(s)**round;
-    }
+    const angle=sector/contourSides*2*Math.PI;
+    const c=Math.cos(angle),s=Math.sin(angle),round=2/tower.power;
+    const profileX=Math.sign(c)*Math.abs(c)**round,profileZ=Math.sign(s)*Math.abs(s)**round;
     const px=profileX*radiusX,pz=profileZ*radiusZ;
     const yawCos=Math.cos(tower.yaw), yawSin=Math.sin(tower.yaw);
     return [tower.x+shiftX+px*yawCos+pz*yawSin,y,tower.z+shiftZ-px*yawSin+pz*yawCos];
@@ -767,41 +743,6 @@
       normal.setXYZ(b,blend.x,blend.y,blend.z);
     }
     return geometry;
-  }
-
-  function addCurvedGlazing(THREE,world,tower,materials,beam) {
-    const positions=[], colors=[];
-    const paneColor=new THREE.Color(tower.glass).convertSRGBToLinear();
-    const roomColor=new THREE.Color(tower.id==='glazed-sweep' ? 0xffc79a : 0x9fd8dc).convertSRGBToLinear();
-    for (const [floor,y] of tower.floors.entries()) {
-      const height=tower.beveled ? 1.85 : 1.39;
-      for (let sector=0;sector<contourSides;sector+=2) {
-        if ((sector/2+floor*3)%7===6) continue;
-        const lower=contourAt(tower,y-height*.5,.13),upper=contourAt(tower,y+height*.5,.13);
-        const a=contourPoint(tower,lower,sector+.13), b=contourPoint(tower,lower,sector+1.87);
-        const c=contourPoint(tower,upper,sector+.13), d=contourPoint(tower,upper,sector+1.87);
-        const occupied=(sector/2+floor*5)%6<2;
-        const tint=(occupied ? roomColor : paneColor).clone().multiplyScalar(occupied ? 1.25 : .60+(sector%6)*.083);
-        for (const point of [a,c,b,b,c,d]) {
-          positions.push(...point);
-          colors.push(tint.r,tint.g,tint.b);
-        }
-        for (const [low,high] of [[a,c],[b,d]]) beam('portfolio-arrival-window-mullions',materials.metal,low,high,.105,.13);
-        beam('portfolio-arrival-window-sills',materials.steel,a,b,.18,.096);
-        beam('portfolio-arrival-window-sills',materials.steel,c,d,.145,.077);
-        if (occupied && floor%3===1) beam('portfolio-arrival-window-interior-lights',materials.light,
-          contourPoint(tower,contourAt(tower,y+height*.33,.145),sector+.43),
-          contourPoint(tower,contourAt(tower,y+height*.33,.145),sector+1.46),.037,.056,tower.accent);
-      }
-    }
-    const geometry=new THREE.BufferGeometry();
-    geometry.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));
-    geometry.setAttribute('color',new THREE.Float32BufferAttribute(colors,3));
-    geometry.computeVertexNormals();
-    const mesh=new THREE.Mesh(geometry,new THREE.MeshStandardMaterial({vertexColors:true,roughness:.44,
-      metalness:.24,emissive:0x253641,emissiveIntensity:.38}));
-    mesh.name='portfolio-'+tower.id+'-real-glazing';
-    world.add(mesh);
   }
 
   function addArrivalDetails(materials,instance,beam,glass,litGlass) {
@@ -937,7 +878,9 @@
     }
 
     instance('portfolio-transfer-round-base',materials.steel,36.5,24.82,-27.5,17.5,4.64,18);
-    for (const tower of [...shapedTowers,...arrivalCurves]) {
+    underwriting?.attach(THREE,world,{tower:recordsVault,materials,instance,beam});
+    sublight?.attach(THREE,world,{towers:transitWings,materials,instance,beam,grime});
+    for (const tower of shapedTowers) {
       if (tower.id==='exchange-canopy' && exchange) {
         exchange.attach(THREE,world,{tower,materials,instance,beam,grime,
           point:(y,sector,extend=0)=>contourPoint(tower,contourAt(tower,y,extend),sector),
@@ -983,7 +926,6 @@
             contourPoint(tower,lighting,i),contourPoint(tower,lighting,i+2),.085,.11,tower.accent);
         }
       }
-      if (tower.floors) addCurvedGlazing(THREE,world,tower,materials,beam);
       const [,rx,rz,xShift=0,zShift=0]=tower.contours.at(-1);
       const x=tower.x+xShift, z=tower.z+zShift;
       if (tower.id!=='service-relay-core') {

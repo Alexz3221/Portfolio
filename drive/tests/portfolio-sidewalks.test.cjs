@@ -16,8 +16,10 @@ test('raised walkways and curb cuts match the surface while the driving lanes st
     const frontage = sidewalks.attach(THREE,world,simulation);
     const ray = new CANNON.RaycastResult();
     for (const [x,z,height] of [
-      [0,-103,0], [7.65,-103,.17], [-7.65,-103,.17], [7.1,-73.6,.072], [12.8,-86,.17],
-      [-77.7,-8.87,.17], [-59,-7.75,.17], [-77.7,-20,0], [-56.5,-13,0]
+      [0,-103,0], [5.45,-103,0], [-5.45,-103,0], [5.8,-103,.17], [-5.8,-103,.17],
+      [7.65,-103,.17], [-7.65,-103,.17], [5.62,-73.6,.072], [12.8,-86,.17], [13.53,-76.4,.17],
+      [-77.7,-8.87,.17], [-59,-7.75,.17], [-80,-12.8,.17], [-53.31,-6.07,.17],
+      [-77.7,-20,0], [-56.5,-13,0], [-69.3,-13.12,0]
     ]) {
       simulation.world.raycastClosest(new CANNON.Vec3(x,1,z),new CANNON.Vec3(x,-1,z),{skipBackfaces:true},ray);
       assert.ok(ray.hasHit);

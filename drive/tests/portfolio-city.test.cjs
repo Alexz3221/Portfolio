@@ -35,6 +35,48 @@ test('visible roof caps stand above the old roof plane', () => {
   }
 });
 
+test('the rebuilt arrival towers have matching roof collision and meet both transfer sockets', () => {
+  const world=new THREE.Group();
+  city.build(THREE,world);
+  world.updateMatrixWorld(true);
+  const simulation=physics.create({map:'city',city,distanceToRoad:city.distanceToRoad,roadHalfWidth:city.roadHalfWidth});
+  for (const [name,x,z] of [
+    ['portfolio-zenith-vault-slate',20.2,-100.6],
+    ['portfolio-sublight-freight-hoist-masonry',24,-88.42],
+    ['portfolio-sublight-interlocking-masonry',29,-68.82]
+  ]) {
+    const ray=new THREE.Raycaster(new THREE.Vector3(x,95,z),new THREE.Vector3(0,-1,0));
+    const [roof]=ray.intersectObject(world.getObjectByName(name));
+    assert.ok(roof,`${name} has a visible roof`);
+    const hit=new C.RaycastResult();
+    simulation.world.raycastClosest(new C.Vec3(x,95,z),new C.Vec3(x,0,z),{skipBackfaces:true},hit);
+    assert.ok(hit.hasHit && Math.abs(hit.hitPointWorld.y-roof.point.y)<.17,`${name} has matching roof collision`);
+  }
+
+  function insideInstance(name, point) {
+    const mesh=world.getObjectByName(name), matrix=new THREE.Matrix4();
+    mesh.geometry.computeBoundingBox();
+    for (let index=0;index<mesh.count;index++) {
+      mesh.getMatrixAt(index,matrix);
+      matrix.premultiply(mesh.matrixWorld).invert();
+      if (mesh.geometry.boundingBox.containsPoint(point.clone().applyMatrix4(matrix))) return true;
+    }
+    return false;
+  }
+  for (const [x,z,tower] of [
+    [-19,-80.1,'portfolio-arrival-upper-balcony-block'],
+    [19,-74.5,'portfolio-sublight-interlocking-bridge-entry-block']
+  ]) {
+    const landing=new THREE.Vector3(x,28.5,z);
+    const deckEnd=new THREE.Vector3(x-Math.sign(x)*.25,26.55,z);
+    assert.ok(insideInstance(tower,landing),`${tower} overlaps its landing`);
+    assert.ok(insideInstance('portfolio-high-transfer-sockets',landing),`${tower} meets its socket`);
+    assert.ok(insideInstance('portfolio-high-transfer-sockets',deckEnd));
+    assert.ok(insideInstance('portfolio-high-transfer-deck',deckEnd));
+  }
+  simulation.dispose();
+});
+
 test('the portfolio city has six drivable stops and collision-backed buildings', () => {
   assert.notEqual(city, physics.city);
   assert.deepEqual(city.stops.map(stop => stop.id).sort(),

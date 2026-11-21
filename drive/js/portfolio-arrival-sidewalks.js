@@ -9,14 +9,21 @@
     ? new URL('../assets/portfolio/arrival-sidewalk.webp', document.currentScript.src).href
     : 'assets/portfolio/arrival-sidewalk.webp';
   const start = -118.7, end = -43.1;
-  const height = .17, grade = .072, verge = 7.04;
+  const height = .17, grade = .072;
   const crossing = -73.6;
-  const curbWidth = .29;
+  const curbWidth = .30;
+  const arrivalCurb = [[start,7.04],[-115,5.55],[-112,5.5],[-60,5.5],[-56,5.62],
+    [-52,5.91],[-48.5,6.58],[-46,7.04],[end,7.04]];
   const easement = {
     '-1': [[-118.7,9.1],[-94,9.2],[-91,10.2],[-79,10.7],[-68,10.7],[-65,11.7],[-43.1,11.9]],
-    '1': [[-118.7,8.72],[-96,8.72],[-91.2,13.64],[-82.2,13.64],[-76,12.2],[-69,12.2],[-65,11.1],[-43.1,11.45]]
+    '1': [[-118.7,8.72],[-96,8.72],[-91.2,13.64],[-67.75,13.64],[-65,11.16],[-43.1,11.45]]
   };
-  const marketFrontage = [[-86.5,-11.95],[-62.2,-11.95],[-59,-10.39],[-56.5,-9.22],[-53.9,-7.84]];
+  const marketStreetEdge = x => -20+(x+63)*16/34+8*Math.hypot(34,16)/34;
+  // Join the north edge of the market square at the west end and the
+  // diagonal through street to the east, with an inset for the parked shuttle.
+  const marketFrontage = [[-88.93,-9],[-87.75,-9],[-85.35,-12.15],[-83.75,-13.35],
+    [-74.15,-13.35],[-72.75,-11.60],[-65.8,-11.60],[-64.3,-13.25],[-62.4,-13.25],
+    [-58.4,-11.39],[-55.35,-8.43],[-54.15,marketStreetEdge(-54.15)],[-53.2,marketStreetEdge(-53.2)]];
   const marketStart=marketFrontage[0][0], marketEnd=marketFrontage.at(-1)[0];
   const marketWall=-5.92;
 
@@ -28,7 +35,7 @@
   function outline(z) {
     // Blend around the wider Projects approach where its rounded entrance
     // begins to overlap the 14 m street.
-    return Math.max(verge, .04 + Math.sqrt(Math.max(0, 9.5**2-(z+38)**2)));
+    return Math.max(along(arrivalCurb,z), .04 + Math.sqrt(Math.max(0, 9.5**2-(z+38)**2)));
   }
 
   function along(points, distance) {
@@ -43,19 +50,20 @@
     const connection = Math.min(smooth((z-start)/3.2), smooth((end-z)/4.15));
     const cut = smooth((Math.abs(z-crossing)-1.48)/1.75);
     const landing = Math.max(cut, smooth((distance-curbWidth)/1.18));
-    return grade+(height-grade)*connection*landing;
+    return (grade+(height-grade)*landing)*connection+curbGrade(distance)*(1-connection);
   }
 
-  function marketTop(x) {
-    const gradeChange=Math.min(smooth((x-marketStart)/2.5),smooth((marketEnd-x)/1.55));
-    return grade+(height-grade)*gradeChange;
+  function curbGrade(depth) {
+    // The handoff uses the same curb heights as the city sidewalks.
+    if (depth < .075) return .117+.029*depth/.075;
+    return .146+(height-.146)*Math.min(1,(depth-.075)/(curbWidth-.075));
   }
 
   function surfaceHeight(x,z) {
     if (z>=start && z<=end && Math.abs(x)>=outline(z) && Math.abs(x)<=along(easement[Math.sign(x)],z))
       return top(z,Math.abs(x)-outline(z));
     if (x>=marketStart && x<=marketEnd && z>=along(marketFrontage,x) && z<=marketWall)
-      return marketTop(x);
+      return curbGrade(z-along(marketFrontage,x));
     return 0;
   }
 
@@ -63,12 +71,13 @@
     // Leave the surrounding network out of the lowered crossing, food apron,
     // and storefront pads, including the narrow joint next to the road.
     const arrival = [-1,1].map(side => {
-      const stations=[...new Set(easement[side].map(([z])=>z).concat([-45,-44.5,-44.05,-43.6]))].sort((a,b)=>a-b);
+      const stations=[...new Set([...easement[side],...arrivalCurb].map(([z])=>z)
+        .concat([-45,-44.5,-44.05,-43.6]))].sort((a,b)=>a-b);
       const inner=stations.map(z=>[side*(outline(z)-.075),z]);
       const outer=stations.map(z=>[side*along(easement[side],z),z]).reverse();
       return [inner.concat(outer)];
     });
-    return arrival.concat([[marketFrontage.map(([x,z])=>[x,z-.035])
+    return arrival.concat([[marketFrontage.map(([x,z])=>[x,z-.005])
       .concat([[marketEnd,marketWall],[marketStart,marketWall]])]]);
   }
 
@@ -149,21 +158,33 @@
     }
 
     const at = value => () => value;
-    const vergeSide = at(0), bevelDepth=at(.075), kerbBack=at(curbWidth);
+    const vergeSide = at(0), bevelDepth=at(.075);
+    const clipped = (width,depth) => station=>Math.min(depth,width(station));
+    const rampBands = [curbWidth,.595,.89,1.185,1.48];
 
     function stripCollision(stations, width, point, reverse) {
       if (!C || !physics?.world) return;
       const ordered=[...new Set(stations)].sort((a,b)=>a-b);
+      const raisedBands = [vergeSide,bevelDepth,...rampBands.map(depth=>clipped(width,depth)),width];
+      const flatBand = [vergeSide,width];
+      const acrossSlope = station => Math.abs(point(station,0,0)[1]-point(station,width(station),0)[1])>.0001;
       for(let i=0;i<ordered.length-1;i++) {
         const a=ordered[i], b=ordered[i+1];
         const [x,,z]=point((a+b)/2,width((a+b)/2)/2,0);
         const body=new C.Body({mass:0,position:new C.Vec3(x,0,z)});
-        const divide = [vergeSide,kerbBack,station=>Math.min(1.47,width(station)),width];
+        const divide = acrossSlope(a) || acrossSlope(b) ? raisedBands : flatBand;
         for(let part=0;part<divide.length-1;part++) {
           const inner=divide[part], outer=divide[part+1];
-          if (outer(a)-inner(a)<.012 || outer(b)-inner(b)<.012) continue;
+          const openA=outer(a)-inner(a)>.001, openB=outer(b)-inner(b)>.001;
+          if (!openA && !openB) continue;
           const top=[point(a,inner(a),0),point(a,outer(a),0),point(b,outer(b),0),point(b,inner(b),0)];
+          if (!openB) top.splice(2,1);
+          if (!openA) top.splice(1,1);
           if (reverse) top.reverse();
+          if (top.length===3) {
+            slab(C,body,top);
+            continue;
+          }
           const [p,q,r,s]=top;
           const n=new THREE.Vector3().fromArray(q).sub(new THREE.Vector3().fromArray(p))
             .cross(new THREE.Vector3().fromArray(r).sub(new THREE.Vector3().fromArray(p)));
@@ -178,12 +199,13 @@
       }
     }
 
-    function buildStrip(first,last,knots,width,point,reverse) {
+    function buildStrip(first,last,knots,width,point,reverse,bevelDrop=.031) {
       function patch(batch,a,b,measure1,measure2,tint,lift=0) {
         face(batch,[point(a,measure1(a),lift),point(a,measure2(a),lift),
           point(b,measure2(b),lift),point(b,measure1(b),lift)],tint,reverse);
       }
-      const rampBack=station=>Math.min(1.47,width(station));
+      const kerbBack=clipped(width,curbWidth);
+      const bands = rampBands.map(depth=>clipped(width,depth)).concat(width);
       const breaks = [first,last,...knots];
       for (let station=first; station<last; station+=.48) breaks.push(station);
       const cuts = [...new Set(breaks)].sort((a,b)=>a-b);
@@ -191,26 +213,30 @@
         const a=cuts[i], b=cuts[i+1];
         const t = .74+.23*((i*67+(reverse?17:0)+596)%31)/30;
         const foot = station => { const [x,,z]=point(station,0,0); return [x,0,z]; };
-        face(curbFaces,[foot(a),foot(b),point(b,0,-.031),point(a,0,-.031)],t,!reverse);
-        face(bevelFaces,[point(a,0,-.031),point(a,.075,0),point(b,.075,0),point(b,0,-.031)],t+.055,reverse);
+        face(curbFaces,[foot(a),foot(b),point(b,0,-bevelDrop),point(a,0,-bevelDrop)],t,!reverse);
+        face(bevelFaces,[point(a,0,-bevelDrop),point(a,.075,0),point(b,.075,0),point(b,0,-bevelDrop)],t+.055,reverse);
         patch(curbFaces,a,b,bevelDepth,kerbBack,t);
-        patch(slabFaces,a,b,kerbBack,rampBack,.88+t*.11);
-        patch(slabFaces,a,b,rampBack,width,.79+t*.17);
+        for (let band=1; band<bands.length; band++)
+          patch(slabFaces,a,b,bands[band-1],bands[band],.79+t*.16+band*.007);
       }
 
-      // The darker joints are wide enough to read in a moving camera and are
-      // staggered behind the narrow stones that edge the road.
+      // Stagger joints across the full width of the paving.
+      const seams=[curbWidth,1.78,3.34,4.85,6.40];
       for (let station=first+2.2; station<last-.35; station+=1.43) {
         patch(jointFaces,station-.016,station+.016,bevelDepth,kerbBack,.75,.003);
-        patch(jointFaces,station-.012,station+.012,kerbBack,t=>Math.min(1.76,width(t)),.74,.004);
-        if (station+.71<last && width(station+.7)>1.8)
-          patch(jointFaces,station+.681,station+.708,t=>Math.min(1.8,width(t)),width,.73,.004);
+        for (let band=0; band<seams.length; band++) {
+          const offset = band%2 ? .71 : 0, center = station+offset;
+          if (center>=last-.12 || width(center)<=seams[band]) continue;
+          const edge=seams[band+1], next=edge===undefined?width:clipped(width,edge);
+          patch(jointFaces,center-.012,center+.012,clipped(width,seams[band]),next,.74,.004);
+        }
       }
       for (let i=0; i<cuts.length-1; i++) {
         const a=cuts[i],b=cuts[i+1];
-        patch(jointFaces,a,b,at(.30),at(.327),.85,.004);
-        if (width(a)>1.76 || width(b)>1.76)
-          patch(jointFaces,a,b,t=>Math.min(1.745,width(t)),t=>Math.min(1.773,width(t)),.77,.004);
+        for (const seam of seams) {
+          if (width(a)<seam && width(b)<seam) continue;
+          patch(jointFaces,a,b,clipped(width,seam-.013),clipped(width,seam+.013),.77,.004);
+        }
       }
       return patch;
     }
@@ -219,7 +245,7 @@
       const width = z => along(easement[side],z)-outline(z);
       const point = (z,depth,lift) => [side*(outline(z)+depth),top(z,depth)+lift,z];
       const crosswalkKnots = [crossing-3.23,crossing-1.48,crossing+1.48,crossing+3.23];
-      const cuts = easement[side].map(([z])=>z).concat(crosswalkKnots);
+      const cuts = [...easement[side],...arrivalCurb].map(([z])=>z).concat(crosswalkKnots);
       const patch = buildStrip(start,end,cuts,width,point,side>0);
       stripCollision(cuts.concat(start+1.6,start+3.2,crossing-2.3,crossing+2.3,
         end-4.15,end-2.4,-44.5,-44.05,-43.60),width,point,side>0);
@@ -231,7 +257,7 @@
       }
 
       for (const z of [-109,-97,-83,-66,-51]) {
-        const x=side*6.81;
+        const x=side*(outline(z)-.231);
         asphaltDetail(jointFaces,x-.177,x+.177,z-.46,z+.46,.055,.88);
         for (let offset=-.35; offset<.36; offset+=.11)
           asphaltDetail(steelFaces,x-.157,x+.157,z+offset,z+offset+.031,.059,.76);
@@ -246,10 +272,10 @@
     // The curb turns with the side street so it stays outside the through lanes.
     const marketCurb=x=>along(marketFrontage,x);
     const marketWidth=x=>marketWall-marketCurb(x);
-    const marketPoint=(x,depth,lift)=>[x,marketTop(x)+lift,marketCurb(x)+depth];
-    const marketPatch=buildStrip(marketStart,marketEnd,marketFrontage.map(([x])=>x),marketWidth,marketPoint,false);
-    stripCollision(marketFrontage.map(([x])=>x).concat(marketStart+1.25,marketStart+2.50,
-      marketEnd-1.55,marketEnd-.775),marketWidth,marketPoint,false);
+    const marketPoint=(x,depth,lift)=>[x,curbGrade(depth)+lift,marketCurb(x)+depth];
+    const marketStations=marketFrontage.map(([x])=>x);
+    const marketPatch=buildStrip(marketStart,marketEnd,marketStations,marketWidth,marketPoint,false,0);
+    stripCollision(marketStations,marketWidth,marketPoint,false);
     for (const x of [-82.5,-76.2,-70,-63.1,-57.12]) {
       marketPatch(steelFaces,x-.58,x+.58,at(.095),at(.235),.75,.006);
       marketPatch(lightFaces,x-.47,x+.47,at(.125),at(.165),.46,.009);
@@ -264,8 +290,8 @@
 
     // Neither lane is blocked at the pedestrian crossing. The short broken
     // stripe segments expose some road between the worn strips.
-    for (let i=0;i<14;i++) {
-      const x=-6.65+i*.975;
+    for (let i=0;i<12;i++) {
+      const x=-5.17+i*.90;
       const n=((i*7)%11)*.012;
       asphaltDetail(paintFaces,x,x+.5-n,crossing-1.27,crossing+1.27,.057,.68+n);
       asphaltDetail(paintFaces,x+.022,x+.47,crossing-1.46+n,crossing-1.27,.057,.49+n);
