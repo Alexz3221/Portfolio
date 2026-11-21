@@ -1,12 +1,12 @@
 (function(root, factory) {
   if (typeof module === 'object' && module.exports) {
     module.exports = factory(require('./portfolio-exchange'),require('./portfolio-underwriting'),require('./portfolio-sublight'),
-      require('./portfolio-sky-mall'));
+      require('./portfolio-sky-mall'),require('./portfolio-experience-towers'),require('./portfolio-cu-tower'));
   } else {
     root.DrivePortfolioCity = factory(root.DrivePortfolioExchange,root.DrivePortfolioUnderwriting,root.DrivePortfolioSublight,
-      root.DrivePortfolioSkyMall);
+      root.DrivePortfolioSkyMall,root.DrivePortfolioExperienceTowers,root.DrivePortfolioCUTower);
   }
-})(typeof globalThis !== 'undefined' ? globalThis : this, function(exchange,underwriting,sublight,mall) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function(exchange,underwriting,sublight,mall,experience,cuTower) {
   'use strict';
 
   const driveBase = typeof document !== 'undefined' && document.currentScript?.src
@@ -210,8 +210,7 @@
     [-87,37,16,22,38,2,'steps'], [-125,28,15,20,51,2,'podium'],
     [-52,31,19,26,49,2,'twins'], [-34,36,15,14,32,1,'podium'],
     [39,31,16,22,45,0,'cantilever'], [58,44,21,21,70,4,'steps'],
-    [83,15,30,21,8.85,5,'slab'], [87,-89,18,12,18,5,'slab'],
-    [139,19,22,20,23,3,'steps'], [130,-60,13,25,37,5,'twins'],
+    [87,-89,18,12,18,5,'slab'],
     [64,-133,25,20,27,6,'steps'], [46,-83,16,21,20,3,'cantilever'],
     [-87,115,15,12,23,2,'podium'], [-43,101,15,15,14,7,'cantilever'],
     [-15,101,14,23,36,7,'twins'], [15,102,20,21,47,0,'steps'],
@@ -257,15 +256,9 @@
   collisionBlock(campus.northX,campus.north,13,12,22,4,23);
   collisionBlock(campus.northX+1.8,campus.north,10.5,11,33,7,45);
 
-  const relayTower = {x:133.3,z:-30.4};
-  block(relayTower.x,relayTower.z,16.8,15.2,12.8,5,0,true);
-  collisionBlock(relayTower.x,relayTower.z,10.6,10.6,43,4,12.8);
-  collisionBlock(relayTower.x,relayTower.z,6.8,6.8,20,4,55.8);
-  block(129.0,1.2,13.5,12,22,5,0,true);
-  block(130.3,2.7,11,9.6,34,0,22,true);
+  for (const {x,z,width,depth,baseY,height} of [...experience.colliders,...cuTower.colliders])
+    collisionBlock(x,z,width,depth,height,5,baseY);
   block(131.8,-14.3,6.8,29.0,3.45,0,28.9,true);
-  collisionBlock(83.7,14.8,31.6,22.4,6.95,0,8.85);
-  collisionBlock(86.1,16.4,20.8,14,13.1,0,15.8);
   collisionBlock(-69.6,1.8,21.2,12.8,5,1,9);
   collisionBlock(-70.0,2.5,16.0,10.6,11.8,1,14);
 
@@ -286,11 +279,6 @@
       contours:[[8.95,9.72,6.08],[10.35,10.56,6.48,-.2],[13.4,10.05,6.12,-.42,.06],[14.9,8.13,5.47,-.4,.6],
         [17.8,7.51,5.20,-.35,.85],[22.4,7.08,4.88,-.35,.93],[25.8,5.02,3.89,-.12,1.00]],
       ledges:[[10.32,.54,.82],[15.1,.58,1.24],[20.5,.34,.50],[24.71,.36,.68]]},
-    {id:'service-overlook',x:83,z:15,style:0,power:3.55,yaw:.11,accent:0x8beded,ribStride:2,
-      contours:[[8.81,14.47,10.15],[10.4,15.80,11.1,.51,-.30],[13.8,14.95,10.54,.85,-.2],
-        [15,12.58,8.95,1.55,.52],[17.3,9.80,6.72,2.85,1.43],[21,8.59,6.07,3.41,1.7],
-        [25,7.88,5.73,3.61,1.98],[28.9,5.14,4.21,4.08,2.22]],
-      ledges:[[10.38,.45,1.10],[14.5,.58,1.36],[18,.52,.90],[23.5,.42,.54],[26.9,.35,.68]]},
     {id:'morrow-spindle',x:36.5,z:-27.5,style:4,power:2.7,yaw:.12,accent:0x83ebe0,ribStride:4,
       contours:[[27.1,8.7,9.0],[30,9.45,9.4,-.35],[43,9.1,9.0,-.6],[57,8.05,8.65,-1.5,.35],
         [69,7.2,7.6,-1.35,.83],[81,5.85,6.35,-.2,1.1],[89,3.8,4.6,1.2,1.65],[94,2.45,2.6,1.66,1.45]],
@@ -314,11 +302,7 @@
         [32,4.19,5.19,-1.25,-1.03],[33,3.64,4.85,-1.65,-1.3],[42,3.38,4.39,-2.39,-2.35],
         [50,2.95,3.46,-2.90,-2.7],[54,2.6,3.1,-3.50,-2.98],[61.7,1.80,2.48,-3.8,-3.42]],
       ledges:[[16.4,.60,1.06],[22.3,.53,.72],[27.6,.39,1.12],[33,.66,1.34],[38.2,.37,.81],
-        [45.7,.55,1.22],[51.7,.58,.94],[59.7,.45,.65]]},
-    {id:'service-relay-core',x:relayTower.x,z:relayTower.z,style:5,power:2,yaw:.0,accent:0xa6e7dc,ribStride:4,
-      contours:[[12.74,5.33,5.32],[21.5,4.62,5.15],[29,4.29,4.7],[41,3.9,4.6],
-        [52,3.55,4.09],[56.42,3.5,4.0],[62,3.0,3.8],[67,3.40,3.7],[75.8,1.58,1.68]],
-      ledges:[[13,.61,.64],[26.8,.43,.85],[42.3,.42,.73],[52.65,.55,.77],[61.5,.39,.92],[72,.31,.89]]}
+        [45.7,.55,1.22],[51.7,.58,.94],[59.7,.45,.65]]}
   ];
 
   const rnd = randomFrom(0x23052d);
@@ -1004,11 +988,9 @@
       }
       const [,rx,rz,xShift=0,zShift=0]=tower.contours.at(-1);
       const x=tower.x+xShift, z=tower.z+zShift;
-      if (tower.id!=='service-relay-core') {
-        instance('portfolio-architecture-roof-plant',materials.steel,x,top+.97,z,rx*.93,1.5,rz*.94,tower.yaw);
-        instance('portfolio-architecture-roof-plant',materials.metal,x-rx*.42,top+2.4,z+.37,.54,4.4,.58);
-        instance('portfolio-architecture-roof-markers',materials.light,x-rx*.42,top+4.63,z+.37,.23,.13,.23,0,0xf77d60);
-      }
+      instance('portfolio-architecture-roof-plant',materials.steel,x,top+.97,z,rx*.93,1.5,rz*.94,tower.yaw);
+      instance('portfolio-architecture-roof-plant',materials.metal,x-rx*.42,top+2.4,z+.37,.54,4.4,.58);
+      instance('portfolio-architecture-roof-markers',materials.light,x-rx*.42,top+4.63,z+.37,.23,.13,.23,0,0xf77d60);
     }
   }
 
@@ -1440,27 +1422,6 @@
     }
     for (const side of [-1,1]) instance('portfolio-service-bridge-lights',materials.light,
       131.8+side*3.44,32.3,-14.3,.095,.9,27.8,0,0x8ce9da);
-    const relayAssembly = new THREE.Group();
-    relayAssembly.name='portfolio-service-beacon';
-    relayAssembly.position.set(relayTower.x,0,relayTower.z);
-    world.add(relayAssembly);
-    const relayBands = [
-      {y:16.4,top:6.35,bottom:7.85,h:6.6}, {y:35.2,top:5.8,bottom:6.8,h:4.5},
-      {y:56.1,top:6.95,bottom:5.5,h:4.2}, {y:67.7,top:5.1,bottom:6.85,h:4.65},
-      {y:73.2,top:2.55,bottom:5.05,h:3.3}
-    ];
-    for (const {y,top,bottom,h} of relayBands) {
-      const housing = new THREE.Mesh(new THREE.CylinderGeometry(top,bottom,h,12),materials.steel);
-      housing.position.y=y;
-      relayAssembly.add(housing);
-      const beacon = new THREE.Mesh(new THREE.TorusGeometry(top+.055,.105,6,24),new THREE.MeshBasicMaterial({color:0xbfead6,toneMapped:false}));
-      beacon.rotation.x=Math.PI/2;
-      beacon.position.y=y+h/2;
-      relayAssembly.add(beacon);
-    }
-    instance('portfolio-transfer-masts',materials.metal,relayTower.x,80.5,relayTower.z,.39,9.9,.38);
-    instance('portfolio-transfer-mast-lights',materials.light,relayTower.x,85.45,relayTower.z,.30,.27,.30,0,0xff674e);
-
     for (const stop of stops) {
       const color=stop.color;
       const angle=stop.heading, sideX=Math.cos(angle), sideZ=-Math.sin(angle);

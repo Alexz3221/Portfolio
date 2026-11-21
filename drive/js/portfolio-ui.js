@@ -7,23 +7,32 @@
 
   const escapeHtml = value => String(value).replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
   const projects = districts?.projects || [];
-  const projectsByStopId = new Map(projects.map(project => [project.stopId,project]));
-  const projectVenue = project => project.building.name + (project.approach.y > 0 ? ' · Aerie Arcade' : '');
+  const experience = districts?.experience || [];
+  const sitesByStopId = new Map([...projects,...experience].map(site => [site.stopId,site]));
+  const siteMetadata = site => [site.position,site.dates].filter(Boolean).join(' · ');
+  function siteCards(entries) {
+    return `<div class="city-project-grid">${entries.map(site => `<button class="city-project" type="button" data-stop="${escapeHtml(site.stopId)}">
+      <strong>${escapeHtml(site.title)}</strong><span>${escapeHtml(siteMetadata(site) || site.summary)}</span><b>${escapeHtml(site.building.name)}</b>
+    </button>`).join('')}</div>`;
+  }
   function projectCards() {
     const ground = projects.filter(project => project.approach.y === 0);
     const arcade = projects.filter(project => project.approach.y > 0);
     function level(title, venues) {
-      return `<section class="city-project-level"><h4>${title}</h4><div class="city-project-grid">
-        ${venues.map(project => `<button class="city-project" type="button" data-stop="${escapeHtml(project.stopId)}">
-          <strong>${escapeHtml(project.title)}</strong><span>${escapeHtml(project.summary)}</span><b>${escapeHtml(project.building.name)}</b>
-        </button>`).join('')}</div></section>`;
+      return `<section class="city-project-level"><h4>${title}</h4>${siteCards(venues)}</section>`;
     }
     return level('Street level',ground) + level('Aerie Arcade',arcade);
   }
-  function projectStory(project) {
-    const {summary,detail,link} = project;
+  function siteStory(site) {
+    const {summary,detail,link} = site;
+    const districtTitle = districts.byStopId[site.sectionId].title;
+    const area = site.approach.y > 0 ? 'Aerie Arcade' : districtTitle;
+    const venue = `${site.building.name} · ${area}`;
+    const metadata = siteMetadata(site);
     const external = link?.href.startsWith('https://') ? ' target="_blank" rel="noopener noreferrer"' : '';
-    return `<p class="city-story-landmark">${escapeHtml(projectVenue(project))}</p><p>${escapeHtml(summary)}</p>
+    return `<p class="city-story-landmark">${escapeHtml(venue)}</p>
+      ${metadata ? `<p>${escapeHtml(metadata)}</p>` : ''}
+      ${summary ? `<p>${escapeHtml(summary)}</p>` : ''}
       ${detail ? `<p>${escapeHtml(detail)}</p>` : ''}
       ${link ? `<div class="city-link-row"><a href="${escapeHtml(link.href)}" class="city-inline-link"${external}>${escapeHtml(link.label)}</a></div>` : ''}`;
   }
@@ -32,7 +41,7 @@
     about: {
       title: 'About',
       body: `<p>I’m Alex Zhou, a computer science grad student at CU Boulder. I studied computer science and math there as an undergrad.</p>
-        <p>My projects range from this driving game to a local app for writing branching stories. I also work on small language models and video workflows at Spectrum.</p>
+        <p>My projects range from this driving game to a local app for writing branching stories. I also work on video engineering and small language models at Spectrum.</p>
         <div class="city-link-row"><a href="https://github.com/Alexz3221" target="_blank" rel="noopener noreferrer" class="city-inline-link">GitHub</a><a href="https://www.linkedin.com/in/alex-zhou2/" target="_blank" rel="noopener noreferrer" class="city-inline-link">LinkedIn</a><a href="../" class="city-inline-link">Home</a></div>`
     },
     projects: {
@@ -41,13 +50,7 @@
     },
     experience: {
       title: 'Experience',
-      body: `<div class="city-timeline">
-        <article><span>August 2026–present</span><h3>Spectrum · DevOps co-op</h3><p>Working with small language models and video packaging workflows.</p></article>
-        <article><span>August 2026–May 2027</span><h3>RTX / Raytheon · software engineering co-op</h3><p>Systems software.</p></article>
-        <article><span>Summer 2026</span><h3>Google · software engineering intern</h3><p>Worked on an event-driven backend for evaluating policy impact.</p></article>
-        <article><span>Summer 2026</span><h3>CoorsTek · computational materials intern</h3><p>Used Databricks and Spark to predict heat-treatment outcomes.</p></article>
-        <article><span>Summer 2025</span><h3>Rocket Software · software engineering intern</h3><p>Wrote Python pipelines for LLM datasets.</p></article>
-        </div>`
+      body: `<div class="city-project-level">${siteCards(experience)}</div>`
     },
     education: {
       title: 'Education',
@@ -181,7 +184,7 @@
   function create({document, window, stops, city, onJump, onOpen, onClose, driveTarget}) {
     if (!document?.createElement || !document?.body) throw new Error('Portfolio UI needs a browser document');
     let cityMap = city || null;
-    let locations = [], projectStops = [], byId = new Map(), mapRoads = [];
+    let locations = [], interactionStops = [], byId = new Map(), mapRoads = [];
     const routePicker = document.querySelector('.route-picker');
     const guideButton = document.createElement('button');
     guideButton.type = 'button';
@@ -558,8 +561,9 @@
       const edge=Number(cityMap?.edge) || 440;
       bounds=cityMap?.bounds || {minX:-edge,maxX:edge,minZ:-edge,maxZ:edge};
       locations = isPortfolio ? (cityMap?.stops || stops || []).filter(stop => stories[stop.id]) : [];
-      projectStops = isPortfolio ? (districts?.projectStopsFor?.(cityMap) || []) : [];
-      byId=new Map([...locations,...projectStops].map(stop=>[stop.id,stop]));
+      const siteStops = isPortfolio ? (districts?.siteStopsFor?.(cityMap) || []) : [];
+      interactionStops = [...locations,...siteStops];
+      byId=new Map(interactionStops.map(stop=>[stop.id,stop]));
       centers = typeof onJump !== 'function' ? [] : isPortfolio
         ? [...(skyway?.entrances || []).map(entrance => ({...entrance, kind:'skyway'})),
           ...(skyMall ? [{...skyMall, kind:'sky-mall'}] : []),...landmarks] : deriveCenters(cityMap);
@@ -599,17 +603,17 @@
       panel.focus();
     }
     function open(id, returnFocus) {
-      const stop = byId.get(id), story = stories[id], project = projectsByStopId.get(id);
-      if (map !== 'city' || (!project && (!stop || !story))) return false;
+      const stop = byId.get(id), story = stories[id], site = sitesByStopId.get(id);
+      if (map !== 'city' || (!site && (!stop || !story))) return false;
       begin('story', returnFocus);
       currentStoryId = id;
-      const projectDistrict = id === 'projects' ? districts?.byStopId.projects : null;
-      title.textContent = project?.title ?? projectDistrict?.title ?? stop.title;
+      const overviewDistrict = id === 'projects' || id === 'experience' ? districts?.byStopId[id] : null;
+      title.textContent = site?.title ?? overviewDistrict?.title ?? stop.title;
       guide.hidden = true;
       storyView.hidden = false;
-      backButton.textContent = project ? '← PROJECTS' : '← CITY GUIDE';
-      if (project) {
-        storyContent.innerHTML = projectStory(project);
+      backButton.textContent = site ? `← ${stories[site.sectionId].title.toUpperCase()}` : '← CITY GUIDE';
+      if (site) {
+        storyContent.innerHTML = siteStory(site);
       } else {
         const landmark = stop.landmark ? `<p class="city-story-landmark">Near ${escapeHtml(stop.landmark)}</p>` : '';
         storyContent.innerHTML = `<h3>${escapeHtml(story.title)}</h3>${landmark}${story.body}`;
@@ -646,8 +650,8 @@
         applyMinimapView();
       } else orientRadar();
       if (map !== 'city') return;
-      const project = nearestStopOnLevel(position,projectStops,true);
-      const nearest = project || nearestStopOnLevel(position,locations);
+      const nearbyVisit = nearestStopOnLevel(position,interactionStops,true);
+      const nearest = nearbyVisit || nearestStopOnLevel(position,locations);
       const {stop,distance} = nearest || {};
       const mall = cityMap?.skyMall;
       const deck = mall?.deck;
@@ -655,9 +659,9 @@
         position.x >= deck.minX && position.x <= deck.maxX && position.z >= deck.minZ && position.z <= deck.maxZ;
       const stopTitle = stop && (labels[stop.id] || stop.title);
       const distanceHint = stop ? `Nearest: ${stopTitle} · ${Math.round(distance / 5) * 5} m` : '';
-      const hint = atMall && !project ? `${mall.destination.title} · Sky Mall` : distanceHint;
+      const hint = atMall && !nearbyVisit ? `${mall.destination.title} · Sky Mall` : distanceHint;
       if (minimapHint.textContent !== hint) minimapHint.textContent = hint;
-      nearbyStop = stop && distance < (stop.interactionRadius ?? 23) ? stop : null;
+      nearbyStop = nearbyVisit?.stop || null;
       if (!nearbyStop || activeView) { nearby.hidden = true; return; }
       const slow = Math.abs(speed) < 3;
       nearby.disabled = !slow;
@@ -717,7 +721,8 @@
     });
     closeButton.addEventListener('click', event => close(event.detail > 0));
     backButton.addEventListener('click', () => {
-      if (projectsByStopId.has(currentStoryId)) open('projects');
+      const site = sitesByStopId.get(currentStoryId);
+      if (site) open(site.sectionId);
       else openGuide();
     });
     nearby.addEventListener('click', event => { if (nearbyStop && !nearby.disabled) open(nearbyStop.id, event.detail > 0 ? driveFocus : nearby); });

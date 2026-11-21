@@ -123,6 +123,10 @@ window.dispatchEvent(new Event('resize'));
 document.querySelector('.city-stop-item[data-stop="projects"]').click();
 check(document.querySelector('.city-story-content h3')?.textContent === 'Projects', 'direct card opens projects');
 check(document.querySelectorAll('button.city-project').length === 8, 'the Projects overview opens all eight project panels');
+document.querySelector('button[data-stop="project-one-more-chapter"]').click();
+check(document.querySelector('#cityPanelTitle').textContent === 'One More Chapter' &&
+  document.querySelector('.city-story-content a')?.getAttribute('href') === '../reader/', 'independent project panels retain their content and links');
+document.querySelector('.city-back').click();
 document.querySelector('.city-drive-here').click();
 check(jumped === 'projects' && !ui.isOpen(), 'fast travel closes story');
 ui.update({x: stops[0].x, z: stops[0].z}, 0);
@@ -137,6 +141,35 @@ document.querySelector('.city-guide-trigger').focus();
 document.activeElement.dispatchEvent(new KeyboardEvent('keydown', {key:'e', bubbles:true}));
 check(!ui.isOpen(), 'E does not activate a focused guide button');
 document.querySelector('#drive-scene').focus();
+const serviceCity = {stops,skyway:{}};
+const roles = DrivePortfolioDistricts.siteStopsFor(serviceCity,DrivePortfolioDistricts.experience);
+const spectrum = roles.find(stop => stop.id === 'experience-spectrum');
+ui.setCity(serviceCity, 'city');
+document.querySelector('.city-guide-trigger').click();
+document.querySelector('.city-stop-item[data-stop="experience"]').click();
+check(document.querySelector('#cityPanelTitle').textContent === 'Service District', 'Experience opens the district overview');
+check(document.querySelectorAll('button.city-project[data-stop^="experience-"]').length === 6, 'the overview has six role cards');
+document.querySelector('button[data-stop="experience-cu-boulder"]').click();
+check(document.querySelector('#cityPanelTitle').textContent === 'CU Boulder' &&
+  document.querySelector('.city-story-content').textContent.includes('Course Assistant') &&
+  !document.querySelector('.city-story-content').textContent.includes('undefined'), 'the Course Assistant panel supports a role with no dates');
+document.querySelector('.city-back').click();
+document.querySelector('button[data-stop="experience-spectrum"]').click();
+check(document.querySelector('.city-story-content').textContent.includes('DevOps co-op · August 2026–present'), 'the role panel shows the position and period');
+check(document.querySelector('.city-story-landmark').textContent === 'Broadcast & Model Lab · Service District', 'the role panel names its venue');
+document.querySelector('.city-back').click();
+check(document.querySelector('#cityPanelTitle').textContent === 'Service District', 'the role back button returns to Experience');
+document.querySelector('button[data-stop="experience-spectrum"]').click();
+document.querySelector('.city-drive-here').click();
+check(jumped === spectrum.id && !ui.isOpen(), 'Drive Here uses the individual role stop');
+ui.update({...spectrum,y:11.5}, 0);
+check(document.querySelector('.city-nearby').hidden, 'a role does not prompt at Skyway height');
+ui.update({...spectrum,y:.85}, 5);
+check(document.querySelector('.city-nearby').disabled, 'a passing driver is prompted to slow down');
+ui.update({...spectrum,y:.85}, 0);
+document.dispatchEvent(new KeyboardEvent('keydown', {key:'e', bubbles:true}));
+check(document.querySelector('#cityPanelTitle').textContent === 'Spectrum' && ui.isOpen(), 'E opens the role while parked at its entrance');
+document.dispatchEvent(new KeyboardEvent('keydown', {key:'Escape', bubbles:true}));
 const centerCity = {stops, bounds:{minX:-500,maxX:500,minZ:-500,maxZ:500},
   overviewRoads:[{x1:-400,z1:0,x2:400,z2:0,width:16}],
   manifest:{source:{cityName:'Test City'},centerCandidates:[{id:'center-0_0',x:0,z:0}]},
@@ -196,7 +229,7 @@ document.querySelector('#drive-scene').dispatchEvent(new KeyboardEvent('keydown'
 check(ui.isOpen(), 'M opens city map');
 document.dispatchEvent(new KeyboardEvent('keydown', {key:'m', bubbles:true}));
 check(!ui.isOpen(), 'M closes city map');
-document.getElementById('results').textContent = failures.length ? 'FAIL: ' + failures.join(', ') : 'PASS: separate city maps, zoom, pan, M hotkey, center fast travel, E prompt, Escape';
+document.getElementById('results').textContent = failures.length ? 'FAIL: ' + failures.join(', ') : 'PASS: separate city maps, zoom, pan, M hotkey, fast travel, project and role panels, E prompt, Escape';
 document.documentElement.dataset.result = failures.length ? 'fail' : 'pass';
 if (new URLSearchParams(location.search).has('preview')) {
   if (new URLSearchParams(location.search).has('narrow')) {

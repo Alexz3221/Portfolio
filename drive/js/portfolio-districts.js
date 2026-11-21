@@ -21,18 +21,14 @@
     });
   }
 
-  function site(id,title,sectionId,[name,x,z],approach) {
-    return {id,title,sectionId,districtId:byStopId[sectionId].id,building:{name,x,z},approach};
-  }
-
   const east = Math.PI / 2;
-  function project(id,title,building,{x,z,heading,y=0},content) {
-    const upper = y > 0;
-    const approach = {x,y,z,heading,interactionRadius:upper ? 8 : 12};
-    const record = site(id,title,'projects',building,approach);
-    record.building.y = y;
-    return {...record,...content,stopId:`project-${id}`};
+  function site(sectionId,id,title,[name,buildingX,buildingZ],{x,y=0,z,heading},content) {
+    const prefix = sectionId === 'projects' ? 'project' : sectionId;
+    return {id,title,sectionId,districtId:byStopId[sectionId].id,stopId:`${prefix}-${id}`,
+      building:{name,x:buildingX,y,z:buildingZ},approach:{x,y,z,heading,interactionRadius:y > 0 ? 8 : 12},...content};
   }
+  const project = (...args) => site('projects',...args);
+  const role = (...args) => site('experience',...args);
 
   const projects = [
     project('car-go-vroom','Car Go Vroom',['Concourse Garage',-34,36], {x:-20,z:36,heading:0}, {
@@ -79,25 +75,40 @@
     })
   ];
 
-  function projectStopsFor(city) {
+  const experience = [
+    role('spectrum','Spectrum',['Broadcast & Model Lab',133.3,-30.4], {x:115.5,z:-34,heading:0}, {
+      position:'DevOps co-op',dates:'August 2026–present',
+      summary:'I work on video engineering and packaging workflows. I also work with small language models.'
+    }),
+    role('rtx-raytheon','RTX / Raytheon',['Systems Depot',139,19], {x:116,z:19,heading:0}, {
+      position:'Software engineering co-op',dates:'August 2026–May 2027',
+      summary:'I work on systems software.'
+    }),
+    role('google','Google',['Event Systems / Evaluation',83,15], {x:84.5,z:-9,heading:east}, {
+      position:'Software engineering intern',dates:'Summer 2026',
+      summary:'I worked on an event-driven backend for evaluating policy impact.'
+    }),
+    role('coorstek','CoorsTek',['Materials Foundry',130,-60], {x:115,z:-61,heading:0}, {
+      position:'Computational materials intern',dates:'Summer 2026',
+      summary:'I used Databricks and Spark to predict heat-treatment outcomes.'
+    }),
+    role('rocket-software','Rocket Software',['Dataset Archives',129,1.2], {x:115.5,z:1,heading:0}, {
+      position:'Software engineering intern',dates:'Summer 2025',
+      summary:'I wrote Python pipelines for LLM datasets.'
+    }),
+    role('cu-boulder','CU Boulder',['Learning Exchange',154.5,45], {x:139,z:45,heading:east}, {
+      position:'Course Assistant'
+    })
+  ];
+  const sites = [...projects,...experience];
+
+  function siteStopsFor(city, entries = sites) {
     if (!city?.skyway) return [];
-    return projects.filter(project => !project.approach.y || city.skyMall?.deck?.y === project.approach.y)
-      .map(project => ({id:project.stopId,title:project.title,...project.approach}));
+    return entries.filter(site => !site.approach.y || city.skyMall?.deck?.y === site.approach.y)
+      .map(site => ({id:site.stopId,title:site.title,...site.approach}));
   }
 
-  const sites = [
-    ...projects,
-    site('spectrum','Spectrum','experience',
-      ['Service Relay',133.3,-30.4], {x:115.5,z:-34,heading:0}),
-    site('rtx-raytheon','RTX / Raytheon','experience',
-      ['Systems Depot',139,19], {x:116,z:19,heading:0}),
-    site('google','Google','experience',
-      ['Service Overlook',83,15], {x:84.5,z:-9,heading:east}),
-    site('coorstek','CoorsTek','experience',
-      ['Materials Foundry',130,-60], {x:115,z:-61,heading:0}),
-    site('rocket-software','Rocket Software','experience',
-      ['Data Workshop',129,1.2], {x:115.5,z:1,heading:0})
-  ];
+  const projectStopsFor = city => siteStopsFor(city,projects);
 
-  return {byStopId,districtsFor,sites,projects,projectStopsFor};
+  return {byStopId,districtsFor,sites,projects,experience,projectStopsFor,siteStopsFor};
 });

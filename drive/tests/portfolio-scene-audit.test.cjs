@@ -8,6 +8,8 @@ const storefronts = require('../js/portfolio-storefronts');
 const skyMall = require('../js/portfolio-sky-mall');
 const facades = require('../js/portfolio-facades');
 const projects = require('../js/portfolio-projects-frontages');
+const experience = require('../js/portfolio-experience-towers');
+const cuTower = require('../js/portfolio-cu-tower');
 
 const geometry = new THREE.BoxGeometry(1,1,1);
 const material = new THREE.MeshStandardMaterial();
@@ -91,6 +93,8 @@ test('Portfolio City billboard faces and central drive corridors are clear', () 
   facades.attach(THREE,world,city);
   const mall = skyMall.attach(THREE,world);
   const projectFrontages = projects.attach(THREE,world);
+  const experienceTowers = experience.attach(THREE,world);
+  const learningExchange = cuTower.attach(THREE,world);
   const signsIn = groupName => {
     let count = 0;
     world.getObjectByName(groupName).traverse(object => { if (object.userData.portfolioAdFace) count++; });
@@ -98,13 +102,16 @@ test('Portfolio City billboard faces and central drive corridors are clear', () 
   };
   const mallSigns = signsIn('portfolio-sky-mall');
   const projectSigns = signsIn('portfolio-projects-frontages');
+  const experienceSigns = signsIn('portfolio-experience-towers') + signsIn('portfolio-cu-learning-exchange');
   holograms.create(THREE,world,[],{adverts:city.adPlacements});
   const report = audit.run(THREE,world,city);
   mall.dispose();
   projectFrontages.dispose();
+  experienceTowers.dispose();
+  learningExchange.dispose();
   const roadSigns = world.children.filter(object=>object.name==='portfolio-sign');
-  assert.ok(roadSigns.length > 0 && mallSigns > 0 && projectSigns >= 5);
-  assert.equal(report.checked.signs,city.adPlacements.length+roadSigns.length+mallSigns+projectSigns);
+  assert.ok(roadSigns.length > 0 && mallSigns > 0 && projectSigns >= 5 && experienceSigns >= 6);
+  assert.equal(report.checked.signs,city.adPlacements.length+roadSigns.length+mallSigns+projectSigns+experienceSigns);
   assert.equal(report.checked.corridors,city.networkRoads.length+city.highwaySegments.length+city.skyMall.loop.length);
   assert.deepEqual(report.signs,[]);
   assert.deepEqual(report.corridors,[]);

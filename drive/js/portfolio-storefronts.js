@@ -32,23 +32,21 @@
     [39,19.88,north,6.20,'LUMA SUPPLY','BATTERIES / FILTERS','store'],
     [33.78,28.0,west,5.60,'LITTLE HOURS','ESPRESSO & TEA','food'],
     [-117.39,34.3,east,6.55,'READING ROOM','OPEN TO THE PUBLIC','pharmacy'],
-    [123.39,-56.0,west,6.40,'DOCK 07','MORROW UTILITIES','workshop'],
-    [123.39,-64.6,west,5.80,'SHIFT STORE','UNIFORMS & TOOLS','store'],
     [-40.2,93.37,north,6.10,'CHANNEL 9','STUDIOS / WORKSHOPS','media']
   ];
   const fixtures = [
     // Configuration is x, z, and outward wall heading.
     [-8.89,-115.5,east], [8.40,-98.8,west], [-9.89,-74.2,east], [13.53,-82.9,west],
     [-11.40,-59.4,east], [10.89,-45.0,west], [-74.8,-34.89,0], [-61,-6.11,north],
-    [-56.7,-6.11,north], [-38.9,28.89,north], [34.9,19.88,north], [123.39,-50.4,west],
-    [123.39,-69.7,west], [96.10,-89,west], [-117.39,39.6,east]
+    [-56.7,-6.11,north], [-38.9,28.89,north], [34.9,19.88,north], [125.5,-50.4,west],
+    [125.5,-69.7,west], [96.10,-89,west], [-117.39,39.6,east]
   ];
   const waste = [
     [-8.14,-110.0,east], [7.62,-109.0,west], [-8.16,-101.7,east], [7.65,-91.0,west],
     [-8.28,-72.2,east], [9.65,-61.8,west], [-10.4,-48.0,east], [10.3,-43.2,west],
     [-63.8,-29.4,0], [-80.3,-11.0,north], [-83.5,-10.4,north], [-70.1,-10.85,north],
     [-64.8,-11.0,north], [-53.5,-26.4,0], [-35.3,27.2,north],
-    [24.5,23.6,west], [25.2,33.7,west], [122.2,-57.3,west], [122.2,-63.0,west],
+    [24.5,23.6,west], [25.2,33.7,west],
     [98.8,-83.3,0], [-116.98,34.7,east], [-45.1,91.7,north]
   ];
   const vendorTables = [
