@@ -1,10 +1,32 @@
 /* City portfolio panels. Resume facts are paraphrased; contact links are public profiles only. */
 (function(root, factory) {
-  const api = factory();
-  if (typeof module === 'object' && module.exports) module.exports = api;
-  else root.DrivePortfolioUI = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function() {
+  if (typeof module === 'object' && module.exports) module.exports = factory(require('./portfolio-districts'));
+  else root.DrivePortfolioUI = factory(root.DrivePortfolioDistricts);
+})(typeof globalThis !== 'undefined' ? globalThis : this, function(districts) {
   'use strict';
+
+  const escapeHtml = value => String(value).replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+  const projects = districts?.projects || [];
+  const projectsByStopId = new Map(projects.map(project => [project.stopId,project]));
+  const projectVenue = project => project.building.name + (project.approach.y > 0 ? ' · Aerie Arcade' : '');
+  function projectCards() {
+    const ground = projects.filter(project => project.approach.y === 0);
+    const arcade = projects.filter(project => project.approach.y > 0);
+    function level(title, venues) {
+      return `<section class="city-project-level"><h4>${title}</h4><div class="city-project-grid">
+        ${venues.map(project => `<button class="city-project" type="button" data-stop="${escapeHtml(project.stopId)}">
+          <strong>${escapeHtml(project.title)}</strong><span>${escapeHtml(project.summary)}</span><b>${escapeHtml(project.building.name)}</b>
+        </button>`).join('')}</div></section>`;
+    }
+    return level('Street level',ground) + level('Aerie Arcade',arcade);
+  }
+  function projectStory(project) {
+    const {summary,detail,link} = project;
+    const external = link?.href.startsWith('https://') ? ' target="_blank" rel="noopener noreferrer"' : '';
+    return `<p class="city-story-landmark">${escapeHtml(projectVenue(project))}</p><p>${escapeHtml(summary)}</p>
+      ${detail ? `<p>${escapeHtml(detail)}</p>` : ''}
+      ${link ? `<div class="city-link-row"><a href="${escapeHtml(link.href)}" class="city-inline-link"${external}>${escapeHtml(link.label)}</a></div>` : ''}`;
+  }
 
   const stories = {
     about: {
@@ -15,15 +37,7 @@
     },
     projects: {
       title: 'Projects',
-      body: `<div class="city-project-grid">
-        <a class="city-project" href="./"><strong>Car Go Vroom</strong><p>A driving game with a city to explore and a stunt course with ghost races.</p><b>Play the game</b></a>
-        <a class="city-project" href="../projects/local-ai/#adventure"><strong>Oops, That’s Canon</strong><p>Interactive stories with choices and editable scenes.</p><b>View project</b></a>
-        <a class="city-project" href="../projects/local-ai/#image"><strong>Computer, Draw a Little Guy</strong><p>Generate images and turn references into prompts.</p><b>View project</b></a>
-        <a class="city-project" href="../lab/"><strong>One Neuron Over</strong><p>Experiments with individual language-model neurons.</p><b>View project</b></a>
-        <article class="city-project"><strong>Edvise</strong><p>A course planner for students.</p></article>
-        <article class="city-project"><strong>NeurIPS Privacy Challenge</strong><p>Co-authored a paper for the 2024 LLM Privacy Competition. Our team placed seventh.</p></article>
-        </div>
-        <div class="city-link-row"><a href="../blog/" class="city-inline-link">Unnecessary Lore (blog)</a><a href="../reader/" class="city-inline-link">One More Chapter (reader)</a></div>`
+      body: projectCards()
     },
     experience: {
       title: 'Experience',
@@ -67,7 +81,19 @@
     'center--5_6': 'Campus District',
     'center-7_2': 'East Center'
   };
-  const escapeHtml = value => String(value).replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+  function nearestStopOnLevel(position,stops,withinRange = false) {
+    const height = Number.isFinite(position.y) ? position.y : 0;
+    let nearest = null, distance = Infinity;
+    for (const stop of stops) {
+      if (Math.abs(height - (stop.y ?? 0)) >= 3.5) continue;
+      const next = Math.hypot(position.x - stop.x,position.z - stop.z);
+      if (next < distance && (!withinRange || next < (stop.interactionRadius ?? 23))) {
+        nearest = stop;
+        distance = next;
+      }
+    }
+    return nearest ? {stop:nearest,distance} : null;
+  }
   function travelRegion(x, z, bounds) {
     const midX = (bounds.minX + bounds.maxX) / 2;
     const midZ = (bounds.minZ + bounds.maxZ) / 2;
@@ -155,7 +181,7 @@
   function create({document, window, stops, city, onJump, onOpen, onClose, driveTarget}) {
     if (!document?.createElement || !document?.body) throw new Error('Portfolio UI needs a browser document');
     let cityMap = city || null;
-    let locations = [], byId = new Map(), mapRoads = [];
+    let locations = [], projectStops = [], byId = new Map(), mapRoads = [];
     const routePicker = document.querySelector('.route-picker');
     const guideButton = document.createElement('button');
     guideButton.type = 'button';
@@ -390,7 +416,20 @@
       if(lines?.length) {
         // Keep every source segment, but batch by style. Thousands of SVG
         // elements made every viewBox pan and zoom trigger expensive paint.
-        svg.innerHTML = roadPaths(lines, true);
+        const regions = map === 'city' ? globalThis.DrivePortfolioNeighborhoods?.regions || [] : [];
+        const shapes = regions.map(region => {
+          const points = region.border.map(([x,z]) => {
+            const mapped = point(x,z);
+            return `${mapped.x.toFixed(2)},${mapped.y.toFixed(2)}`;
+          }).join(' ');
+          return `<polygon class="city-map-district" points="${points}" fill="${region.color}" stroke="${region.color}"/>`;
+        }).join('');
+        const names = regions.map(region => {
+          const district = districts?.byStopId[region.stop];
+          const {x,y} = point(...region.label);
+          return district ? `<text class="city-map-district-name" x="${x.toFixed(2)}" y="${y.toFixed(2)}">${escapeHtml(district.title)}</text>` : '';
+        }).join('');
+        svg.innerHTML = shapes + roadPaths(lines, true) + names;
         radarRoadAnchor = null;
       } else {
         const roads = cityMap?.roadCenters || [-400,-320,-240,-160,-80,0,80,160,240,320,400];
@@ -437,7 +476,7 @@
         item.className = 'city-stop-item';
         item.dataset.stop = stop.id;
         item.style.setProperty('--stop-color', stopColor);
-        const district = globalThis.DrivePortfolioDistricts?.byStopId[stop.id];
+        const district = districts?.byStopId[stop.id];
         const location = district?.title || (label === stop.title ? '' : stop.title);
         item.innerHTML = `<span aria-hidden="true">${number}</span><strong>${escapeHtml(label)}</strong>${location ? `<small>${escapeHtml(location)}</small>` : ''}`;
         stopList.appendChild(item);
@@ -519,7 +558,8 @@
       const edge=Number(cityMap?.edge) || 440;
       bounds=cityMap?.bounds || {minX:-edge,maxX:edge,minZ:-edge,maxZ:edge};
       locations = isPortfolio ? (cityMap?.stops || stops || []).filter(stop => stories[stop.id]) : [];
-      byId=new Map(locations.map(stop=>[stop.id,stop]));
+      projectStops = isPortfolio ? (districts?.projectStopsFor?.(cityMap) || []) : [];
+      byId=new Map([...locations,...projectStops].map(stop=>[stop.id,stop]));
       centers = typeof onJump !== 'function' ? [] : isPortfolio
         ? [...(skyway?.entrances || []).map(entrance => ({...entrance, kind:'skyway'})),
           ...(skyMall ? [{...skyMall, kind:'sky-mall'}] : []),...landmarks] : deriveCenters(cityMap);
@@ -537,7 +577,7 @@
       renderMap();
     }
 
-    let map = null, activeView = null, currentStop = null, nearbyStop = null, previousFocus = null, currentSpeed = 0;
+    let map = null, activeView = null, currentStoryId = null, nearbyStop = null, previousFocus = null, currentSpeed = 0;
     function isCityMap() { return map === 'city' || map === 'skylines'; }
     function begin(view, returnFocus) {
       if (!activeView) {
@@ -551,7 +591,7 @@
     function openGuide(returnFocus) {
       if (!isCityMap()) return;
       begin('guide', returnFocus);
-      currentStop = null;
+      currentStoryId = null;
       title.textContent = map === 'city' ? 'City Guide' : 'City Map';
       guide.hidden = false;
       storyView.hidden = true;
@@ -559,23 +599,29 @@
       panel.focus();
     }
     function open(id, returnFocus) {
-      const stop = byId.get(id), story = stories[id];
-      if (!stop || !story || map !== 'city') return false;
+      const stop = byId.get(id), story = stories[id], project = projectsByStopId.get(id);
+      if (map !== 'city' || (!project && (!stop || !story))) return false;
       begin('story', returnFocus);
-      currentStop = stop;
-      title.textContent = stop.title;
+      currentStoryId = id;
+      const projectDistrict = id === 'projects' ? districts?.byStopId.projects : null;
+      title.textContent = project?.title ?? projectDistrict?.title ?? stop.title;
       guide.hidden = true;
       storyView.hidden = false;
-      const landmark = stop.landmark ? `<p class="city-story-landmark">Near ${escapeHtml(stop.landmark)}</p>` : '';
-      storyContent.innerHTML = `<h3>${escapeHtml(story.title)}</h3>${landmark}${story.body}`;
-      driveButton.hidden = typeof onJump !== 'function';
+      backButton.textContent = project ? '← PROJECTS' : '← CITY GUIDE';
+      if (project) {
+        storyContent.innerHTML = projectStory(project);
+      } else {
+        const landmark = stop.landmark ? `<p class="city-story-landmark">Near ${escapeHtml(stop.landmark)}</p>` : '';
+        storyContent.innerHTML = `<h3>${escapeHtml(story.title)}</h3>${landmark}${story.body}`;
+      }
+      driveButton.hidden = !stop || typeof onJump !== 'function';
       panel.focus();
       return true;
     }
     function close(toDrive = false) {
       if (!activeView) return;
       activeView = null;
-      currentStop = null;
+      currentStoryId = null;
       overlay.hidden = true;
       onClose?.();
       const desiredFocus = toDrive ? driveFocus : previousFocus || driveFocus;
@@ -600,26 +646,22 @@
         applyMinimapView();
       } else orientRadar();
       if (map !== 'city') return;
-      let nearest = null, distance = Infinity;
-      for (const stop of locations) {
-        const d = Math.hypot(position.x - stop.x, position.z - stop.z);
-        if (d < distance) { nearest = stop; distance = d; }
-      }
-      if (nearest) {
-        const meters = Math.round(distance / 5) * 5;
-        const mall = cityMap?.skyMall;
-        const deck = mall?.deck;
-        const atMall = deck && position.y >= deck.y &&
-          position.x >= deck.minX && position.x <= deck.maxX && position.z >= deck.minZ && position.z <= deck.maxZ;
-        const hint = atMall ? `${mall.destination.title} · Sky Mall` : `Nearest: ${labels[nearest.id]} · ${meters} m`;
-        if (minimapHint.textContent !== hint) minimapHint.textContent = hint;
-      }
-      const sameLevel = !Number.isFinite(position.y) || Math.abs(position.y - (nearest?.y ?? 0)) < 4.5;
-      nearbyStop = nearest && sameLevel && distance < (nearest.interactionRadius ?? 23) ? nearest : null;
+      const project = nearestStopOnLevel(position,projectStops,true);
+      const nearest = project || nearestStopOnLevel(position,locations);
+      const {stop,distance} = nearest || {};
+      const mall = cityMap?.skyMall;
+      const deck = mall?.deck;
+      const atMall = deck && position.y >= deck.y &&
+        position.x >= deck.minX && position.x <= deck.maxX && position.z >= deck.minZ && position.z <= deck.maxZ;
+      const stopTitle = stop && (labels[stop.id] || stop.title);
+      const distanceHint = stop ? `Nearest: ${stopTitle} · ${Math.round(distance / 5) * 5} m` : '';
+      const hint = atMall && !project ? `${mall.destination.title} · Sky Mall` : distanceHint;
+      if (minimapHint.textContent !== hint) minimapHint.textContent = hint;
+      nearbyStop = stop && distance < (stop.interactionRadius ?? 23) ? stop : null;
       if (!nearbyStop || activeView) { nearby.hidden = true; return; }
       const slow = Math.abs(speed) < 3;
       nearby.disabled = !slow;
-      const label = slow ? `Open ${labels[nearbyStop.id]}` : `Slow down for ${labels[nearbyStop.id]}`;
+      const label = slow ? `Open ${stopTitle}` : `Slow down for ${stopTitle}`;
       if (nearbyLabel.textContent !== label) nearbyLabel.textContent = label;
       nearby.hidden = false;
     }
@@ -674,11 +716,15 @@
       }
     });
     closeButton.addEventListener('click', event => close(event.detail > 0));
-    backButton.addEventListener('click', () => openGuide());
+    backButton.addEventListener('click', () => {
+      if (projectsByStopId.has(currentStoryId)) open('projects');
+      else openGuide();
+    });
     nearby.addEventListener('click', event => { if (nearbyStop && !nearby.disabled) open(nearbyStop.id, event.detail > 0 ? driveFocus : nearby); });
     driveButton.addEventListener('click', () => {
-      if (currentStop && typeof onJump === 'function') {
-        onJump(currentStop);
+      const stop = byId.get(currentStoryId);
+      if (stop && typeof onJump === 'function') {
+        onJump(stop);
         close(true);
       }
     });
@@ -734,5 +780,5 @@
     return {setCity, setMap, update, isOpen, open, close};
   }
 
-  return {create, stories, deriveCenters};
+  return {create, stories, deriveCenters, nearestStopOnLevel};
 });

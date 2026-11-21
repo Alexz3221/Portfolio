@@ -52,6 +52,19 @@ test('an authored sidewalk joint preserves both top edges without an exposed div
   assert.equal(towardOuterCurb.intersectObject(sides).length,1);
 });
 
+test('forecourts extend the walk while preserving the road and building cutouts', () => {
+  const world = new THREE.Group();
+  const material = new THREE.MeshStandardMaterial();
+  streets.build(THREE,world,{
+    roads:[{x1:-20,z1:0,x2:20,z2:0,width:8}],areas:[],asphalt:material,curb:material,
+    buildings:[{x:4,z:11,width:5,depth:5,baseY:0,height:10}],
+    forecourts:[{x:0,z:8,w:16,d:12,tint:0x97c2c0}]
+  });
+  assert.equal(streets.surfaceHeight(world,-3,12),.17);
+  assert.equal(streets.surfaceHeight(world,-3,2.5),0);
+  assert.equal(streets.surfaceHeight(world,4,11),0);
+});
+
 test('the raised network joins plaza paths, keeps road centers clear and defers to authored walks', () => {
   const world = new THREE.Group();
   const material = new THREE.MeshStandardMaterial();

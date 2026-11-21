@@ -12,9 +12,9 @@
     id:'sky-mall',title:'Aerie Arcade',x:-14,y:deck.y,z:36,heading:0,mapX:-19,mapZ:59.5,kind:'landmark'
   };
   const stores = [
-    {id:'pilot-light',x:-12.35,title:'PILOT LIGHT',description:'COFFEE / NOODLES',ink:'#ffb278',color:0xffb278,base:0x724639},
-    {id:'signal-cinema',x:0,title:'SIGNAL CINEMA',description:'TICKETS / LATE SHOW',ink:'#baf7de',color:0xbaf7de,base:0x365c5c},
-    {id:'late-checkout',x:12.35,title:'LATE CHECKOUT',description:'RADIO / PARTS / REPAIR',ink:'#b9b6ff',color:0xb9b6ff,base:0x51466b}
+    {id:'one-more-chapter',x:-12.35,title:'ONE MORE CHAPTER',description:'LATE-NIGHT READING LOUNGE',ink:'#ffbf86',color:0xffbf86,base:0x724639},
+    {id:'oops-thats-canon',x:0,title:'OOPS, THAT’S CANON',description:'SIGNAL CINEMA / INTERACTIVE STORIES',ink:'#baf7de',color:0xbaf7de,base:0x365c5c},
+    {id:'computer-draw-a-little-guy',x:12.35,title:'COMPUTER, DRAW\nA LITTLE GUY',description:'RENDER WORKSHOP',ink:'#cac3fa',color:0xcac3fa,base:0x51466b}
   ];
   // The north edge leaves two 9.8m openings for the Skyway branches.
   const rails = [
@@ -141,11 +141,14 @@
         ctx.strokeRect(13,12,742,168);
         ctx.textAlign='center';
         ctx.fillStyle=ink;
-        ctx.font='800 76px system-ui, sans-serif';
-        ctx.fillText(title,384,101,685);
+        const lines=title.split('\n');
+        ctx.font=lines.length===1 ? '800 76px system-ui, sans-serif' : '800 61px system-ui, sans-serif';
+        for (const [index,line] of lines.entries()) {
+          ctx.fillText(line,384,lines.length===1 ? 101 : 66+index*58,685);
+        }
         ctx.font='700 28px monospace';
         ctx.fillStyle='#e5edec';
-        ctx.fillText(caption,384,149,685);
+        ctx.fillText(caption,384,lines.length===1 ? 149 : 161,685);
         const map=new THREE.CanvasTexture(canvas);
         map.encoding=THREE.sRGBEncoding;
         textures.add(map);
@@ -235,7 +238,7 @@
     box('cement',0x7a8b8e,0,33.34,61.21,23.3,1.64,4.45);
     box('steel',0x42586c,0,34.34,61.4,23.6,.39,4.3);
     box('emission',0x92ecca,0,34.28,59.22,22.6,.045,.085);
-    label('rooftop',0,33.52,58.72,16.28,1.68,'AERIE ARCADE','FOOD / REPAIRS / CINEMA','#98f9e3');
+    label('rooftop',0,33.52,58.72,16.28,1.68,'AERIE ARCADE','STORIES / ART / BOOKS','#98f9e3');
     for (const x of [-15.5,15.5]) {
       box('cement',0x6b797d,x,33.1,62.23,3.82,1.24,3.4);
       for (const dx of [-1.18,0,1.18]) {
@@ -257,44 +260,67 @@
         box('emission',color,x+dx,27.18,57.54,.53,.12,.024);
       }
       box('cement',base,x,26.225,57.43,11.63,.18,1.1);
-      label(id,x,30.06,57.58,9.5,.93,title,description,ink);
+      label(id,x,30.06,57.58,10.34,1.22,title,description,ink);
     }
 
-    // Recessed shop displays remain visible during the night-drive lighting.
-    const coffee=stores[0].x;
-    box('emission',0x604238,coffee+.74,27.99,57.548,7.84,2.15,.016);
-    box('steel',0x7e5543,coffee+.74,27.35,57.44,7.56,.70,.12);
-    box('emission',0xd88e58,coffee+.74,27.69,57.35,7.39,.065,.035);
-    box('steel',0x3f332e,coffee-1.39,28.37,57.48,3.03,.72,.09);
-    for (const y of [28.22,28.4,28.58]) {
-      box('emission',0xb88769,coffee-1.55,y,57.424,2.35,.042,.017);
+    // The reading lounge has two bookshelves and a lamp-lit window seat.
+    const lounge=stores[0].x;
+    box('emission',0x554339,lounge+.74,27.99,57.548,7.84,2.15,.016);
+    box('steel',0x4a3631,lounge-.6,27.96,57.49,5.08,2.05,.08);
+    const spines=[0xad765a,0x627e78,0xcfad85,0x994b42,0x80766b,0x956c9a,0xb4b891];
+    for (const [shelfIndex,y] of [27.17,28.01].entries()) {
+      box('steel',0x816042,lounge-.58,y,57.39,5.02,.085,.12);
+      for (let i=0;i<14;i++) {
+        const x=lounge-2.83+i*.324+(i>=6 ? .20 : 0);
+        const height=.31+((i*3+shelfIndex*2)%5)*.064;
+        box('emission',spines[(i+shelfIndex*2)%spines.length],x,y+.052+height/2,57.391,
+          i%4===0 ? .16 : .22,height,.055,0,i===7 ? .15 : 0);
+      }
     }
-    for (const x of [1.16,2.1,3.03,3.96]) {
-      octagon('steel',0xbb9478,coffee+x,27.83,57.41,.52,.19,.36);
-      octagon('emission',0xe2ad82,coffee+x,27.94,57.41,.38,.043,.27);
-    }
-    box('steel',0x844b3b,coffee+.77,29.30,57.11,7.86,.16,.78);
+    box('steel',0x8e6348,lounge+2.84,27.28,57.36,2.32,.39,.19);
+    box('emission',0xb88967,lounge+2.72,27.52,57.3,1.96,.12,.16);
+    box('steel',0x5e5440,lounge+3.38,28.06,57.46,.095,.96,.088);
+    box('emission',amber,lounge+3.38,28.53,57.41,.62,.24,.11);
+    box('steel',0x865649,lounge+.77,29.30,57.11,7.86,.16,.78);
     for (const x of [-2.75,.4,3.55]) {
-      box('emission',0xff9c67,coffee+x,29.205,56.83,.77,.038,.20);
+      box('emission',0xff9c67,lounge+x,29.205,56.83,.77,.038,.20);
     }
 
+    // An illuminated marquee and three film posters identify the story cinema.
+    box('steel',0x395861,0,29.25,56.69,10.5,.25,1.5);
+    box('emission',0x76d9d2,0,29.21,55.91,10.42,.078,.065);
+    for (let i=0;i<12;i++) box('emission',0xf8c389,(i-5.5)*.84,29.102,56.24,.18,.048,.18);
     box('emission',0x263a42,.74,27.99,57.548,7.84,2.15,.016);
     for (const [x,tone] of [[-1.25,0xe58378],[.73,0x7dbeb8],[2.69,0xb2a0d1]]) {
       box('steel',0x161e2e,x,28.02,57.49,1.31,1.65,.087);
       box('emission',tone,x,28.15,57.435,1.17,1.24,.022);
-      box('steel',0x473e54,x-.14,28.25,57.417,.30,.82,.028,0,.49);
-      box('steel',0x28323e,x+.14,28.0,57.412,.36,.74,.028,0,-.43);
       box('emission',0xe8e4d8,x,27.33,57.435,.91,.081,.018);
     }
+    for (const [x,y,roll] of [[-1.49,28.28,.68],[-1.08,28.30,-.7],[-1.29,27.92,0]]) {
+      box('steel',0x563649,x,y,57.413,.13,.55,.022,0,roll);
+    }
+    for (const [x,y,w,h] of [[.37,28.04,.28,.52],[.76,28.19,.29,.78],[1.01,28.08,.19,.65]]) {
+      box('steel',0x355967,x,y,57.413,w,h,.023);
+    }
+    box('steel',0x59426e,2.69,28.17,57.412,.56,.56,.023,0,Math.PI/4);
+    box('emission',0xe7cfe9,2.69,28.17,57.394,.28,.28,.016,0,Math.PI/4);
 
-    const repair=stores[2].x;
-    box('emission',0x393448,repair+.74,27.99,57.548,7.84,2.15,.016);
-    for (const shelf of [27.27,28.09]) {
-      box('steel',0x615a66,repair+.74,shelf,57.44,7.59,.09,.12);
-      for (const [x,size,tone] of [[-2.19,.78,0x82b8ab],[-.87,.51,0x565991],[.39,.93,0xa894c0],[2.5,.61,0x9d9cb2],[3.67,.41,0x5f7b86]]) {
-        box('steel',0x55515e,repair+x,shelf+.24,57.48,size,.39,.18);
-        box('emission',tone,repair+x,shelf+.24,57.38,size*.63,.21,.025);
-      }
+    // The render workshop's big preview monitor sits between two workstations.
+    const workshop=stores[2].x;
+    box('emission',0x393448,workshop+.74,27.99,57.548,7.84,2.15,.016);
+    box('steel',0x565371,workshop+.72,28.03,57.40,2.72,1.64,.20);
+    box('emission',0x233e4b,workshop+.60,28.05,57.289,2.28,1.32,.020);
+    const preview=['  xxxx  ',' xxxxxx ',' xxoxox ',' xxxxxx ','  xxxx  ',' xxxxxx ',' xx  xx '];
+    for (const [row,line] of preview.entries()) for (const [column,pixel] of [...line].entries()) {
+      if (pixel===' ') continue;
+      box('emission',pixel==='x' ? 0x96e9d9 : 0x34487a,workshop+.6+(column-3.5)*.16,
+        28.56-row*.155,57.274,.149,.146,.013);
+    }
+    for (const [x,tone] of [[-1.77,0x9b8eaf],[3.28,0x789eb0]]) {
+      box('steel',0x615a70,workshop+x,27.92,57.48,1.17,.83,.17);
+      box('emission',tone,workshop+x,27.97,57.38,.91,.58,.023);
+      for (const y of [27.82,27.96,28.1]) box('emission',0x4c526a,workshop+x-.08,y,57.364,.59,.027,.012);
+      box('steel',0x686477,workshop+x,27.35,57.40,1.59,.13,.33);
     }
     for (const x of [-18.3,-6.1,6.1,18.3]) {
       box('cement',concreteGray,x,28.34,57.18,.49,4.56,.53);

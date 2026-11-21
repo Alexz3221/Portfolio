@@ -6,6 +6,8 @@ const city = require('../js/portfolio-city');
 const holograms = require('../js/portfolio-holograms');
 const storefronts = require('../js/portfolio-storefronts');
 const skyMall = require('../js/portfolio-sky-mall');
+const facades = require('../js/portfolio-facades');
+const projects = require('../js/portfolio-projects-frontages');
 
 const geometry = new THREE.BoxGeometry(1,1,1);
 const material = new THREE.MeshStandardMaterial();
@@ -86,17 +88,23 @@ test('Portfolio City billboard faces and central drive corridors are clear', () 
   const world = new THREE.Group();
   city.build(THREE,world);
   storefronts.attach(THREE,world);
+  facades.attach(THREE,world,city);
   const mall = skyMall.attach(THREE,world);
-  const mallSigns = [];
-  world.getObjectByName('portfolio-sky-mall').traverse(object => {
-    if (object.userData.portfolioAdFace) mallSigns.push(object);
-  });
+  const projectFrontages = projects.attach(THREE,world);
+  const signsIn = groupName => {
+    let count = 0;
+    world.getObjectByName(groupName).traverse(object => { if (object.userData.portfolioAdFace) count++; });
+    return count;
+  };
+  const mallSigns = signsIn('portfolio-sky-mall');
+  const projectSigns = signsIn('portfolio-projects-frontages');
   holograms.create(THREE,world,[],{adverts:city.adPlacements});
   const report = audit.run(THREE,world,city);
   mall.dispose();
+  projectFrontages.dispose();
   const roadSigns = world.children.filter(object=>object.name==='portfolio-sign');
-  assert.ok(roadSigns.length > 0 && mallSigns.length > 0);
-  assert.equal(report.checked.signs,city.adPlacements.length+roadSigns.length+mallSigns.length);
+  assert.ok(roadSigns.length > 0 && mallSigns > 0 && projectSigns >= 5);
+  assert.equal(report.checked.signs,city.adPlacements.length+roadSigns.length+mallSigns+projectSigns);
   assert.equal(report.checked.corridors,city.networkRoads.length+city.highwaySegments.length+city.skyMall.loop.length);
   assert.deepEqual(report.signs,[]);
   assert.deepEqual(report.corridors,[]);

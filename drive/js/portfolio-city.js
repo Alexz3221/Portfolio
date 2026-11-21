@@ -1119,7 +1119,8 @@
     instance('portfolio-foundation',materials.foundation,0,.004,0,edge*2,.008,edge*2);
     const streets=globalThis.DrivePortfolioStreets;
     if (streets) streets.build(THREE,world,{roads:networkRoads,areas:pavedAreas,asphalt:materials.asphalt,curb:materials.concrete,
-      buildings,obstacles:walkObstacles,publicSpaces:globalThis.DrivePortfolioPublicSpaces?.footprints,cacheLayout:true});
+      buildings,obstacles:walkObstacles,publicSpaces:globalThis.DrivePortfolioPublicSpaces?.footprints,
+      forecourts:globalThis.DrivePortfolioNeighborhoods?.forecourts,cacheLayout:true});
     for (const street of networkRoads) {
       const angle = Math.atan2(street.x2-street.x1,street.z2-street.z1);
       const x=(street.x1+street.x2)/2, z=(street.z1+street.z2)/2;

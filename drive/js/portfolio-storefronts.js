@@ -30,7 +30,6 @@
     [-63.67,-6.11,north,5.70,'AFTERIMAGE','USED DISPLAYS','media'],
     [-34,28.89,north,6.35,'CORNER PRESS','INDEPENDENT PRINT','media'],
     [39,19.88,north,6.20,'LUMA SUPPLY','BATTERIES / FILTERS','store'],
-    [-26.40,34.6,east,5.85,'HOLLOWAY','OPTICS & EYEWEAR','pharmacy'],
     [33.78,28.0,west,5.60,'LITTLE HOURS','ESPRESSO & TEA','food'],
     [-117.39,34.3,east,6.55,'READING ROOM','OPEN TO THE PUBLIC','pharmacy'],
     [123.39,-56.0,west,6.40,'DOCK 07','MORROW UTILITIES','workshop'],

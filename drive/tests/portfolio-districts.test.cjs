@@ -2,11 +2,10 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const city = require('../js/portfolio-city');
 const physics = require('../js/physics');
-const {destination: skyMall} = require('../js/portfolio-sky-mall');
-const {stories} = require('../js/portfolio-ui');
-const {byStopId,districtsFor,sites} = require('../js/portfolio-districts');
+const {stories,nearestStopOnLevel} = require('../js/portfolio-ui');
+const {byStopId,districtsFor,sites,projects,projectStopsFor} = require('../js/portfolio-districts');
 
-test('portfolio sections have distinct districts and Sky Mall uses its landmark position', () => {
+test('each portfolio section has its own district and Aerie Arcade is a Projects Plaza landmark', () => {
   const districts = districtsFor(city);
   assert.deepEqual(districts.map(district => district.stopId), city.stops.map(stop => stop.id));
   assert.equal(new Set(districts.map(district => district.id)).size, city.stops.length);
@@ -14,37 +13,60 @@ test('portfolio sections have distinct districts and Sky Mall uses its landmark 
     assert.deepEqual(districts[index], {...byStopId[id],x,z,color:city.stops[index].color});
   }
 
-  const withMall = districtsFor(city,skyMall);
-  assert.deepEqual(withMall.slice(0,-1), districts);
-  assert.deepEqual(withMall.at(-1), {id:skyMall.id,title:skyMall.title,x:skyMall.mapX,y:skyMall.y,z:skyMall.mapZ});
+  const {destination} = city.skyMall;
+  assert.equal(destination.kind, 'landmark');
+  assert.ok(!districts.some(district => district.id === destination.id));
+  assert.ok(projects.every(project => project.districtId === byStopId.projects.id));
 });
 
 test('each project and experience entry has a distinct footprint with a drivable approach', () => {
-  const titlesFor = sectionId => sites.filter(site => site.sectionId === sectionId).map(site => site.title);
-  const projectTitles = [...stories.projects.body.matchAll(/<strong>([^<]+)<\/strong>|class="city-inline-link">([^<]+)<\/a>/g)]
-    .map(([,card,link]) => card || link.replace(' (blog)','').replace(' (reader)',''));
+  const projectLinks = [...stories.projects.body.matchAll(/data-stop="([^"]+)"/g)].map(([,id]) => id);
   const experienceTitles = [...stories.experience.body.matchAll(/<h3>([^<]+) · /g)].map(([,title]) => title);
-  assert.deepEqual(titlesFor('projects'), projectTitles);
-  assert.deepEqual(titlesFor('experience'), experienceTitles);
+  assert.equal(projects.length, 8);
+  assert.deepEqual(projectLinks, [...projects.filter(p => p.approach.y === 0),
+    ...projects.filter(p => p.approach.y > 0)].map(project => project.stopId));
+  assert.deepEqual(sites.filter(site => site.sectionId === 'experience').map(site => site.title), experienceTitles);
   assert.equal(new Set(sites.map(site => site.id)).size, sites.length);
   assert.equal(new Set(sites.map(site => `${site.building.x},${site.building.z}`)).size, sites.length);
 
   const simulation = physics.create({map:'city',city,distanceToRoad:city.distanceToRoad,roadHalfWidth:city.roadHalfWidth});
   try {
     for (const {id,sectionId,districtId,building,approach} of sites) {
-      assert.equal(districtId, byStopId[sectionId].id, id);
       assert.ok(building.name, id);
-      assert.ok(city.buildings.some(block => block.baseY === 0 && !block.collisionOnly &&
-        block.x === building.x && block.z === building.z), `${id} has a building footprint`);
-      const {x,z,heading} = approach;
-      assert.ok(city.distanceToRoad(x,z) < city.roadHalfWidth, `${id} can be reached from the road`);
-      simulation.reset(x,z,heading);
+      const {x,y=0,z,heading} = approach;
+      assert.equal(districtId, byStopId[sectionId].id, id);
+      if (y > 0) {
+        const deck = city.skyMall.deck;
+        assert.equal(y, deck.y, id);
+        assert.ok(building.x > deck.minX && building.x < deck.maxX &&
+          building.z > deck.minZ && building.z < deck.maxZ, `${id} is inside Aerie Arcade`);
+      } else {
+        assert.ok(city.buildings.some(block => block.baseY === 0 && !block.collisionOnly &&
+          block.x === building.x && block.z === building.z), `${id} has a building footprint`);
+        assert.ok(city.distanceToRoad(x,z) < city.roadHalfWidth, `${id} can be reached from the road`);
+      }
+      simulation.reset(x,z,heading,y);
       let state;
       for (let frame = 0; frame < 90; frame++) state = simulation.step(1 / 120, {});
       assert.equal(state.grounded, 4, `${id} has room to park`);
+      assert.ok(Math.abs(simulation.body.position.y - y) < 2, `${id} parks at the intended elevation`);
       assert.ok(Math.hypot(simulation.body.position.x - x,simulation.body.position.z - z) < .3, id);
     }
   } finally {
     simulation.dispose();
   }
+});
+
+test('project proximity honors the signed elevation and distance of all eight stops', () => {
+  const stops = projectStopsFor(city);
+  assert.equal(stops.length, 8);
+  assert.equal(stops.filter(stop => stop.y === city.skyMall.deck.y).length, 3);
+  for (const stop of stops) {
+    const {x,y,z} = stop;
+    assert.equal(nearestStopOnLevel({x,y:y+.85,z},stops,true).stop.id, stop.id);
+    assert.equal(nearestStopOnLevel({x,y:y+12,z},stops,true), null);
+    assert.equal(nearestStopOnLevel({x,y:y+.85,z:z-stop.interactionRadius-.3},[stop],true), null);
+  }
+  assert.equal(projectStopsFor({...city,skyMall:null}).length, 5);
+  assert.deepEqual(projectStopsFor(null), []);
 });

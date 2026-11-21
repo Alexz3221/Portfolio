@@ -288,24 +288,31 @@
     return kerbY+(graniteY-kerbY)*Math.min(1,Math.sqrt(closest)/chamferWidth);
   }
 
-  function weatherMesh(THREE, mesh) {
+  function weatherMesh(THREE, mesh, forecourts) {
     if(!mesh) return;
     const position=mesh.geometry.attributes.position;
+    const tints=forecourts.map(area=>new THREE.Color(area.tint));
     const colors=[];
     for(let i=0;i<position.count;i++) {
       const x=position.getX(i), z=position.getZ(i);
       const wear=.89+.07*Math.sin(x*.38+z*.14)+.06*Math.sin(x*.73-z*.09);
-      colors.push(wear,wear,wear*.97);
+      const index=forecourts.findIndex(area=>Math.abs(x-area.x)<=area.w/2+.01 && Math.abs(z-area.z)<=area.d/2+.01);
+      const tint=tints[index];
+      colors.push(tint ? wear*(.30+.70*tint.r) : wear,
+        tint ? wear*(.30+.70*tint.g) : wear,
+        tint ? wear*(.30+.70*tint.b) : wear*.97);
     }
     mesh.geometry.setAttribute('color',new THREE.Float32BufferAttribute(colors,3));
   }
 
-  function streetLayout(roads,areas,buildings,obstacles,publicSpaces,premium) {
+  function streetLayout(roads,areas,buildings,obstacles,publicSpaces,premium,forecourts) {
     const pavement = streetFootprint(roads,areas,0);
     if (!pavement.length) return null;
     const chamfer = streetFootprint(roads,areas,chamferWidth);
     const granite = streetFootprint(roads,areas,curbDepth);
-    const offset = streetFootprint(roads,areas,walkWidth,32,.7);
+    const streetWalk = streetFootprint(roads,areas,walkWidth,32,.7);
+    const expanded = streetFootprint([],forecourts,0);
+    const offset = expanded.length ? polygons.union(streetWalk,expanded) : streetWalk;
     const exclusions = premium?.length ? [premium] : [];
     const network = polygons.difference(offset,granite,...exclusions);
     const routingRoad = buildings.length ? streetFootprint(roads,areas,curbDepth+.40) : granite;
@@ -315,14 +322,15 @@
     return {pavement,sidewalk,access,apron,bevel,premium};
   }
 
-  function build(THREE, world, {roads, areas, asphalt, curb, buildings=empty, obstacles=empty, publicSpaces,premium,cacheLayout=false}) {
+  function build(THREE, world, {roads, areas, asphalt, curb, buildings=empty, obstacles=empty, publicSpaces,premium,
+    forecourts=empty,cacheLayout=false}) {
     const authoredFootprint=globalThis.DrivePortfolioArrivalSidewalks?.footprint;
-    const inputs=[roads,areas,buildings,obstacles,publicSpaces,premium===undefined ? authoredFootprint : premium];
+    const inputs=[roads,areas,buildings,obstacles,publicSpaces,premium===undefined ? authoredFootprint : premium,forecourts];
     // Authored maps can reuse the union and path search after a car switch.
     // Each world still owns its Three meshes, materials and physics bodies.
     const hit=cacheLayout && cachedLayout && inputs.every((input,index)=>input===cachedLayout.inputs[index]);
     const layout=hit ? cachedLayout.layout : streetLayout(roads,areas,buildings,obstacles,publicSpaces,
-      premium===undefined ? authoredFootprint?.() : premium);
+      premium===undefined ? authoredFootprint?.() : premium,forecourts);
     if (cacheLayout && !hit) cachedLayout={inputs,layout};
     if (!layout) return;
     const {pavement,sidewalk,access,apron,bevel,premium:covered}=layout;
@@ -338,7 +346,7 @@
     const slabMesh=surface(THREE,world,sidewalk,surfaceY,slabs,'portfolio-curbs',2.8);
     const lipMesh=surface(THREE,world,apron,graniteY,cap,'portfolio-granite-curb',1.8);
     const bevelMesh=surface(THREE,world,bevel,(x,z)=>chamferHeight(pavement,x,z),wedge,'portfolio-curb-bevel',1.8);
-    weatherMesh(THREE,slabMesh);
+    weatherMesh(THREE,slabMesh,forecourts);
     // The narrow granite strip sits below the slabs. Separate vertical faces
     // step down to it and to the road, including along the curves of a junction.
     curbSides(THREE,world,sidewalk,surfaceY,wall,'portfolio-sidewalk-faces',covered);

@@ -66,6 +66,8 @@
   let arrivalMarket = null, arrivalSidewalks = null, streetSidewalks = null;
   let portfolioPublicSpaces = null, portfolioAirship = null;
   let portfolioSkyMall = null;
+  let portfolioProjectFrontages = null;
+  let portfolioDistrictLandmarks = null;
   let importedAssetScene = null;
   let worldGeneration = 0;
   let portfolio = null;
@@ -225,7 +227,11 @@
     streetSidewalks?.dispose();
     portfolioPublicSpaces?.dispose();
     portfolioSkyMall?.dispose();
+    portfolioProjectFrontages?.dispose?.();
+    portfolioDistrictLandmarks?.dispose();
     portfolioSkyMall = null;
+    portfolioProjectFrontages = null;
+    portfolioDistrictLandmarks = null;
     arrivalMarket = arrivalSidewalks = streetSidewalks = null;
     portfolioPublicSpaces = portfolioAirship = null;
     portfolioWet = portfolioHolograms = portfolioAssets = portfolioSkyAds = null;
@@ -614,9 +620,11 @@
       });
       globalThis.DrivePortfolioStorefronts?.attach(THREE, world);
       globalThis.DrivePortfolioFacades?.attach(THREE, world, city);
+      portfolioProjectFrontages = globalThis.DrivePortfolioProjectsFrontages?.attach(THREE, world);
       const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
       arrivalSidewalks = globalThis.DrivePortfolioArrivalSidewalks?.attach(THREE, world, physics);
       streetSidewalks = globalThis.DrivePortfolioStreets?.attachSidewalkPhysics(world, physics);
+      portfolioDistrictLandmarks = globalThis.DrivePortfolioDistrictLandmarks?.attach(THREE, world, city, physics);
       arrivalMarket = globalThis.DrivePortfolioArrivalMarket?.attach(THREE, world, {reducedMotion});
       portfolioPublicSpaces = globalThis.DrivePortfolioPublicSpaces?.attach(THREE, world, {
         Cannon:globalThis.CANNON, physics
