@@ -1,11 +1,11 @@
 # Portfolio City corporate ad art
 
-The built-in ImageGen tool created these nine original illustrations. The site loads 540 × 720 WebP copies and adds the sales copy, symbols, and projection effects in code.
+The built-in ImageGen tool created nine new illustrations for the moving holograms and blimp campaigns. The game loads 540 × 720 WebP copies and adds the campaign copy, mark, and optical effects in code.
 
 ## Shared prompt
 
 ```text
-Make ONE original tall 3:4 GRAPHIC POSTER ILLUSTRATION for a gigantic floating advertisement in a futuristic cyberpunk city. This is a contemporary stylized 2D graphic, emphatically DRAWN with big flat immaculate shapes, sharply cut hard-edged color separations, black silhouettes and deliberate solid negative space. Anime-influenced in the facial design as a few abstract angular features and an expressive larger iris, without classic painted cel animation. Treat it like modern vector fashion campaign art with one oversized cropped face and a shocking neon color block visible from far away. Use exactly 3 or 4 brutally simple color value levels with one dazzling saturated neon graphic, very dark purplish-black shapes, a few super thin electronic accent lines, and fine digital stipple confined to a small shape if needed. The character is composed and aspirational in an emotionally empty way, with a tiny perfectly practiced smile or a faraway gaze. Put subtle clues of rusted older public infrastructure into a dark peripheral shape or narrow graphic engraving. Retain simplicity and strong visual hierarchy. Full bleed, no white margins. Place essential face and product across the central 75 percent. The game will add typography and floating optical distortion. No words, letters, numerals, logos, characters borrowed from any existing franchise, ornamental border, or watermark. NO real-life photographic rendering, detailed skin, smooth 3D CGI, complex scenic background, retro cel gradients, or realistic texture. Hard graphic shapes, clean ink, strong poster silhouette.
+Create an original full-bleed vertical 3:4 in-world illustration for a huge moving holographic advertisement in a rainy cyberpunk city. Contemporary two-dimensional drawn anime-influenced graphic poster, with large expressive silhouettes, widely spaced hard-edged color planes, angular close-up features, a deliberately flat saturated neon highlight, and seriously dark graphic shadows. Themes are professional warmth and aspirational polished conveniences, overlaying a hint of rusted public infrastructure and social vacancy in the margins. Keep the product and main face inside the central 75 percent for an eventual slight drifting crop. Strong graphic focal point readable above a dark street from a distance. Very light, selective technical lines are allowed. Original adults only, no existing brands, existing characters, logotypes, letters, words, digits, white margins, ornamental border, or watermark. Deliver clean graphic art that will get optical effects, copy, and neon glow in-engine. Hard drawn silhouettes and crisp vector-like planes, minimal texture, no realistic shading, photograph, painterly gradients, analog cel grime, or glossy 3D rendering.
 ```
 
 ## Individual prompts
@@ -15,53 +15,53 @@ Each illustration used the shared prompt followed by its scene description.
 ### [farline.webp](farline.webp)
 
 ```text
-Large angular portrait of a weary young adult commuter looking sideways. A cold cyan diagonal from a spotless next-generation train door cuts across a stark dark petrol field. Underneath the cyan, faint blocky platform grilles, drips, and waiting silhouettes. Palette petroleum black, electric ice cyan, cold white. Make the eye, train door light, and the hard dark silhouette readable at thumbnail size.
+An original adult commuter seen in profile on a long escalator, their eye and glowing cyan earbud huge in a foreground graphic close-up, beneath the dark diagonal of a station ceiling. A spotless cyan express train is a stripe on the river of people waiting behind a decades-old metal barrier. Draw hard flat clean silhouettes and signal reflections. Petrol black, bright ice cyan, bone-white. Mood of squeezing more useful time out of a tired life.
 ```
 
 ### [relay.webp](relay.webp)
 
 ```text
-Oversize forward-facing portrait of a smiling adult credit representative with a controlled empty expression. Single luminous flat pink credit card with a tiny chip, held foreground and no lettering. Chop the lower frame in dark burgundy angles where faint service shutter and a broken red queue rail peep through. Palette near-black wine, saturated rose, near-white pink. Big cropped face and stark rose halo for a subway-scale ad.
+Original young adult banking host in a crisp graphic white glove adjusting a raised glowing pink translucent credit card; the other hand pushes a shining compliance stamp down onto a stack of identical grey plans. Three-quarter low-angle close crop of the face, immaculate empty smile and angular eyelashes. Closed public teller counter and chipped queue rail in the deepest burgundy corner. Near black cherry, hot fuchsia, porcelain pink-white.
 ```
 
 ### [morrow.webp](morrow.webp)
 
 ```text
-A large confident adult technician's face, an amber opaque visor cutting diagonally across the brow. Clean projected amber light surrounds the uniform and an abstract electricity control icon. Dark concrete slab apartment silhouettes with almost all their windows black below the light. Color restricted to saturated amber, rust red, charcoal black, pale cream highlight.
+Original adult turbine worker in an amber hood, face and light-reflecting raised hand rendered as big graphic shapes. A single luminous golden apartment rectangle silhouetted in the palm, like a product demonstration. Hundreds of tiny identical unlit apartment windows in the negative space. Tiny silhouetted rusty drain at the bottom. Burnt copper black, bright amber, warm almost-white. A deadpan illustration of reliable power sold as personal warmth.
 ```
 
 ### [sublight.webp](sublight.webp)
 
 ```text
-Extreme graphic closeup of a deadpan adult fleet worker with angular dark cropped hair and one stripe of electronic lighting on the face. Below is an angular raised unmarked clearance pass and the diagonal light of a scarlet access scanner. Shadow contains a closed metal boundary grille, recessed silhouettes in a queue, drawn as simple lines. Vermilion, cherry red, slate-black, one tiny pale cyan kicker. One giant striking face dominates.
+A newly drawn adult operative facing the viewer from the other side of a narrow glass gate, their black collar and angular pale face cut by a brilliant vermilion vertical stripe. A luminous red access token suspended between gloved fingers at lower center. Rusted gate teeth and the old gray queue on the edges use only black geometric marks. Scarlet, off-black slate, pale salmon and one thin cyan glow. Actively seductive and professionally vacant expression.
 ```
 
 ### [ion.webp](ion.webp)
 
 ```text
-Oversized graphically rendered adult face of a polished employee, hands presenting a perfect square essentials carton with clean separated contents as simplified geometric forms. Fluorescent green hard perimeter glow. Faintly inlaid silhouette of picked-clean shelves in a black jade shadow. Lit acid green, lime, dark jade, paler gray. Geometric and oddly cheerful.
+An original adult courier with short swept hair holding up a clean lime-green takeout carton like a luxury accessory. Profile face at three-quarter close range, one oversized emerald earring and dark expressionless eye. Simple glowing blocks of bread, fruit, and standardized packets in the lower half against barren dark shelf silhouettes. Acid lime, dark forest, gray-white graphic cuts. Wellbeing reduced to a neat monthly box.
 ```
 
 ### [oxide.webp](oxide.webp)
 
 ```text
-Close graphic portrait of an adult mechanic with a strong confident smirk and a diagonally tilted glowing diagnostic visor. One giant electric-lavender diagnostic ring with a sharply angular wheel and wrench shape integrated as simplified poster graphics. In black corners silhouette an abandoned torque station and scraped floor mark. Electric violet, dusty lavender, dark ultramarine and black. Oversized electric purple eyes or goggles clearly readable.
+An original adult technician in side profile with an oversized wraparound diagnosic visor drawn as a single luminous violet graphic. Her gloved hand snaps shut on the rim of a grand repaired wheel with thick concentric contour cuts and a few clean laser dashes. In the periphery let an old oily bay, torn warning line, and rusted rivets appear as two-dimensional engravings. Electric purple, soft lavender, charcoal and icy blue. Clean stylized painted-poster linework.
 ```
 
 ### [afterimage.webp](afterimage.webp)
 
 ```text
-Powerful close portrait of an adult woman with a neutral mouth and closed eyes, framed by a sharply curved near-future sleep chamber edge. Huge geometric lavender face and pale light across the cheek, blurry dark stacked bays drawn as blocks below the promise of rest. Palette hot lilac, deep indigo, neon orchid, pale violet. Frame as a stylized wellness advertisement with absent, too-composed calm.
+An original exhausted adult worker reclines in an exceptionally tidy faceted sleep booth. Their blank drowsy face is seen in extreme close profile, cheek against a stylized glowing cushion, their eyelids closed. Orchid visor light and two angled futuristic enclosure ribs frame the face; corroded ceiling seams and identical vacant booths recede into the corner. No medical apparatus or mouthpiece. Lilac cream, vivid ultraviolet, hot orchid, dark midnight. A practiced advertisement for buying a more human morning.
 ```
 
 ### [zenith.webp](zenith.webp)
 
 ```text
-Oversized graphic face of an adult underwriter deliberately lit by a flat geometric gold panel. A calm artificial smile and raised blank chrome membership card. The near-black shape of an old brutalist vault and snapped municipal wire underneath. Palette sulphur gold, black olive, warm brass, and smoke gray. Strong editorial profile; polished promise of safety under empty eyes.
+An older original adult underwriting representative with a neat short silver bob and polite vacant eye, framed by a huge beveled window cut out of a dim brutalist records vault. One blank gold metal cover card in a black leather sleeve, extended to the viewer with minimal angular hands. Paper files behind a grim paid-access counter, rusty in black peripheral forms. Warm ochre gold, pale champagne, black olive. Security sold as a moment of relief.
 ```
 
 ### [meridian.webp](meridian.webp)
 
 ```text
-Sharp diagonal two-person composition cropped large, a calm drawn adult clinician and the almost expressionless adult worker's face in profile as a white cyan biometric monitor lights up. Stark aqua face planes, a luminous band on the worker's wrist. Near-black background marked with faint vacant clinic windows and a scratched old grille, simplified into rectangular silhouettes. Cyan-white, dark deep teal, one intense cobalt shade.
+An original adult occupational clinician's face and translucent mint glasses float over an angular pulse screen; a second adult worker's hand below reaches into a bright geometric wrist-scanning light. Pair tight graphic profile silhouettes, with perfectly neat cyan light and a very dark row of locked old consultation doors. Ice cyan, inky teal, chalk gray. Render the face large and readable and give it calm but emotionally rehearsed care.
 ```

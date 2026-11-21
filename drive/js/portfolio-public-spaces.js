@@ -8,6 +8,7 @@
   const footprints = {
     plaza:{minX:4.4,maxX:33.81,minZ:15.65,maxZ:43.9},
     plazaWest:{minX:-26.45,maxX:-4.4,minZ:14.4,maxZ:43.9},
+    plazaWestApproach:{minX:-40.30,maxX:-18.6,minZ:8.65,maxZ:28.05},
     park:{minX:-147,maxX:-118.35,minZ:40,maxZ:73}
   };
   const walkY = .185;
@@ -71,12 +72,28 @@
       collisions.push(body);
     }
 
-    function deck(name, bounds, grade, pavementColor, apronColor, plaza=false) {
-      function octagon(inset, corner) {
+    function deck(name, bounds, grade, pavementColor, apronColor, plaza=false, approach=null) {
+      function outline(inset, corner) {
         const left=bounds.minX+inset, right=bounds.maxX-inset;
         const near=bounds.minZ+inset, far=bounds.maxZ-inset;
-        return [[left+corner,near],[right-corner,near],[right,near+corner],[right,far-corner],
-          [right-corner,far],[left+corner,far],[left,far-corner],[left,near+corner]];
+        const boundary = approach ? [
+          [approach.minX+inset,approach.minZ+inset], [approach.maxX-inset,approach.minZ+inset],
+          [approach.maxX-inset,near], [right,near], [right,far], [left,far],
+          [left,approach.maxZ-inset], [approach.minX+inset,approach.maxZ-inset]
+        ] : [[left,near],[right,near],[right,far],[left,far]];
+        return boundary.flatMap(([x,z],i)=>{
+          const previous=boundary[(i+boundary.length-1)%boundary.length], next=boundary[(i+1)%boundary.length];
+          return [previous,next].map(([px,pz])=>{
+            const dx=px-x, dz=pz-z, length=Math.hypot(dx,dz);
+            const reach=Math.min(corner,length*.43)/length;
+            return [x+dx*reach,z+dz*reach];
+          });
+        });
+      }
+      function pavingUV(geometry) {
+        const position=geometry.attributes.position, uv=[];
+        for (let i=0; i<position.count; i++) uv.push(position.getX(i)/3.5,position.getZ(i)/3.5);
+        geometry.setAttribute('uv',new THREE.Float32BufferAttribute(uv,2));
       }
       function top(outer, inner) {
         const contour = ring => ring.map(([x,z])=>new THREE.Vector2(x,-z));
@@ -85,14 +102,13 @@
         const geometry = new THREE.ShapeGeometry(shape);
         geometry.rotateX(-Math.PI/2);
         geometry.translate(0,walkY,0);
-        const {uv,position} = geometry.attributes;
-        for (let i=0; i<uv.count; i++) uv.setXY(i,position.getX(i)/3.5,position.getZ(i)/3.5);
+        pavingUV(geometry);
         return geometry;
       }
       function show(geometry, finish, color, suffix) {
         const material = materials[finish].clone();
         material.color.setHex(color).convertSRGBToLinear();
-        if (suffix==='perimeter-walk' || (plaza && suffix==='court')) material.onBeforeCompile = shader => {
+        if (suffix==='perimeter-walk' || plaza) material.onBeforeCompile = shader => {
           const pattern = plaza && suffix==='court' ? 'vec2(2.22,1.65)' : 'vec2(1.34,1.15)';
           shader.vertexShader = 'varying vec2 vPavingPosition;\n'+shader.vertexShader.replace(
             '#include <begin_vertex>','#include <begin_vertex>\nvPavingPosition=position.xz;'
@@ -116,9 +132,9 @@
         mesh.receiveShadow = true;
         group.add(mesh);
       }
-      const outer = octagon(0,1.05);
-      const slab = octagon(.34,.86);
-      const inner = octagon(2.85,.65);
+      const outer = outline(0,1.05);
+      const slab = outline(.34,.86);
+      const inner = outline(2.85,.65);
       const center = top(inner);
       const apron = top(slab,inner);
       const ramp = new THREE.BufferGeometry();
@@ -143,9 +159,10 @@
       ramp.setAttribute('position',new THREE.Float32BufferAttribute(vertices,3));
       ramp.setIndex(indices);
       ramp.computeVertexNormals();
+      if (plaza) pavingUV(ramp);
       show(center,'curb',pavementColor,'court');
       show(apron,'curb',apronColor,'perimeter-walk');
-      show(ramp,'matte',0x485251,'curb-cut');
+      show(ramp,plaza ? 'curb' : 'matte',plaza ? apronColor : 0x485251,'curb-cut');
       if (physics?.addStaticSurface) {
         const x=(bounds.minX+bounds.maxX)/2, z=(bounds.minZ+bounds.maxZ)/2;
         const surface = {x,z,vertices:[],indices:[]};
@@ -341,7 +358,7 @@
     }
 
     deck('portfolio-projects-plaza',footprints.plaza,.045,0xa39d91,0x9eaeae,true);
-    deck('portfolio-projects-plaza-west',footprints.plazaWest,.045,0xa39d91,0x9eaeae,true);
+    deck('portfolio-projects-plaza-west',footprints.plazaWest,.045,0xa39d91,0x9eaeae,true,footprints.plazaWestApproach);
     for (let i=-5;i<=5;i++) block('matte',0xededde,i*.765,.055,crossingZ,.405,.009,3.12);
     for (const side of [-1,1]) {
       for (const z of [19.18,24.2,36.9,41.25]) {
@@ -370,10 +387,12 @@
     bench(22.9,29.0,Math.PI,0x6ce7d6);
     bench(-14.3,39.1,Math.PI,0x6ce7d6);
     bench(-8.1,35.2,Math.PI/2,0x6ce7d6);
+    bench(-34.2,13.1,0,0x62988c);
     lamp(11.45,19.9,0xffa765);
     lamp(23.0,39.75,0x81f3dd);
     lamp(-13.7,22.8,0xffbd84);
     lamp(-19.4,40.2,0x81f3dd);
+    lamp(-37.14,25.29,0xffbd84);
     block('curb',0x827b6d,-15,walkY+.225,35.7,5.79,.45,2.7);
     block('matte',0x574f3e,-15,walkY+.449,35.7,5.51,.075,2.43);
     solid(-15,walkY+.225,35.7,5.79,.45,2.7);

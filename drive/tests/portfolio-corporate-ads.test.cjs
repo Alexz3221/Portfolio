@@ -49,3 +49,22 @@ test('corporate projections face both ways, stay in place and release their reso
     else globalThis.DrivePortfolioCorporateAdPlacements=previous;
   }
 });
+
+test('airborne displays share the campaign renderer and retain a deliberate art crop', () => {
+  const clock = {value:2};
+  const pane = ads.createCampaignDisplay(THREE,'farline',{displayAspect:5,artShare:.45,clock});
+  const uniforms = pane.material.uniforms;
+  assert.equal(uniforms.clock,clock);
+  assert.equal(uniforms.artBay.value.z,.45);
+  assert.equal(uniforms.motion.value,1);
+  pane.update(.5);
+  assert.equal(clock.value,2,'the owner of a shared clock advances it once');
+  pane.dispose();
+
+  const parked = ads.createCampaignDisplay(THREE,'farline',{displayAspect:5,airborne:true,reducedMotion:true});
+  parked.update(.5);
+  assert.equal(parked.material.uniforms.clock.value,0);
+  assert.equal(parked.material.uniforms.motion.value,0);
+  assert.equal(parked.material.uniforms.artBay.value.z,.34);
+  parked.dispose();
+});

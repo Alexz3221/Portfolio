@@ -22,7 +22,7 @@ test('the public spaces have raised perimeter walks and keep adjacent streets op
 
   const perimeter = [
     ['portfolio-projects-plaza',[[5.35,26],[32.75,26],[22.5,16.65],[22.5,42.9]]],
-    ['portfolio-projects-plaza-west',[[-25.45,26],[-5.4,26],[-16.5,15.5],[-16.5,42.8]]],
+    ['portfolio-projects-plaza-west',[[-39.22,22],[-5.4,26],[-16.5,15.5],[-16.5,42.8]]],
     ['portfolio-switchyard-park',[[-145.30,55],[-119.40,63],[-133,41],[-133,72]]]
   ];
   for (const [name,samples] of perimeter) {
@@ -38,6 +38,9 @@ test('the public spaces have raised perimeter walks and keep adjacent streets op
   for (const [x,z,height] of [[4.55,27,.107],[-4.55,27,.107],[-118.82,55,.185],[0,22,0],
     [3.75,30.2,0],[-3.75,30.2,0],[28,12,0],[-108,55,0]]) {
     assert.ok(Math.abs(grade(x,z)-height)<.004,`curb and road height at ${x}, ${z}`);
+  }
+  for (let x=-38; x<=-25; x+=.5) {
+    assert.ok(Math.abs(grade(x,20)-.185)<.002,`continuous grade from the west walk to the produce court at ${x}`);
   }
   for (const feature of ['restrooms','plaza-office','little-hours-counter','corner-press-counter','produce-counter']) {
     assert.ok(world.getObjectByName('portfolio-plaza-'+feature),feature);

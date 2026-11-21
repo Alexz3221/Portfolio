@@ -216,6 +216,7 @@
     portfolioAssets?.dispose();
     portfolioSkyAds?.dispose();
     portfolioCorporateAds?.dispose();
+    portfolioAirship?.dispose();
     portfolioCorporateAds = null;
     arrivalMarket?.dispose();
     arrivalSidewalks?.dispose();
@@ -1614,7 +1615,7 @@
     window.auditPortfolioCity = async function () {
       await import('./portfolio-scene-audit.js?v=1');
       const generation = worldGeneration;
-      await Promise.all([portfolioHolograms?.ready, portfolioCorporateAds?.ready]);
+      await Promise.all([portfolioHolograms?.ready, portfolioCorporateAds?.ready, portfolioAirship?.ready]);
       if (!isPortfolioCity() || generation !== worldGeneration) {
         throw new Error('Open Portfolio City before checking scene clipping.');
       }

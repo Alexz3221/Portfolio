@@ -47,19 +47,26 @@
     ctx.restore();
   }
 
-  function printArtwork(canvas, campaign, displayAspect, image) {
-    const ctx=canvas.getContext('2d'), w=canvas.width, h=canvas.height;
+  function artworkLayout(displayAspect, campaign, artShare, airborne) {
     const wide=displayAspect>1.25;
-    const poster=wide && campaign.poster;
+    const share=artShare>0 ? Math.min(.48,artShare) : airborne ? .34 : campaign.poster ? .47 : 0;
+    const poster=wide && share>0;
+    const w=wide ? 1024 : 512, h=wide ? 512 : 1024;
     const scaleX=displayAspect*h/w;
     const edge=.048*w, gap=.043*w;
     const artY=(poster ? .052 : wide ? .078 : .137)*h;
     const artH=(poster ? .896 : wide ? .844 : .590)*h;
-    const artW=poster ? .47*w : wide ? Math.min(.37*w,artH*.94/scaleX) : w-2*edge;
+    const artW=poster ? share*w : wide ? Math.min(.37*w,artH*.94/scaleX) : w-2*edge;
     const artRight=wide && campaign.glyph%3===1;
     const artX=artRight ? w-edge-artW : edge;
     const copyX=wide && !artRight ? edge+artW+gap : edge;
     const copyW=w-2*edge-(wide ? artW+gap : 0);
+    return {w,h,wide,poster,scaleX,gap,artX,artY,artW,artH,copyX,copyW,airborne:wide && airborne};
+  }
+
+  function printArtwork(canvas, campaign, layout, image) {
+    const ctx=canvas.getContext('2d');
+    const {w,h,wide,poster,scaleX,gap,artX,artY,artW,artH,copyX,copyW,airborne}=layout;
     ctx.clearRect(0,0,w,h);
     ctx.fillStyle='#0c223b42';
     ctx.fillRect(0,0,w,h);
@@ -104,22 +111,23 @@
 
     const sans='system-ui, sans-serif', mono='ui-monospace, monospace';
     const wordY=wide ? .156*h : .061*h;
-    const unitY=wide ? .290*h : .118*h;
+    const unitY=wide ? (airborne ? .265 : .290)*h : .118*h;
     const glyphW=Math.min(copyW*.14,.112*h/scaleX);
     const textX=copyX+glyphW+gap*.55;
     ctx.fillStyle=campaign.color;
     ctx.strokeStyle=campaign.color;
     drawGlyph(ctx,copyX+glyphW*.48,wordY,glyphW,campaign.glyph);
     type(campaign.brand,textX,wordY,wide?70:61,900,sans,copyX+copyW-textX);
-    ctx.fillRect(copyX,wide?.242*h:.099*h,copyW,3);
+    ctx.fillRect(copyX,(airborne ? .216 : wide ? .242 : .099)*h,copyW,3);
     type(campaign.unit,copyX,unitY,wide?25:24,700,mono,copyW);
 
     if (!wide) ctx.fillRect(copyX,.744*h,copyW,3);
     ctx.fillStyle='#e8f6f4';
-    type(campaign.line[0],copyX,wide?.517*h:.799*h,wide?78:66,850,sans,copyW);
-    type(campaign.line[1],copyX,wide?.685*h:.861*h,wide?78:66,850,sans,copyW);
+    const headlineSize=airborne ? 145 : wide ? 78 : 66;
+    type(campaign.line[0],copyX,(airborne ? .467 : wide ? .517 : .799)*h,headlineSize,850,sans,copyW);
+    type(campaign.line[1],copyX,(airborne ? .710 : wide ? .685 : .861)*h,headlineSize,850,sans,copyW);
 
-    const ctaY=wide?.890*h:.947*h, ctaH=wide ? 53 : 58;
+    const ctaY=(airborne ? .924 : wide ? .890 : .947)*h, ctaH=airborne ? 44 : wide ? 53 : 58;
     const ctaW=Math.min(copyW, (wide ? 52 : 46)+campaign.cta.length*(wide?15.5:15)/scaleX);
     ctx.fillStyle=campaign.color+'33';
     ctx.fillRect(copyX,ctaY-ctaH*.5,ctaW,ctaH);
@@ -135,9 +143,14 @@
     ctx.stroke();
   }
 
-  function projectionMaterial(THREE, map, clock, color, phase) {
+  function projectionMaterial(THREE, map, clock, color, phase, layout, reducedMotion) {
     const uniforms=THREE.UniformsUtils.clone(THREE.UniformsLib.fog);
-    Object.assign(uniforms,{art:{value:map},clock,accent:{value:color},phase:{value:phase}});
+    const {w,h,artX,artY,artW,artH}=layout;
+    const artBay=new THREE.Vector4(artX/w,1-(artY+artH)/h,artW/w,artH/h);
+    Object.assign(uniforms,{
+      art:{value:map},clock,accent:{value:color},phase:{value:phase},
+      artBay:{value:artBay},motion:{value:reducedMotion ? 0 : 1}
+    });
     return new THREE.ShaderMaterial({
       uniforms, transparent:true, depthWrite:false, fog:true, side:THREE.DoubleSide,
       toneMapped:false, extensions:{derivatives:true},
@@ -154,11 +167,24 @@
         varying vec2 panel;
         uniform sampler2D art;
         uniform vec3 accent;
-        uniform float clock, phase;
+        uniform vec4 artBay;
+        uniform float clock, phase, motion;
         #include <fog_pars_fragment>
         void main() {
           vec2 p=vec2(gl_FrontFacing ? panel.x : 1.-panel.x,panel.y);
           vec4 artwork=texture2D(art,p);
+          vec2 photo=(p-artBay.xy)/artBay.zw;
+          float inside=min(min(photo.x,1.-photo.x),min(photo.y,1.-photo.y));
+          // Ease the image under its fixed crop. The atlas outside this
+          // region, including the type, never gets a time-dependent sample.
+          float photoMask=smoothstep(.0,.014+fwidth(inside),inside)*motion;
+          if (motion>0.) {
+            float time=clock*.148+phase*6.283185;
+            float crop=.891+.022*cos(time*.83);
+            vec2 drift=vec2(.024*sin(time*.74),.026*cos(time*.93));
+            vec2 framed=clamp(.5+(photo-.5)*crop+drift,.005,.995);
+            artwork=mix(artwork,texture2D(art,artBay.xy+framed*artBay.zw),photoMask);
+          }
           vec3 ink=pow(artwork.rgb,vec3(2.2));
           float outputLight=max(ink.r,max(ink.g,ink.b));
           float edge=min(min(p.x,1.-p.x),min(p.y,1.-p.y));
@@ -169,7 +195,7 @@
           float stripes=.972+.028*cos(row*6.283185)*(1.-smoothstep(.04,.33,fwidth(row)));
           float pass=fract(clock*.105+phase);
           float sweep=(1.-smoothstep(.0,.125,abs(p.y-pass)))*smoothstep(0.,.14,pass)*smoothstep(0.,.14,1.-pass);
-          float sparkle=(.019+.034*sweep)*smoothstep(.025,.28,outputLight);
+          float sparkle=(.019+.034*sweep*photoMask)*smoothstep(.025,.28,outputLight);
           vec3 color=ink*stripes*1.06+accent*(.013+sparkle+.26*margin);
           float alpha=.11+artwork.a*mix(.46,.88,smoothstep(.018,.44,outputLight));
           gl_FragColor=vec4(color,envelope*max(alpha,.56*margin));
@@ -190,14 +216,58 @@
     return glass;
   }
 
+  function createCampaignDisplay(THREE,id,{displayAspect=2.6,clock,artShare,airborne=false,reducedMotion=false}={}) {
+    const campaign=campaigns[id];
+    if (!campaign) return null;
+    const time=clock || {value:0};
+    const layout=artworkLayout(displayAspect,campaign,artShare,airborne);
+    const color=new THREE.Color(campaign.color).convertSRGBToLinear();
+    const canvas=typeof document==='undefined' ? null : document.createElement('canvas');
+    if (canvas) {
+      canvas.width=layout.w;
+      canvas.height=layout.h;
+      printArtwork(canvas,campaign,layout);
+    }
+    const map=canvas ? new THREE.CanvasTexture(canvas) :
+      new THREE.DataTexture(new Uint8Array([13,23,32,255]),1,1);
+    map.name='portfolio-corporate-art-'+id;
+    map.encoding=THREE.sRGBEncoding;
+    map.anisotropy=4;
+    map.needsUpdate=true;
+
+    let disposed=false;
+    const ready=canvas ? new Promise(resolve=>{
+      new THREE.ImageLoader().load(assetBase+id+'.webp?v=2',image=>{
+        if (!disposed) {
+          printArtwork(canvas,campaign,layout,image);
+          map.needsUpdate=true;
+        }
+        resolve(!disposed);
+      },undefined,()=>resolve(false));
+    }) : Promise.resolve(false);
+    const material=projectionMaterial(THREE,map,time,color,campaign.glyph*.113,layout,reducedMotion);
+
+    return {
+      material,ready,
+      update(delta) {
+        if (!disposed && !clock && !reducedMotion && Number.isFinite(delta) && delta>0) time.value+=delta;
+      },
+      dispose() {
+        if (disposed) return;
+        disposed=true;
+        map.dispose();
+        material.dispose();
+      }
+    };
+  }
+
   function attach(THREE,world,{reducedMotion=false}={}) {
     const placements=globalThis.DrivePortfolioCorporateAdPlacements || [];
     const group=new THREE.Group();
     group.name='portfolio-corporate-ads';
     const clock={value:0};
-    const progress=[], textures=new Set();
+    const displays=[];
     const supports=[], lamps=[], rays=[], rayColors=[];
-    const loader=typeof document==='undefined' ? null : new THREE.ImageLoader();
     const pose=new THREE.Object3D(), desk=new THREE.Object3D();
     let disposed=false;
 
@@ -208,10 +278,11 @@
       list.push({matrix:pose.matrix.clone().premultiply(reference.matrix),color});
     }
 
-    for (const {id,x,y,z,width,height,heading,mount} of placements) {
-      const campaign=campaigns[id];
-      if (!campaign) continue;
-      const phase=campaign.glyph*.113, accent=new THREE.Color(campaign.color).convertSRGBToLinear();
+    for (const {id,x,y,z,width,height,heading,mount,artShare} of placements) {
+      const campaignDisplay=createCampaignDisplay(THREE,id,{displayAspect:width/height,clock,artShare,reducedMotion});
+      if (!campaignDisplay) continue;
+      displays.push(campaignDisplay);
+      const accent=campaignDisplay.material.uniforms.accent.value;
       const structure=new THREE.Group();
       structure.name='portfolio-corporate-ad-'+id;
       structure.position.set(x,y,z);
@@ -219,31 +290,7 @@
       structure.updateMatrix();
       group.add(structure);
 
-      const canvas=loader ? document.createElement('canvas') : null;
-      if (canvas) {
-        const wide=width/height>1.25;
-        canvas.width=wide ? 1024 : 512;
-        canvas.height=wide ? 512 : 1024;
-        printArtwork(canvas,campaign,width/height);
-      }
-      const map=canvas ? new THREE.CanvasTexture(canvas) :
-        new THREE.DataTexture(new Uint8Array([13,23,32,255]),1,1);
-      map.name='portfolio-corporate-art-'+id;
-      map.encoding=THREE.sRGBEncoding;
-      map.anisotropy=4;
-      map.needsUpdate=true;
-      textures.add(map);
-      if (loader) progress.push(new Promise(resolve=>{
-        loader.load(assetBase+id+'.webp',image=>{
-          if (!disposed) {
-            printArtwork(canvas,campaign,width/height,image);
-            map.needsUpdate=true;
-          }
-          resolve(!disposed);
-        },undefined,()=>resolve(false));
-      }));
-
-      const display=new THREE.Mesh(curvedGlass(THREE,width,height),projectionMaterial(THREE,map,clock,accent,phase));
+      const display=new THREE.Mesh(curvedGlass(THREE,width,height),campaignDisplay.material);
       display.name='portfolio-corporate-projection-'+id;
       display.userData.portfolioAdFace=true;
       display.userData.portfolioAdId='corporate-'+id;
@@ -260,7 +307,7 @@
 
       if (!mount) continue;
       desk.position.set(mount.x,mount.y,mount.z);
-      desk.rotation.y=heading;
+      desk.rotation.y=mount.heading ?? heading;
       desk.updateMatrix();
       part(supports,desk,0x34434a,0,0,0,1.46,.48,.57);
       part(supports,desk,0x4e514c,0,-.267,0,1.57,.14,.65);
@@ -274,8 +321,10 @@
       for (const offset of [-.43,-.19,.19,.43]) {
         const start=new THREE.Vector3(offset,mount.y>y ? -.26 : .25,0).applyMatrix4(desk.matrix);
         const end=new THREE.Vector3(offset*width,nearestEdge,.07).applyMatrix4(structure.matrix);
+        const falloff=1/Math.sqrt(1+.048*start.distanceTo(end));
         rays.push(start,end);
-        rayColors.push(accent.r,accent.g,accent.b,accent.r*.47,accent.g*.47,accent.b*.47);
+        rayColors.push(accent.r*falloff,accent.g*falloff,accent.b*falloff,
+          accent.r*.47*falloff,accent.g*.47*falloff,accent.b*.47*falloff);
       }
     }
 
@@ -306,7 +355,7 @@
     world.add(group);
 
     return {
-      ready:Promise.all(progress),
+      ready:Promise.all(displays.map(display=>display.ready)),
       update(delta) {
         if (!disposed && !reducedMotion && Number.isFinite(delta) && delta>0) clock.value+=delta;
       },
@@ -319,7 +368,10 @@
           if (object.geometry) geometries.add(object.geometry);
           if (object.material) materials.add(object.material);
         });
-        for (const texture of textures) texture.dispose();
+        for (const display of displays) {
+          materials.delete(display.material);
+          display.dispose();
+        }
         for (const geometry of geometries) geometry.dispose();
         for (const material of materials) material.dispose();
         group.clear();
@@ -327,5 +379,5 @@
     };
   }
 
-  return {attach};
+  return {attach,createCampaignDisplay};
 });
