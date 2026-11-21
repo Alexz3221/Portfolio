@@ -230,12 +230,13 @@
   const transferPassage = {from:[-19,26.7,-80.1],to:[19,26.7,-74.5],width:4.9,height:4.05};
   collisionBlock(0,-77.3,38.9,10.8,4.85,4,26.2);
 
+  const testBayUtilityBuilding = {x:87,z:-89,width:18,depth:12,height:18};
   const frontages = [
     [-46,-41,17,18,18,1,'podium'], [-75,-42,21,14,25,2,'steps'],
     [-68,2,24,16,9,1,'slab'], [-85,10,14,17,19,3,'cantilever'],
     [-52,31,19,26,49,2,'twins'], [-34,36,15,14,32,1,'podium'],
     [39,31,16,22,45,0,'cantilever'], [58,44,21,21,70,4,'steps'],
-    [87,-89,18,12,18,5,'slab'],
+    [testBayUtilityBuilding.x,testBayUtilityBuilding.z,testBayUtilityBuilding.width,testBayUtilityBuilding.depth,testBayUtilityBuilding.height,5,'slab'],
     [64,-133,25,20,27,6,'steps'], [46,-83,16,21,20,3,'cantilever'],
     [-87,115,15,12,23,2,'podium'], [-43,101,15,15,14,7,'cantilever'],
     [-15,101,14,23,36,7,'twins'], [15,102,20,21,47,0,'steps'],
@@ -369,6 +370,16 @@
   for (const {x,z,width,depth,baseY,height} of mall.colliders)
     collisionBlock(x,z,width,depth,height,4,baseY);
 
+  const serviceTankWall = testBayUtilityBuilding.x+testBayUtilityBuilding.width/2;
+  const serviceTankPads = [
+    {x:serviceTankWall+1.58,z:-91.25,height:3.05},
+    {x:serviceTankWall+1.48,z:-87.85,height:2.8}
+  ].map(pad=>({id:'tank',...pad,y:.33,heading:east}));
+  // Positions measured on tank.glb after grounding and centering, in units
+  // of the model height. East-facing mounts point all four ports into the wall.
+  const tankPorts = [{rise:.05284,across:[-.16449,.17012],wallX:serviceTankWall+.08},
+    {rise:.94716,across:[-.17012,.16449],wallX:serviceTankWall}];
+
   const assetPlacements = [
     ...[-66,-37,9,32].flatMap(z => [-1,1].map(side => ({id:'streetlight',x:side*(z < -42 ? 9 : 23),z,y:.06,heading:side*Math.PI/2,height:6.7}))),
     {id:'ac-stacked',x:-31,z:-46,y:0,heading:east,height:2.5},
@@ -380,8 +391,7 @@
     {id:'terminal',x:-8.4,z:-48,y:.06,heading:east,height:2.3},
     {id:'terminal',x:20,z:23,y:.06,heading:west,height:2.8},
     {id:'terminal',x:-120,z:39,y:0,heading:east,height:2.3},
-    {id:'tank',x:99,z:-64,y:0,heading:west,height:4.8},
-    {id:'tank',x:102,z:-70,y:0,heading:west,height:4.4},
+    ...serviceTankPads,
     {id:'platform',x:25,z:49,y:.07,heading:north,height:6},
     {id:'sushi-truck',x:-72,z:-30.5,y:.07,heading:east,height:3.4},
     {id:'signs',x:-70,z:-5.78,y:9.25,heading:north,height:4.8},
@@ -1038,8 +1048,8 @@
         width,height,Math.hypot(dx,dy,dz),Math.atan2(dx,dz),color,-Math.atan2(dy,Math.hypot(dx,dz)));
     }
     function flush() {
-      for (const [name,{material,list}] of batches) {
-        const mesh = new THREE.InstancedMesh(box,material,list.length);
+      for (const [name,{material,list,geometry=box}] of batches) {
+        const mesh = new THREE.InstancedMesh(geometry,material,list.length);
         mesh.name = name;
         for (const [i,b] of list.entries()) {
           transform.position.set(b.x,b.y,b.z);
@@ -1122,6 +1132,30 @@
     if (streets) streets.build(THREE,world,{roads:networkRoads,areas:pavedAreas,asphalt:materials.asphalt,curb:materials.concrete,
       buildings,obstacles:walkObstacles,publicSpaces:globalThis.DrivePortfolioPublicSpaces?.footprints,
       forecourts:globalThis.DrivePortfolioNeighborhoods?.forecourts,cacheLayout:true});
+
+    const tankTube = new THREE.CylinderGeometry(1,1,1,12).rotateZ(Math.PI/2);
+    const tankPipeFinish = new THREE.MeshStandardMaterial({color:surfaceColor(0x926338),roughness:.60,metalness:.38});
+    function tankPipe(name,material,fromX,toX,y,z,radius) {
+      if (!batches.has(name)) batches.set(name,{geometry:tankTube,material,list:[]});
+      instance(name,material,(fromX+toX)/2,y,z,toX-fromX,radius,radius);
+    }
+    for (const {x,y,z,height} of serviceTankPads) {
+      const skidX=x+.18*height, skidTop=y+.165*height;
+      instance('portfolio-service-tank-plinths',materials.concrete,serviceTankWall+1.41,y-.085,z,2.72,.17,height*.76);
+      instance('portfolio-service-tank-skids',materials.steel,skidX,skidTop-.055,z,.30,.11,height*.65);
+      for (const side of [-1,1]) {
+        const footHeight=skidTop-y-.10;
+        instance('portfolio-service-tank-feet',materials.steel,skidX,y+footHeight/2,z+side*height*.17,.24,footHeight,.27);
+      }
+      const tipX=x-.37245*height;
+      for (const {rise,across,wallX} of tankPorts) for (const offset of across) {
+        const yy=y+rise*height, zz=z+offset*height;
+        tankPipe('portfolio-service-tank-pipes',tankPipeFinish,wallX-.02,tipX+.052,yy,zz,height*.05284);
+        tankPipe('portfolio-service-tank-unions',materials.metal,tipX-.065,tipX+.065,yy,zz,height*.065);
+        tankPipe('portfolio-service-tank-flanges',materials.steel,wallX-.025,wallX+.105,yy,zz,height*.082);
+      }
+    }
+
     for (const street of networkRoads) {
       const angle = Math.atan2(street.x2-street.x1,street.z2-street.z1);
       const x=(street.x1+street.x2)/2, z=(street.z1+street.z2)/2;
