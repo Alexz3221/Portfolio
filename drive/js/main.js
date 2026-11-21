@@ -62,6 +62,7 @@
   let cityVisual = null;
   let portfolioPlay = null;
   let portfolioHolograms = null, portfolioWet = null, portfolioAssets = null, portfolioSkyAds = null;
+  let portfolioCorporateAds = null;
   let arrivalMarket = null, arrivalSidewalks = null, streetSidewalks = null;
   let portfolioPublicSpaces = null, portfolioAirship = null;
   let importedAssetScene = null;
@@ -214,6 +215,8 @@
     portfolioHolograms?.dispose();
     portfolioAssets?.dispose();
     portfolioSkyAds?.dispose();
+    portfolioCorporateAds?.dispose();
+    portfolioCorporateAds = null;
     arrivalMarket?.dispose();
     arrivalSidewalks?.dispose();
     streetSidewalks?.dispose();
@@ -615,6 +618,7 @@
       });
       portfolioAirship = globalThis.DrivePortfolioAirship?.attach(THREE, world, {reducedMotion});
       portfolioSkyAds = globalThis.DrivePortfolioSkyAds?.attach(THREE, world, {reducedMotion});
+      portfolioCorporateAds = globalThis.DrivePortfolioCorporateAds?.attach(THREE, world, {reducedMotion});
       portfolioWet = globalThis.DrivePortfolioWet?.create(THREE, renderer, scene, world, sky, {
         compact:window.matchMedia?.('(pointer: coarse)')?.matches || window.innerWidth < 700
       });
@@ -1557,6 +1561,7 @@
       ? {position:{x:camera.position.x,y:camera.position.y,z:-camera.position.z}} : camera, delta);
     portfolioPlay?.update(driveDelta);
     portfolioSkyAds?.update(delta);
+    portfolioCorporateAds?.update(delta);
     portfolioAirship?.update(delta);
     arrivalMarket?.update(delta);
     portfolio?.update(physics.body.position, motion.speed, motion.heading);
@@ -1609,7 +1614,7 @@
     window.auditPortfolioCity = async function () {
       await import('./portfolio-scene-audit.js?v=1');
       const generation = worldGeneration;
-      await portfolioHolograms?.ready;
+      await Promise.all([portfolioHolograms?.ready, portfolioCorporateAds?.ready]);
       if (!isPortfolioCity() || generation !== worldGeneration) {
         throw new Error('Open Portfolio City before checking scene clipping.');
       }
