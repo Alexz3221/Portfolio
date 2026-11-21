@@ -346,14 +346,15 @@
         y:Math.max(0,Math.min(100,50+depth*92/span))};
     }
     function roadPaths(roads, glow = false) {
-      const paths = {street: [], arterial: [], highway: []};
+      const paths = {street: [], arterial: [], highway: [], skyMall: []};
       const compact = value => Math.round(value * 10000) / 10000;
       for (const line of roads) {
         const a = point(line.x1, line.z1), b = point(line.x2, line.z2);
         const highway = /highway|motorway|freeway|express/i.test(String(line.roadClass || line.kind || '')) ||
           /elevated|bridge|viaduct|overpass/i.test(String(line.mode || ''));
         const arterial = /arterial|main/i.test(String(line.roadClass || ''));
-        paths[highway ? 'highway' : arterial ? 'arterial' : 'street'].push(
+        const kind = line.mode === 'SKY MALL' ? 'skyMall' : highway ? 'highway' : arterial ? 'arterial' : 'street';
+        paths[kind].push(
           `M${compact(a.x)} ${compact(a.y)}L${compact(b.x)} ${compact(b.y)}`);
       }
       const path = (className, segments) => segments.length
@@ -361,7 +362,8 @@
       return path('city-map-street', paths.street) +
         path('city-map-arterial', paths.arterial) +
         (glow ? path('city-map-highway-glow', paths.highway) : '') +
-        path('city-map-highway', paths.highway);
+        path('city-map-highway', paths.highway) +
+        path('city-map-sky-mall', paths.skyMall);
     }
     function drawRadarRoads() {
       const roads = mapRoads;
@@ -435,8 +437,9 @@
         item.className = 'city-stop-item';
         item.dataset.stop = stop.id;
         item.style.setProperty('--stop-color', stopColor);
-        const location = label === stop.title ? '' : `<small>${escapeHtml(stop.title)}</small>`;
-        item.innerHTML = `<span aria-hidden="true">${number}</span><strong>${escapeHtml(label)}</strong>${location}`;
+        const district = globalThis.DrivePortfolioDistricts?.byStopId[stop.id];
+        const location = district?.title || (label === stop.title ? '' : stop.title);
+        item.innerHTML = `<span aria-hidden="true">${number}</span><strong>${escapeHtml(label)}</strong>${location ? `<small>${escapeHtml(location)}</small>` : ''}`;
         stopList.appendChild(item);
       });
       centerSection.hidden = !centers.length || typeof onJump !== 'function';
@@ -471,6 +474,8 @@
         item.setAttribute('aria-label', `Fast travel to ${center.title}`);
         if (center.kind === 'skyway') {
           item.innerHTML = `<strong>${escapeHtml(center.title)}</strong><small>DRIVE TO RAMP ↗</small>`;
+        } else if (center.kind === 'sky-mall') {
+          item.innerHTML = `<strong>${escapeHtml(center.title)}</strong><small>SKY MALL · +${Math.round(center.y)} M</small>`;
         } else if (center.kind === 'landmark') {
           item.innerHTML = `<strong>${escapeHtml(center.title)}</strong><small>DRIVE HERE ↗</small>`;
         } else {
@@ -491,6 +496,7 @@
       const isPortfolio = map === 'city';
       const skyway = cityMap?.skyway;
       const landmarks = isPortfolio ? globalThis.DrivePortfolioPublicSpaces?.destinations || [] : [];
+      const skyMall = isPortfolio ? cityMap?.skyMall?.destination : null;
       host.hidden = guideButton.hidden = !active;
       document.body.classList.toggle('city-map-active', active);
       nearby.hidden = true;
@@ -515,7 +521,8 @@
       locations = isPortfolio ? (cityMap?.stops || stops || []).filter(stop => stories[stop.id]) : [];
       byId=new Map(locations.map(stop=>[stop.id,stop]));
       centers = typeof onJump !== 'function' ? [] : isPortfolio
-        ? [...(skyway?.entrances || []).map(entrance => ({...entrance, kind:'skyway'})),...landmarks] : deriveCenters(cityMap);
+        ? [...(skyway?.entrances || []).map(entrance => ({...entrance, kind:'skyway'})),
+          ...(skyMall ? [{...skyMall, kind:'sky-mall'}] : []),...landmarks] : deriveCenters(cityMap);
       centerKey.textContent = isPortfolio ? '◆ FAST TRAVEL' : '◆ CENTER · ◇ JUMP';
       centersById=new Map(centers.map(center=>[center.id,center]));
       mapRoads = [cityMap?.networkRoads, cityMap?.overviewRoads, cityMap?.roadSegments].find(roads => roads?.length) || [];
@@ -600,10 +607,15 @@
       }
       if (nearest) {
         const meters = Math.round(distance / 5) * 5;
-        const hint = `Nearest: ${labels[nearest.id]} · ${meters} m`;
+        const mall = cityMap?.skyMall;
+        const deck = mall?.deck;
+        const atMall = deck && position.y >= deck.y &&
+          position.x >= deck.minX && position.x <= deck.maxX && position.z >= deck.minZ && position.z <= deck.maxZ;
+        const hint = atMall ? `${mall.destination.title} · Sky Mall` : `Nearest: ${labels[nearest.id]} · ${meters} m`;
         if (minimapHint.textContent !== hint) minimapHint.textContent = hint;
       }
-      nearbyStop = nearest && distance < (nearest.interactionRadius ?? 23) ? nearest : null;
+      const sameLevel = !Number.isFinite(position.y) || Math.abs(position.y - (nearest?.y ?? 0)) < 4.5;
+      nearbyStop = nearest && sameLevel && distance < (nearest.interactionRadius ?? 23) ? nearest : null;
       if (!nearbyStop || activeView) { nearby.hidden = true; return; }
       const slow = Math.abs(speed) < 3;
       nearby.disabled = !slow;

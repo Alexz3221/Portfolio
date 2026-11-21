@@ -83,10 +83,12 @@
 .city-minimap-canvas svg :is(line, path) { fill: none; stroke: #7eb2bb; stroke-width: 1.4; opacity: .8; vector-effect: non-scaling-stroke; }
 .city-minimap-canvas svg .city-map-arterial { stroke: #c2dce1; stroke-width: 2; }
 .city-minimap-canvas svg .city-map-highway { stroke: #f276d2; stroke-width: 2.8; opacity: .9; }
+.city-minimap-canvas svg .city-map-sky-mall { stroke: #ffc985; stroke-width: 2.8; opacity: .95; }
 .city-minimap-cone { position: absolute; z-index: 0; left: 50%; top: 50%; width: 140px; height: 140px; clip-path: polygon(50% 100%, 5% 0, 95% 0); background: linear-gradient(#5eecf34a, #5eecf308); transform: translate(-50%, -100%); pointer-events: none; }
 .city-minimap-centers { position: absolute; z-index: 2; inset: 0; }
 .city-minimap-center { position: absolute; width: 5px; height: 5px; transform: translate(-50%, -50%) rotate(45deg); border: 1px solid #ffb8e6; background: #f067cc; box-shadow: 0 0 5px #f067cc; }
 .city-minimap-center[data-kind="street"] { width: 4px; height: 4px; border-color: #9ee9eb; background: #2ab7c5; box-shadow: 0 0 4px #57d9e5; }
+.city-minimap-center[data-kind="sky-mall"] { border-color: #ffe2ae; background: #ffc985; box-shadow: 0 0 6px #ffc985; }
 .city-minimap-stop { position: absolute; width: 7px; height: 7px; transform: translate(-50%, -50%); border: 1px solid #061421; border-radius: 50%; background: var(--stop-color); box-shadow: 0 0 6px var(--stop-color); }
 .city-minimap-player { position: absolute; z-index: 3; left: 50%; top: 50%; width: 12px; height: 12px; transform: translate(-50%, -50%); border: 2px solid white; border-radius: 50%; background: #5eecf3; box-shadow: 0 0 0 3px #5eecf351, 0 0 9px #5eecf3; }
 .city-minimap-player::before { content: ''; position: absolute; left: 50%; top: -9px; transform: translateX(-50%); border-left: 4px solid transparent; border-right: 4px solid transparent; border-bottom: 7px solid white; }
@@ -193,6 +195,7 @@
 .city-map svg .city-map-arterial { stroke: #86bfc8; stroke-width: 1.2; opacity: .8; vector-effect: non-scaling-stroke; }
 .city-map svg .city-map-highway-glow { stroke: #ee62cb; stroke-width: 5; opacity: .22; vector-effect: non-scaling-stroke; }
 .city-map svg .city-map-highway { stroke: #ee62cb; stroke-width: 2; opacity: .9; vector-effect: non-scaling-stroke; }
+.city-map svg .city-map-sky-mall { stroke: #ffc985; stroke-width: 2.5; opacity: .95; vector-effect: non-scaling-stroke; }
 .city-map-controls { position: absolute; z-index: 5; top: 12px; right: 12px; display: flex; gap: 5px; align-items: center; padding: 5px; border: 1px solid #537887; border-radius: 6px; background: #0a1825eb; cursor: default; }
 .city-map-controls button { min-width: 36px; min-height: 36px; padding: 2px 7px; border: 1px solid #5c9eaa; border-radius: 4px; background: #183646; color: #edffff; font: 800 17px ui-monospace, Consolas, monospace; cursor: pointer; }
 .city-map-controls button:hover:not(:disabled) { border-color: #86edee; background: #27586a; }
@@ -209,6 +212,8 @@
 .city-map-center:hover::before { background: #d44baa; box-shadow: 0 0 0 4px #0d172bc9, 0 0 18px #f067cc; }
 .city-map-center[data-kind="street"]::before { width: 10px; height: 10px; border-color: #9ee9eb; background: #167481; box-shadow: 0 0 0 3px #0d172bc9, 0 0 10px #57d9e5; }
 .city-map-center[data-kind="street"]:hover::before { background: #1ea3b1; box-shadow: 0 0 0 4px #0d172bc9, 0 0 15px #57d9e5; }
+.city-map-center[data-kind="sky-mall"]::before { border-color: #ffe2ae; background: #86582b; box-shadow: 0 0 0 3px #0d172bc9, 0 0 12px #ffc985; }
+.city-map-center[data-kind="sky-mall"]:hover::before { background: #bd8748; box-shadow: 0 0 0 4px #0d172bc9, 0 0 16px #ffc985; }
 .city-map-stop {
   position: absolute;
   transform: translate(-50%, -50%);

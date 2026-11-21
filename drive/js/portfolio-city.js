@@ -1,10 +1,12 @@
 (function(root, factory) {
   if (typeof module === 'object' && module.exports) {
-    module.exports = factory(require('./portfolio-exchange'),require('./portfolio-underwriting'),require('./portfolio-sublight'));
+    module.exports = factory(require('./portfolio-exchange'),require('./portfolio-underwriting'),require('./portfolio-sublight'),
+      require('./portfolio-sky-mall'));
   } else {
-    root.DrivePortfolioCity = factory(root.DrivePortfolioExchange,root.DrivePortfolioUnderwriting,root.DrivePortfolioSublight);
+    root.DrivePortfolioCity = factory(root.DrivePortfolioExchange,root.DrivePortfolioUnderwriting,root.DrivePortfolioSublight,
+      root.DrivePortfolioSkyMall);
   }
-})(typeof globalThis !== 'undefined' ? globalThis : this, function(exchange,underwriting,sublight) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function(exchange,underwriting,sublight,mall) {
   'use strict';
 
   const driveBase = typeof document !== 'undefined' && document.currentScript?.src
@@ -61,9 +63,44 @@
     levels:[[-104,.06],[-98,.44],[-91,1.45],[-76,4.9],[-60,8.6],[-49,10.85],[-43,11.5],
       [-16,11.5],[16,11.5],[51,11.5],[58,10.8],[71,8.2],[89,4.1],[101,1.35],[107,.40],[112,.06]]
   };
+  const mallDeck = mall.deck;
+  const splitX=16.4;
+  const branchWidth=9.2;
+  const branchStations = [
+    [skyway.west.z+skyway.width/2,splitX,11.5],[-20,splitX,11.65],[-16,17.15,12.41],[-10,18.3,14.2],
+    [-3,18.5,16.5],[4.5,17.9,18.98],[12,16.7,21.46],[20,15,24.07],
+    [24,14.3,25.29],[27,14,25.84],[29,14,mallDeck.y],[mallDeck.minZ,14,mallDeck.y]
+  ];
+  const branchRoutes = [-1,1].map(side=>{
+    const stations=branchStations.map(([z,x,y])=>({x:side*x,y,z}));
+    const normals=stations.slice(1).map((to,index)=>{
+      const from=stations[index], dx=to.x-from.x, dz=to.z-from.z;
+      const length=Math.hypot(dx,dz);
+      return [dz/length,-dx/length];
+    });
+    const miters=stations.map((_,index)=>{
+      const a=normals[Math.max(index-1,0)], b=normals[Math.min(index,normals.length-1)];
+      const scale=1+a[0]*b[0]+a[1]*b[1];
+      return [(a[0]+b[0])/scale,(a[1]+b[1])/scale];
+    });
+    return stations.slice(1).map((to,index)=>{
+      const from=stations[index];
+      return {...road(from.x,from.z,to.x,to.z,branchWidth),id:side<0 ? 'mall-west' : 'mall-east',
+        x:(from.x+to.x)/2,z:(from.z+to.z)/2,topStart:from.y,topEnd:to.y,
+        startMiter:miters[index],endMiter:miters[index+1],mode:'SKY MALL'};
+    });
+  });
+  const branchSegments = branchRoutes.flat();
+  const mapBranches = branchRoutes.flatMap(segments=>{
+    const {x1,z1}=segments[0];
+    return [{...road(x1,skyway.west.z,x1,z1,branchWidth),mode:'SKY MALL'},...segments];
+  });
+  const mallLoop = mall.drivePath.slice(1).map(([x,z],i)=>({
+    ...road(...mall.drivePath[i],x,z,branchWidth),topStart:mallDeck.y,topEnd:mallDeck.y,mode:'SKY MALL'
+  }));
   const skywayRoad = road(skyway.levels[0][0],skyway.west.z,skyway.levels.at(-1)[0],skyway.east.z,skyway.width);
   skyway.entrances = [skyway.west,skyway.east];
-  skyway.overviewRoads = [{...skywayRoad,mode:'ELEVATED'}];
+  skyway.overviewRoads = [{...skywayRoad,mode:'ELEVATED'},...mapBranches,...mallLoop];
   const playProps = [
     {x:80,z:-49}, {x:86,z:-49}, {x:92,z:-49}, {x:83,z:-44},
     {x:89,z:-44}, {x:81,z:-63}, {x:88,z:-63}, {x:93,z:-65}
@@ -318,6 +355,10 @@
   block(-18.7,48,3.35,7,15,4,0,true);
   block(18.7,48,3.35,7,15,4,0,true);
   block(0,51,36,6,13.5,4,8.5,true);
+  collisionBlock((mallDeck.minX+mallDeck.maxX)/2,(mallDeck.minZ+mallDeck.maxZ)/2,
+    mallDeck.maxX-mallDeck.minX,mallDeck.maxZ-mallDeck.minZ,1.15,4,mallDeck.y-1.15);
+  for (const {x,z,width,depth,baseY,height} of mall.colliders)
+    collisionBlock(x,z,width,depth,height,4,baseY);
 
   const assetPlacements = [
     ...[-66,-37,9,32].flatMap(z => [-1,1].map(side => ({id:'streetlight',x:side*(z < -42 ? 9 : 23),z,y:.06,heading:side*Math.PI/2,height:6.7}))),
@@ -373,11 +414,35 @@
     return {x1,x2,z1:z,z2:z,x:(x1+x2)/2,z,topStart,topEnd,width:skyway.width,length,pitch,yaw:east,
       slopeLength:Math.hypot(length,topEnd-topStart),centerY:(topStart+topEnd)/2-.25/Math.cos(pitch)};
   });
-  const highwaySegments = [...testRamp,...skywaySegments];
-  const guardrails = skywaySegments.filter(segment=>Math.min(segment.topStart,segment.topEnd)>=.40).flatMap(segment =>
-    [-1,1].map(side=>({x:segment.x,z:segment.z+side*(segment.width/2-.12),
-      y:(segment.topStart+segment.topEnd)/2+.44/Math.cos(segment.pitch),width:.24,height:.92,
-      length:segment.slopeLength+.085,pitch:segment.pitch,yaw:segment.yaw})));
+  const highwaySegments = [...testRamp,...skywaySegments,...branchSegments];
+  const junctions=[-splitX,splitX].map(x=>[x-branchWidth/2,x+branchWidth/2]);
+  function guardrail(from,to,tint,inset) {
+    const dx=to[0]-from[0],dy=to[1]-from[1],dz=to[2]-from[2];
+    return {x:(from[0]+to[0])/2,y:(from[1]+to[1])/2,z:(from[2]+to[2])/2,
+      width:.24,height:.92,length:Math.hypot(dx,dy,dz)+.05,
+      pitch:-Math.atan2(dy,Math.hypot(dx,dz)),yaw:Math.atan2(dx,dz),tint,inset};
+  }
+  const guardrails = skywaySegments.filter(s=>Math.min(s.topStart,s.topEnd)>=.40).flatMap(segment=>
+    [-1,1].flatMap(side=>{
+      let spans=[[segment.x1,segment.x2]];
+      if(side>0) for(const [openingStart,openingEnd] of junctions) {
+        spans=spans.flatMap(([left,right])=>[
+          [left,Math.min(right,openingStart)],[Math.max(left,openingEnd),right]
+        ].filter(([start,end])=>end-start>.01));
+      }
+      const point=x=>[x,segment.topStart+(segment.topEnd-segment.topStart)*(x-segment.x1)/segment.length+
+        .44/Math.cos(segment.pitch),segment.z+side*(segment.width/2-.12)];
+      return spans.map(([start,end])=>guardrail(point(start),point(end),side<0 ? 0x9ef5eb : 0xffba82,side*.12));
+    }));
+  function branchEdge(segment,end,offset,drop=0) {
+    const [nx,nz]=end ? segment.endMiter : segment.startMiter;
+    return end ? [segment.x2+nx*offset,segment.topEnd-drop,segment.z2+nz*offset] :
+      [segment.x1+nx*offset,segment.topStart-drop,segment.z1+nz*offset];
+  }
+  for(const segment of branchSegments) for(const side of [-1,1]) {
+    const offset=side*(branchWidth/2-.12);
+    guardrails.push(guardrail(branchEdge(segment,false,offset,-.44),branchEdge(segment,true,offset,-.44),0xffbe6d,-side*.12));
+  }
   const supports = [[-80,-30.8,3.25],[-50,-31.8,10.25],[-14,-28,11.12],[14,-28,11.12],
     [56,-27.5,10.6],[75,-27.5,6.34],[92,-27.5,3.0]].map(([x,z,height]) =>
     ({x,z,y:height/2,width:1.58,depth:1.72,height}));
@@ -394,10 +459,10 @@
     if (distance<.52) return 1;
     const pad=.15;
     let nearest=1;
-    function clip(minX,maxX,minY,maxY,minZ,maxZ,slope=0) {
+    function clip(minX,maxX,minY,maxY,minZ,maxZ,slope=0,originX=focus.x,rayX=dx,originZ=focus.z,rayZ=dz) {
       let entry=0,exit=nearest;
-      const relativeY=focus.y-slope*focus.x, relativeDy=dy-slope*dx;
-      for (const [origin,delta,low,high] of [[focus.x,dx,minX,maxX],[relativeY,relativeDy,minY,maxY],[focus.z,dz,minZ,maxZ]]) {
+      const relativeY=focus.y-slope*originX, relativeDy=dy-slope*rayX;
+      for (const [origin,delta,low,high] of [[originX,rayX,minX,maxX],[relativeY,relativeDy,minY,maxY],[originZ,rayZ,minZ,maxZ]]) {
         if (Math.abs(delta)<1e-6) {
           if (origin<low || origin>high) return;
           continue;
@@ -421,6 +486,17 @@
       const level=topStart-slope*x1;
       const trim=Math.min(topStart,topEnd)>3.5 ? 1.16 : .51;
       clip(x1-pad,x2+pad,level-trim-pad,level+pad,z-width/2-pad,z+width/2+pad,slope);
+    }
+    for (const s of branchSegments) {
+      if (Math.max(focus.x,eye.x)<Math.min(s.x1,s.x2)-5 || Math.min(focus.x,eye.x)>Math.max(s.x1,s.x2)+5 ||
+          Math.max(focus.z,eye.z)<s.z1-1 || Math.min(focus.z,eye.z)>s.z2+1) continue;
+      const tx=(s.x2-s.x1)/s.length,tz=(s.z2-s.z1)/s.length;
+      const fx=focus.x-s.x1,fz=focus.z-s.z1;
+      const slope=(s.topEnd-s.topStart)/s.length;
+      const projection=miter=>(miter[0]*tx+miter[1]*tz)*s.width/2;
+      const start=Math.abs(projection(s.startMiter)),end=Math.abs(projection(s.endMiter));
+      clip(-start-pad,s.length+end+pad,s.topStart-1.15-pad,s.topStart+pad,
+        -s.width/2-pad,s.width/2+pad,slope,fx*tx+fz*tz,dx*tx+dz*tz,fx*tz-fz*tx,dx*tz-dz*tx);
     }
     return nearest===1 ? 1 : Math.max(.04,nearest-.45/distance);
   }
@@ -1232,11 +1308,52 @@
       for (let u=2.4;u<segment.length-1;u+=6.0) instance('portfolio-skyway-markings',materials.paint,
         segment.x1+u,topStart+(topEnd-topStart)*u/segment.length+.021,z,.13,.014,2.25,yaw,null,pitch);
     }
+    const deckPositions=[],deckUvs=[],undersidePositions=[];
+    for (const route of branchRoutes) for (const [index,segment] of route.entries()) {
+      const {width,topStart,topEnd,x1,x2,z1,z2,length}=segment;
+      const points=[
+        branchEdge(segment,false,-width/2),branchEdge(segment,false,width/2),
+        branchEdge(segment,true,width/2),branchEdge(segment,true,-width/2)
+      ];
+      for(const corner of [0,3,1,1,3,2]) {
+        const [x,y,z]=points[corner];
+        deckPositions.push(x,y,z);
+        deckUvs.push(x/8,z/8);
+      }
+      for(const corner of [0,1,3,1,2,3]) {
+        const [x,y,z]=points[corner];
+        undersidePositions.push(x,y-1.05,z);
+      }
+      for (const side of [-1,1]) {
+        const offset=side*(width/2-.05);
+        beam('portfolio-sky-mall-fascia',materials.steel,
+          branchEdge(segment,false,offset,.47),branchEdge(segment,true,offset,.47),.13,.95);
+        beam('portfolio-sky-mall-fascia-light',materials.light,
+          branchEdge(segment,false,side*(width/2+.04),.59),branchEdge(segment,true,side*(width/2+.04),.59),.042,.061,0xffb468);
+        if (index%2===1) beam('portfolio-sky-mall-cross-braces',materials.metal,
+          branchEdge(segment,false,offset,.96),branchEdge(segment,true,-offset,1.03),.19,.24);
+      }
+      const yaw=Math.atan2(x2-x1,z2-z1),pitch=-Math.atan2(topEnd-topStart,length);
+      instance('portfolio-skyway-markings',materials.paint,segment.x,(topStart+topEnd)/2+.022,segment.z,
+        .14,.018,Math.min(2.15,length*.67),yaw,null,pitch);
+    }
+    for(const [name,positions,material] of [
+      ['portfolio-sky-mall-approach-decks',deckPositions,skywayAsphalt],
+      ['portfolio-sky-mall-approach-underside',undersidePositions,materials.underside]
+    ]) {
+      const geometry=new THREE.BufferGeometry();
+      geometry.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));
+      if (positions===deckPositions) geometry.setAttribute('uv',new THREE.Float32BufferAttribute(deckUvs,2));
+      geometry.computeVertexNormals();
+      const mesh=new THREE.Mesh(geometry,material);
+      mesh.name=name;
+      world.add(mesh);
+    }
     for (const rail of guardrails) {
-      const {x,y,z,width,height,length,yaw,pitch}=rail;
+      const {x,y,z,width,height,length,yaw,pitch,tint,inset}=rail;
       instance('portfolio-skyway-rails',materials.steel,x,y,z,width,height,length,yaw,null,pitch);
-      const side=Math.sign(z-skyway.west.z);
-      instance('portfolio-skyway-edge-lights',materials.light,x,y-.30,z-side*.12,.045,.053,length,yaw,side<0 ? 0x9ef5eb : 0xffba82,pitch);
+      instance('portfolio-skyway-edge-lights',materials.light,x+Math.cos(yaw)*inset,y-.30,z-Math.sin(yaw)*inset,
+        .045,.053,length,yaw,tint,pitch);
       instance('portfolio-skyway-rail-cap',materials.metal,x,y+.41,z,width+.05,.11,length,yaw,null,pitch);
     }
     for (const support of supports) {
@@ -1247,6 +1364,13 @@
       if (height>6) instance('portfolio-skyway-pier-lights',materials.light,x,1.58,z-.872,.128,2.4,.053,0,0xf98865);
     }
     const skywayZ=skyway.west.z;
+    for (const side of [-1,1]) {
+      const x=side*splitX;
+      sign(x,16.35,-18.55,5.3,1.13,side*east,'AERIE ARCADE','SKY MALL',0xffcc86,{bracket:true});
+      for (const offset of [-.43,.43]) beam('portfolio-sky-mall-turn-marks',materials.light,
+        [x+offset,11.533,-25.05],[x,11.533,-24.42],.14,.015,0xffc37d);
+      instance('portfolio-sky-mall-turn-marks',materials.light,x,11.533,-25.23,.135,.015,1.38,0,0xffc37d);
+    }
     sign(0,12.0,skywayZ-4.91,9.4,1.27,north,'SKYWAY','UPPER LEVEL',0xa1eadf,{bracket:true});
     sign(-100,4.55,skywayZ-7.0,5.6,1.72,west,'SKYWAY WEST','SERVICE DISTRICT',0xffbf81,{poleSpan:3.4});
     sign(104,4.55,skywayZ+7.0,5.6,1.72,east,'SKYWAY EAST','NIGHT MARKET',0x88f1e8,{poleSpan:3.4});
@@ -1438,6 +1562,7 @@
     return {update,dispose};
   }
 
-  return {edge, roadHalfWidth, spawn, routeSamples, stops, buildings, arrivalFrontages, entryRibs, networkRoads, highwaySegments, guardrails, supports, skyway, constrainCamera,
+  const skyMall = {deck:mallDeck,loop:mallLoop,branches:branchRoutes,destination:mall.destination};
+  return {edge, roadHalfWidth, spawn, routeSamples, stops, buildings, arrivalFrontages, entryRibs, networkRoads, highwaySegments, guardrails, supports, skyway, skyMall, constrainCamera,
     playProps, holograms, adPlacements, assetPlacements, distanceToRoad, build};
 });

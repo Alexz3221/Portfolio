@@ -5,6 +5,7 @@ const audit = require('../js/portfolio-scene-audit');
 const city = require('../js/portfolio-city');
 const holograms = require('../js/portfolio-holograms');
 const storefronts = require('../js/portfolio-storefronts');
+const skyMall = require('../js/portfolio-sky-mall');
 
 const geometry = new THREE.BoxGeometry(1,1,1);
 const material = new THREE.MeshStandardMaterial();
@@ -85,12 +86,18 @@ test('Portfolio City billboard faces and central drive corridors are clear', () 
   const world = new THREE.Group();
   city.build(THREE,world);
   storefronts.attach(THREE,world);
+  const mall = skyMall.attach(THREE,world);
+  const mallSigns = [];
+  world.getObjectByName('portfolio-sky-mall').traverse(object => {
+    if (object.userData.portfolioAdFace) mallSigns.push(object);
+  });
   holograms.create(THREE,world,[],{adverts:city.adPlacements});
   const report = audit.run(THREE,world,city);
+  mall.dispose();
   const roadSigns = world.children.filter(object=>object.name==='portfolio-sign');
-  assert.ok(roadSigns.length > 0);
-  assert.equal(report.checked.signs,city.adPlacements.length+roadSigns.length);
-  assert.equal(report.checked.corridors,city.networkRoads.length+city.highwaySegments.length);
+  assert.ok(roadSigns.length > 0 && mallSigns.length > 0);
+  assert.equal(report.checked.signs,city.adPlacements.length+roadSigns.length+mallSigns.length);
+  assert.equal(report.checked.corridors,city.networkRoads.length+city.highwaySegments.length+city.skyMall.loop.length);
   assert.deepEqual(report.signs,[]);
   assert.deepEqual(report.corridors,[]);
 });

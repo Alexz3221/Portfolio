@@ -848,7 +848,21 @@
     const initialZ=importedCourse?.spawn?.z??(start?start.z-Math.cos(startDirection)*spawnBack:citySpawn?.z??-28);
     const initialHeading=importedCourse?.spawn?.heading??(start?startDirection:citySpawn?Math.atan2(citySpawn.tx,citySpawn.tz):0);
     let courseTransfer=null,transferCooldown=0,courseGuide=null,guideCooldown=0;
-    function reset(x=initialX,z=initialZ,heading=initialHeading){refreshCityColliders(x,z,true);body.position.set(x,roadHeight(x,z)+spec.radius+.6-centerOfMassDrop,z);body.quaternion.setFromEuler(0,heading,0);body.velocity.setZero();body.angularVelocity.setZero();body.force.setZero();body.torque.setZero();body.wakeUp();accumulator=0;steer=0;grounded=0;airTime=0;courseTransfer=null;transferCooldown=0;courseGuide=null;guideCooldown=0;car.wheelInfos.forEach(w=>{w.rotation=0;w.deltaRotation=0;w.suspensionLength=w.suspensionRestLength;w.steering=0;});syncRenderState();}
+    function reset(x=initialX,z=initialZ,heading=initialHeading,surfaceY) {
+      refreshCityColliders(x,z,true);
+      const roadY=Number.isFinite(surfaceY) ? surfaceY : roadHeight(x,z);
+      body.position.set(x,roadY+spec.radius+.6-centerOfMassDrop,z);
+      body.quaternion.setFromEuler(0,heading,0);
+      body.velocity.setZero();
+      body.angularVelocity.setZero();
+      body.force.setZero();
+      body.torque.setZero();
+      body.wakeUp();
+      accumulator=0;steer=0;grounded=0;airTime=0;
+      courseTransfer=null;transferCooldown=0;courseGuide=null;guideCooldown=0;
+      car.wheelInfos.forEach(w=>{w.rotation=0;w.deltaRotation=0;w.suspensionLength=w.suspensionRestLength;w.steering=0;});
+      syncRenderState();
+    }
     function step(dt,input={}) {
       accumulator+=Math.min(Math.max(dt,0),.1);
       while(accumulator>=1/120){

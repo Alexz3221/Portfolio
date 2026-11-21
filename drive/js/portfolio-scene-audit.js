@@ -74,6 +74,9 @@
         x2:segment.x2 ?? x,z2:segment.z2 ?? z+length/2,width,topStart,topEnd
       });
     }
+    for (const [index,segment] of (city.skyMall?.loop || []).entries()) {
+      lanes.push({...segment,id:'sky-mall-court-'+(index+1)});
+    }
     const up = new THREE.Vector3(0,1,0);
     return lanes.map(({id,x1,z1,x2,z2,topStart,topEnd,width})=>{
       const tangent = new THREE.Vector3(x2-x1,topEnd-topStart,z2-z1);

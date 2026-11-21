@@ -27,7 +27,7 @@
   let city = portfolioCity, skylinesCity = null, skylinesLoad = null;
   let mapRequest = 0;
   const maps = {
-    city: {name: 'Portfolio City', caption: 'Projects ahead · Skyway in City Guide', ground: 0x121620, fog: 0x191a2b, skyLow: 0x161b2b, skyHigh: 0x030611, seed: 41732},
+    city: {name: 'Portfolio City', caption: 'Projects ahead · Sky Mall via the Skyway', ground: 0x121620, fog: 0x191a2b, skyLow: 0x161b2b, skyHigh: 0x030611, seed: 41732},
     skylines: {name: 'Cities: Skylines', caption: 'Free drive. Open the map to jump to a district.', ground: 0x202a38, fog: 0x0c1728, skyLow: 0x263447, skyHigh: 0x050b18, seed: 65941},
     mountain: {name: 'Cliffside mountain', caption: 'A narrow road along the cliff.', ground: 0x817969, fog: 0x9caeae, skyLow: 0xcbd8d2, skyHigh: 0x416b92, mountain: 0x83908b, seed: 93217,
       roadHalfWidth: 3.5, shoulderWidth: .5, points: DrivePhysics.mountainPoints},
@@ -65,6 +65,7 @@
   let portfolioCorporateAds = null;
   let arrivalMarket = null, arrivalSidewalks = null, streetSidewalks = null;
   let portfolioPublicSpaces = null, portfolioAirship = null;
+  let portfolioSkyMall = null;
   let importedAssetScene = null;
   let worldGeneration = 0;
   let portfolio = null;
@@ -223,6 +224,8 @@
     arrivalSidewalks?.dispose();
     streetSidewalks?.dispose();
     portfolioPublicSpaces?.dispose();
+    portfolioSkyMall?.dispose();
+    portfolioSkyMall = null;
     arrivalMarket = arrivalSidewalks = streetSidewalks = null;
     portfolioPublicSpaces = portfolioAirship = null;
     portfolioWet = portfolioHolograms = portfolioAssets = portfolioSkyAds = null;
@@ -618,6 +621,7 @@
       portfolioPublicSpaces = globalThis.DrivePortfolioPublicSpaces?.attach(THREE, world, {
         Cannon:globalThis.CANNON, physics
       });
+      portfolioSkyMall = globalThis.DrivePortfolioSkyMall?.attach(THREE, world);
       portfolioAirship = globalThis.DrivePortfolioAirship?.attach(THREE, world, {reducedMotion});
       portfolioSkyAds = globalThis.DrivePortfolioSkyAds?.attach(THREE, world, {reducedMotion});
       portfolioCorporateAds = globalThis.DrivePortfolioCorporateAds?.attach(THREE, world, {reducedMotion});
@@ -1150,7 +1154,7 @@
       if (worldGeneration !== generation) return;
       resetOrbit();
       const heading = Number.isFinite(stop.heading) ? stop.heading : 0;
-      physics.reset(stop.x, stop.z, heading);
+      physics.reset(stop.x, stop.z, heading, isPortfolioCity() ? stop.y : undefined);
       motion.speed = 0;
       motion.heading = heading;
       updateVehicle(0);
@@ -1631,7 +1635,7 @@
   animate();
   if (window.location?.search && new URLSearchParams(window.location.search).get('audit') === '1') {
     window.auditPortfolioCity = async function () {
-      await import('./portfolio-scene-audit.js?v=1');
+      await import('./portfolio-scene-audit.js?v=2');
       const generation = worldGeneration;
       await Promise.all([portfolioHolograms?.ready, portfolioCorporateAds?.ready, portfolioAirship?.ready]);
       if (!isPortfolioCity() || generation !== worldGeneration) {

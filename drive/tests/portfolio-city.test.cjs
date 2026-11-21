@@ -147,6 +147,67 @@ test('the skyway crosses both tower portals in both directions above the open lo
   assert.ok(simulation.body.position.z>=-21, 'the lower route continues through the crossing');
 });
 
+test('either Skyway entrance can reach the mall and return through the other branch', () => {
+  const {branches,loop,deck}=city.skyMall;
+  const entrances=[city.skyway.west,city.skyway.east];
+  const endpoints=segments=>[[segments[0].x1,segments[0].z1],...segments.map(s=>[s.x2,s.z2])];
+  const arc=(x,z,side)=>{
+    const radius=6.5;
+    return Array.from({length:9},(_,index)=>{
+      const angle=index*Math.PI/16;
+      return [x+side*radius*(1-Math.sin(angle)),z+radius*(1-Math.cos(angle))];
+    });
+  };
+  const clamp=THREE.MathUtils.clamp;
+  const forward=new C.Vec3(0,0,1);
+  for (const index of [0,1]) {
+    const other=1-index, side=index===0 ? -1 : 1;
+    const start=entrances[index], finish=entrances[other];
+    const ascend=endpoints(branches[index]),descend=endpoints(branches[other]);
+    const enter=arc(ascend[0][0],start.z,side),leave=arc(descend[0][0],finish.z,-side);
+    const across= index===0 ? endpoints(loop) : endpoints(loop).reverse();
+    const points=[[start.x,start.z],...enter,...ascend.filter(point=>point[1]>enter.at(-1)[1]),
+      ...across.slice(1),...descend.slice(0,-1).filter(point=>point[1]>leave.at(-1)[1]).reverse(),
+      ...leave.reverse(),[finish.x,finish.z]];
+    const route=points.slice(1).map(([x,z],i)=>{
+      const [fromX,fromZ]=points[i],dx=x-fromX,dz=z-fromZ;
+      return {fromX,fromZ,dx,dz,length:Math.hypot(dx,dz)};
+    });
+    const sim=physics.create({map:'city',city,distanceToRoad:city.distanceToRoad,roadHalfWidth:city.roadHalfWidth});
+    sim.reset(start.x,start.z,start.heading);
+    let current=0,reachedMall=false,reachedExit=false;
+    // Follow the connected route with ordinary steering, throttle and brake.
+    for(let frame=0;frame<8200;frame++) {
+      const {position:{x,y,z},velocity,quaternion}=sim.body;
+      if (current===route.length-1 && Math.hypot(x-finish.x,z-finish.z)<3 && y<1.5) {
+        reachedExit=true;
+        break;
+      }
+      const distanceAlong=s=>((x-s.fromX)*s.dx+(z-s.fromZ)*s.dz)/s.length;
+      while (current<route.length-1 && distanceAlong(route[current])>route[current].length-.48) current++;
+      const speed=Math.hypot(velocity.x,velocity.z);
+      let along=clamp(distanceAlong(route[current]),0,route[current].length)+1.7+speed*.27;
+      let next=current;
+      while (next<route.length-1 && along>=route[next].length) along-=route[next++].length;
+      const aim=route[next],t=Math.min(1,along/aim.length);
+      const facing=quaternion.vmult(forward);
+      const angle=Math.atan2(aim.fromX+t*aim.dx-x,aim.fromZ+t*aim.dz-z)-Math.atan2(facing.x,facing.z);
+      const error=Math.atan2(Math.sin(angle),Math.cos(angle));
+      const targetSpeed=current===0||current===route.length-1 ? 7.8 : 5.1;
+      const state=sim.step(1/120,{
+        throttle:clamp((targetSpeed-speed)*.35+.08,.04,.70),
+        brake:speed>targetSpeed+.55 ? Math.min(.65,(speed-targetSpeed)*.3) : 0,
+        steer:clamp(error*2.25,-1,1)
+      });
+      if (frame>20) assert.ok(state.grounded>=2,`${start.id} maintains wheel contact across the joins`);
+      if (Math.abs(x)<4 && z>44 && y>deck.y && state.grounded===4) reachedMall=true;
+    }
+    assert.ok(reachedMall,`${start.id} climbs and crosses the mall`);
+    assert.ok(reachedExit,`${start.id} can descend to the other ground-level exit`);
+    sim.dispose();
+  }
+});
+
 test('the chase camera clears the skyway slab and retains an open view down the street', () => {
   const focus = {x:-72,y:1.5,z:-21.5};
   assert.ok(city.constrainCamera(focus,{x:-72,y:4.9,z:-32}) < .95);

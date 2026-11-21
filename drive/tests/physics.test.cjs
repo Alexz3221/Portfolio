@@ -1,5 +1,21 @@
 const test=require('node:test');const assert=require('node:assert/strict');const P=require('../js/physics');
 function run(p,n,input={}){let s;for(let i=0;i<n;i++)s=p.step(1/60,input);return s;}
+test('reset can place the car on the sky mall or on the street below', () => {
+  const city = require('../js/portfolio-city');
+  const {x,y,z,heading} = city.skyMall.destination;
+  const sim = P.create({map:'city',city,distanceToRoad:city.distanceToRoad,roadHalfWidth:city.roadHalfWidth});
+  try {
+    sim.reset(x,z,heading,y);
+    assert.equal(run(sim,90).grounded,4);
+    const above = sim.body.position.y;
+    assert.ok(above > y && above < y+1.5);
+    sim.reset(x,z,heading);
+    assert.equal(run(sim,90).grounded,4);
+    assert.ok(Math.abs(above - sim.body.position.y - y)<.1);
+  } finally {
+    sim.dispose();
+  }
+});
 test('four springs settle under gravity and reset removes all momentum',()=>{const p=P.create();const s=run(p,180);assert.equal(s.grounded,4);assert.ok(p.body.position.y>p.spec.radius+.42&&p.body.position.y<p.spec.radius+.56);assert.ok(Math.abs(p.body.velocity.y)<.01);p.body.angularVelocity.set(3,4,5);p.reset();assert.equal(p.body.velocity.length(),0);assert.equal(p.body.angularVelocity.length(),0);});
 test('acceleration takes seconds, coasting preserves momentum, brakes stop and reverse works',()=>{const p=P.create();p.reset(-100,-100);run(p,120);run(p,180,{throttle:1});const speed=p.body.velocity.length();assert.ok(speed>17&&speed<22);run(p,60);const coast=p.body.velocity.length();assert.ok(coast>speed*.85&&coast<speed);run(p,180,{brake:true});assert.ok(p.body.velocity.length()<.2);run(p,120,{throttle:-1});assert.ok(p.body.velocity.z < -3);});
 test('manual braking stops every car promptly from highway speed',()=>{
