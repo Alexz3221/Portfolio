@@ -30,8 +30,8 @@ async function initialize(){
     if(info.needsSetup){location.href="../";return}
     $("#gate").hidden=true;$("#resetPage").hidden=false;return
   }if(info.authenticated){showApp();return}
-    $("#gateTitle").innerHTML=info.needsSetup?"make this shelf<br><i>your own.</i>":"your next chapter<br><i>is waiting.</i>";
-    $("#gateIntro").textContent=info.needsSetup?"Set a reader password to protect your library.":"Unlock your novels, translations, and continuity notes.";
+    $("#gateTitle").textContent=info.needsSetup?"Set up the reader":"Novel reader";
+    $("#gateIntro").textContent=info.needsSetup?"Set a password for your library.":"Enter your reader password.";
     $("#gateHint").textContent=info.needsSetup?"Choose a password you'll remember. You can reset it with your secret word.":"";
     $("#gateForm").dataset.mode=info.needsSetup?"setup":"login";
     $("#setupSecretLabel").hidden=!info.needsSetup;

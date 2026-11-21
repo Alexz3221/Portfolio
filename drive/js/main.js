@@ -25,8 +25,8 @@
   }).map(([type,style]) => [type,{...DrivePhysics.vehicles[type],...style,wheelRadius:DrivePhysics.vehicles[type].radius}]));
   let city = DrivePhysics.city;
   const maps = {
-    city: {name: 'City', caption: 'Alex after dark · six stops, one city to explore', ground: 0x202a38, fog: 0x0c1728, skyLow: 0x263447, skyHigh: 0x050b18, seed: 41732},
-    mountain: {name: 'Cliffside mountain', caption: 'Narrow ledge · sheer drops · winding ascent', ground: 0x817969, fog: 0x9caeae, skyLow: 0xcbd8d2, skyHigh: 0x416b92, mountain: 0x83908b, seed: 93217,
+    city: {name: 'City', caption: 'Free drive with portfolio stops.', ground: 0x202a38, fog: 0x0c1728, skyLow: 0x263447, skyHigh: 0x050b18, seed: 41732},
+    mountain: {name: 'Cliffside mountain', caption: 'A narrow road along the cliff.', ground: 0x817969, fog: 0x9caeae, skyLow: 0xcbd8d2, skyHigh: 0x416b92, mountain: 0x83908b, seed: 93217,
       roadHalfWidth: 3.5, shoulderWidth: .5, points: DrivePhysics.mountainPoints},
     racetrack: {name: 'Racetrack / stunt course', caption: 'Follow arrows · gap: 52–63 mph · balance bridge: slow', ground: 0x47634a, fog: 0x9dbac7, skyLow: 0xd3e4e7, skyHigh: 0x386e9d, mountain: 0x7f9290, seed: 59221,
       points: DrivePhysics.stuntRoute.map(p=>[p.x,p.z])}

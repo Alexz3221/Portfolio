@@ -118,7 +118,7 @@ check(aspectMatches() && markerMatches(), 'resize refreshes map and marker posit
 largeMap.style.width = '';
 window.dispatchEvent(new Event('resize'));
 document.querySelector('.city-stop-item[data-stop="projects"]').click();
-check(document.querySelector('.city-story-content h3')?.textContent === 'Things you can actually touch.', 'direct card opens story');
+check(document.querySelector('.city-story-content h3')?.textContent === 'Projects', 'direct card opens projects');
 document.querySelector('.city-drive-here').click();
 check(jumped === 'projects' && !ui.isOpen(), 'fast travel closes story');
 ui.update({x: stops[0].x, z: stops[0].z}, 0);

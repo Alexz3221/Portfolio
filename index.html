@@ -3,76 +3,67 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#080b11">
-  <meta name="description" content="Alex's projects and experiments. Explore the interactive portfolio city or browse the quick list.">
-  <title>alex / stuff</title>
-  <link rel="stylesheet" href="css/home.css?v=3">
+  <meta name="theme-color" content="#101214">
+  <meta name="description" content="Alex Zhou’s projects and writing.">
+  <title>Alex Zhou</title>
+  <link rel="stylesheet" href="css/home.css?v=4">
 </head>
 <body>
   <header class="header">
-    <a class="name" href="https://www.linkedin.com/in/alex-zhou2/" target="_blank" rel="noopener noreferrer" aria-label="Alex on LinkedIn">alex<span>.</span></a>
+    <a class="name" href="./">alex<span>.</span></a>
     <nav aria-label="Navigation">
-      <a href="drive/">the city</a>
-      <a href="#stuff">stuff</a>
-      <a href="blog/">blog</a>
-      <a href="#about">about</a>
-      <a href="https://github.com/Alexz3221" target="_blank" rel="noopener noreferrer">github ↗</a>
+      <a href="#stuff">Projects</a>
+      <a href="blog/">Blog</a>
+      <a href="https://github.com/Alexz3221" target="_blank" rel="noopener noreferrer">GitHub</a>
+      <a href="https://www.linkedin.com/in/alex-zhou2/" target="_blank" rel="noopener noreferrer">LinkedIn</a>
     </nav>
   </header>
 
   <main>
-    <section class="hello" aria-labelledby="hello-title">
-      <div><h1 id="hello-title">hi hello</h1><p class="hello-note">I turned my portfolio into a city. Take a drive, or skim the list below.</p><a class="hello-drive" href="drive/">enter the city ↗</a></div>
+    <section class="hello" id="about" aria-labelledby="hello-title">
+      <h1 id="hello-title">Alex Zhou</h1>
+      <p>I study computer science at CU Boulder. I make games and local AI tools.</p>
     </section>
 
-    <section class="stuff" id="stuff" aria-label="Projects">
-      <p class="list-label">some stuff ↓</p>
-      <a class="project" href="drive/">
-        <span class="number">01</span>
-        <span class="project-name">car go vroom</span>
-        <span class="project-type">interactive portfolio / drive</span>
-        <span class="arrow" aria-hidden="true">↗</span>
+    <section class="stuff" id="stuff" aria-labelledby="projects-title">
+      <h2 class="section-title" id="projects-title">Projects</h2>
+      <a class="featured" href="drive/">
+        <div class="featured-copy">
+          <h3>Car Go Vroom</h3>
+          <p>Explore the city or race ghosts on the stunt course.</p>
+          <span class="featured-action">Play the game <span aria-hidden="true">→</span></span>
+        </div>
+        <div class="featured-media"><img src="drive/assets/city-preview.jpg" width="920" height="550" alt=""></div>
       </a>
-      <a class="project" href="projects/local-ai/#adventure">
-        <span class="number">02</span>
-        <span class="project-name">oops, that's canon</span>
-        <span class="project-type">adventure studio</span>
-        <span class="arrow" aria-hidden="true">↗</span>
-      </a>
-      <a class="project" href="projects/local-ai/#image">
-        <span class="number">03</span>
-        <span class="project-name">computer, draw a little guy</span>
-        <span class="project-type">image studio</span>
-        <span class="arrow" aria-hidden="true">↗</span>
-      </a>
-      <a class="project" href="lab/">
-        <span class="number">04</span>
-        <span class="project-name">one neuron over</span>
-        <span class="project-type">interpretability · local</span>
-        <span class="arrow" aria-hidden="true">↗</span>
-      </a>
-      <a class="project" href="blog/">
-        <span class="number">05</span>
-        <span class="project-name">unnecessary lore</span>
-        <span class="project-type">blog</span>
-        <span class="arrow" aria-hidden="true">↗</span>
-      </a>
-      <a class="project" href="reader/">
-        <span class="number">06</span>
-        <span class="project-name">one more chapter</span>
-        <span class="project-type">password protected novel reader</span>
-        <span class="arrow" aria-hidden="true">↗</span>
-      </a>
-    </section>
-    <section class="about" id="about" aria-labelledby="about-title">
-      <p class="list-label">about ↓</p>
-      <h2 id="about-title">i make stuff to poke at.</h2>
-      <p>Mostly stories, local AI tools, and the occasional car you can drive around a browser. Lately I've been building a story engine with memory, an image playground, and a little lab for finding strange corners of language models.</p>
-      <div class="about-links"><a href="https://www.linkedin.com/in/alex-zhou2/" target="_blank" rel="noopener noreferrer">linkedin ↗</a><a href="https://github.com/Alexz3221" target="_blank" rel="noopener noreferrer">github ↗</a><a href="blog/">blog ↗</a></div>
+
+      <ul class="project-list">
+        <li><a class="project" href="projects/local-ai/#adventure">
+          <span class="project-name">Oops, That’s Canon</span>
+          <span class="project-type">Interactive stories with choices and editable scenes.</span>
+          <span class="arrow" aria-hidden="true">→</span>
+        </a></li>
+        <li><a class="project" href="projects/local-ai/#image">
+          <span class="project-name">Computer, Draw a Little Guy</span>
+          <span class="project-type">Generate images and turn references into prompts.</span>
+          <span class="arrow" aria-hidden="true">→</span>
+        </a></li>
+        <li><a class="project" href="lab/">
+          <span class="project-name">One Neuron Over</span>
+          <span class="project-type">Experiments with individual language-model neurons.</span>
+          <span class="arrow" aria-hidden="true">→</span>
+        </a></li>
+        <li><a class="project" href="reader/">
+          <span class="project-name">One More Chapter</span>
+          <span class="project-type">A private reader for translated novels.</span>
+          <span class="arrow" aria-hidden="true">→</span>
+        </a></li>
+        <li><a class="project" href="blog/">
+          <span class="project-name">Unnecessary Lore</span>
+          <span class="project-type">Blog posts and story drafts.</span>
+          <span class="arrow" aria-hidden="true">→</span>
+        </a></li>
+      </ul>
     </section>
   </main>
-
-  <footer><span>alexz3221</span><span>still making stuff.</span></footer>
 </body>
 </html>
-

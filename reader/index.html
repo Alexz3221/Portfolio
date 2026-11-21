@@ -5,11 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#101316">
   <meta name="robots" content="noindex">
-  <meta name="description" content="A private home for context-aware translated novels.">
+  <meta name="description" content="A password-protected reader for translated novels.">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https://alex-novel-reader.clinkballer.chatgpt.site http://127.0.0.1:8765; style-src 'self'; script-src 'self'; img-src 'self' data:; base-uri 'self'">
   <title>little library / alex</title>
   <link rel="stylesheet" href="reader.css?v=6">
-  <script src="reader.js?v=6" defer></script>
+  <script src="reader.js?v=7" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -20,9 +20,8 @@
   <main>
     <section id="gate" class="gate" aria-labelledby="gateTitle">
       <div class="gate-mark">✳</div>
-      <p class="eyebrow">PRIVATE SHELF / 01</p>
-      <h1 id="gateTitle">your next chapter<br><i>is waiting.</i></h1>
-      <p id="gateIntro">Unlock your novels, translations, and continuity notes.</p>
+      <h1 id="gateTitle">Novel reader</h1>
+      <p id="gateIntro">Enter your reader password.</p>
       <form id="gateForm">
         <label id="setupSecretLabel" for="setupSecret" hidden>Secret word<input id="setupSecret" type="password" autocomplete="off" placeholder="Enter secret word"></label>
         <label for="password">Reader password</label>
@@ -33,8 +32,7 @@
     </section>
     <section id="resetPage" class="gate" aria-labelledby="resetTitle" hidden>
       <div class="gate-mark">✳</div>
-      <p class="eyebrow">PRIVATE SHELF / RESET</p>
-      <h1 id="resetTitle">a fresh<br><i>start.</i></h1>
+      <h1 id="resetTitle">Reset password</h1>
       <p>Enter your secret word and choose a new reader password.</p>
       <form id="resetForm">
         <label for="secretWord">Secret word</label>

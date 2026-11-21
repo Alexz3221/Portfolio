@@ -8,69 +8,53 @@
 
   const stories = {
     about: {
-      kind: 'ABOUT / THE WORKSHOP',
-      title: 'I make things to poke at.',
-      intro: 'Stories that remember, local AI tools, a tiny lab for language models, and now a whole city you can drive through. I like building the kind of thing that makes you take one more look.',
-      body: `<p>This place is a map of my interests more than a list of credentials. Follow the neon and you will find experiments in storytelling, image making, interpretability, and the occasional car.</p>
-        <p>When I am away from this workshop, I study computer science and mathematics at CU Boulder and build software across backend systems, data, and machine learning.</p>
-        <div class="city-link-row"><a href="../" class="city-inline-link">The original home page ↗</a><a href="../blog/" class="city-inline-link">Read the blog ↗</a></div>`
+      title: 'About',
+      body: `<p>I study computer science at CU Boulder. My projects include this driving game, a local story and image app, and tools for testing language models.</p>
+        <div class="city-link-row"><a href="../" class="city-inline-link">Home</a><a href="../blog/" class="city-inline-link">Blog</a></div>`
     },
     projects: {
-      kind: 'PROJECTS / THE ARCADE',
-      title: 'Things you can actually touch.',
-      intro: 'A small collection of ideas that escaped the notes app.',
+      title: 'Projects',
       body: `<div class="city-project-grid">
-        <a class="city-project" href="./"><span>01 / DRIVE</span><strong>Car Go Vroom</strong><p>Yes, you are already inside this one.</p><b>Drive it ↗</b></a>
-        <a class="city-project" href="../projects/local-ai/#adventure"><span>02 / STORY</span><strong>Oops, That’s Canon</strong><p>A local story engine that tries to remember what happened.</p><b>Explore ↗</b></a>
-        <a class="city-project" href="../projects/local-ai/#image"><span>03 / IMAGE</span><strong>Computer, Draw a Little Guy</strong><p>An image playground for ideas that need to be seen.</p><b>Explore ↗</b></a>
-        <a class="city-project" href="../lab/"><span>04 / LANGUAGE</span><strong>One Neuron Over</strong><p>A lab for looking into strange corners of language models.</p><b>Explore ↗</b></a>
-        <article class="city-project"><span>05 / PLANNING</span><strong>Edvise</strong><p>A course planner built with React, Node, Express, Firebase, GCP, and Jenkins.</p></article>
-        <article class="city-project"><span>06 / RESEARCH</span><strong>NeurIPS Privacy Challenge</strong><p>Co-authored an attack paper for the 2024 LLM Privacy Competition; our team placed seventh globally.</p></article>
+        <a class="city-project" href="./"><strong>Car Go Vroom</strong><p>A driving game with a city to explore and a stunt course with ghost races.</p><b>Play the game</b></a>
+        <a class="city-project" href="../projects/local-ai/#adventure"><strong>Oops, That’s Canon</strong><p>Interactive stories with choices and editable scenes.</p><b>View project</b></a>
+        <a class="city-project" href="../projects/local-ai/#image"><strong>Computer, Draw a Little Guy</strong><p>Generate images and turn references into prompts.</p><b>View project</b></a>
+        <a class="city-project" href="../lab/"><strong>One Neuron Over</strong><p>Experiments with individual language-model neurons.</p><b>View project</b></a>
+        <article class="city-project"><strong>Edvise</strong><p>A course planner for students.</p></article>
+        <article class="city-project"><strong>NeurIPS Privacy Challenge</strong><p>Co-authored a paper for the 2024 LLM Privacy Competition. Our team placed seventh.</p></article>
         </div>
-        <div class="city-link-row"><a href="../blog/" class="city-inline-link">Unnecessary Lore / blog ↗</a><a href="../reader/" class="city-inline-link">One More Chapter / reader ↗</a></div>`
+        <div class="city-link-row"><a href="../blog/" class="city-inline-link">Unnecessary Lore (blog)</a><a href="../reader/" class="city-inline-link">One More Chapter (reader)</a></div>`
     },
     experience: {
-      kind: 'EXPERIENCE / THE SHIFT LOG',
-      title: 'A few places I have built things.',
-      intro: 'Different teams, same habit: I like tracing a messy system until it makes sense, then building something useful out of it.',
+      title: 'Experience',
       body: `<div class="city-timeline">
-        <article><span>NOW / VIDEO DELIVERY</span><h3>Spectrum · DevOps co-op</h3><p>Exploring compact language models and video packager workflows. Started August 2026.</p></article>
-        <article><span>2026–27 / SYSTEMS</span><h3>RTX / Raytheon · software engineering co-op</h3><p>Systems and applied software work from August 2026 through May 2027.</p></article>
-        <article><span>SUMMER 2026 / BACKEND</span><h3>Google · software engineering intern</h3><p>Worked on an event-driven backend for understanding policy impact.</p></article>
-        <article><span>SUMMER 2026 / MATERIALS</span><h3>CoorsTek · computational materials intern</h3><p>Used Databricks and Spark in a heat-treatment prediction and estimation workflow.</p></article>
-        <article><span>SUMMER 2025 / DATA</span><h3>Rocket Software · software engineering intern</h3><p>Built Python pipelines for enterprise LLM datasets.</p></article>
+        <article><span>August 2026–present</span><h3>Spectrum · DevOps co-op</h3><p>Working with small language models and video packaging workflows.</p></article>
+        <article><span>August 2026–May 2027</span><h3>RTX / Raytheon · software engineering co-op</h3><p>Systems software.</p></article>
+        <article><span>Summer 2026</span><h3>Google · software engineering intern</h3><p>Worked on an event-driven backend for evaluating policy impact.</p></article>
+        <article><span>Summer 2026</span><h3>CoorsTek · computational materials intern</h3><p>Used Databricks and Spark to predict heat-treatment outcomes.</p></article>
+        <article><span>Summer 2025</span><h3>Rocket Software · software engineering intern</h3><p>Wrote Python pipelines for LLM datasets.</p></article>
         </div>`
     },
     education: {
-      kind: 'EDUCATION / CAMPUS CORNER',
-      title: 'A little math, a lot of computing.',
-      intro: 'CU Boulder has been home base for both sides of my brain.',
+      title: 'Education',
       body: `<div class="city-school">
-        <div><span>COMPLETED MAY 2026</span><h3>B.S. Computer Science</h3><h3>B.A. Mathematics</h3><p>University of Colorado Boulder</p></div>
-        <div><span>EXPECTED MAY 2028</span><h3>M.S. Computer Science</h3><p>University of Colorado Boulder</p></div>
-        </div>
-        <p class="city-side-note">I like the space where a clean mathematical idea meets a messy real system.</p>`
+        <div><span>May 2026</span><h3>B.S. Computer Science</h3><h3>B.A. Mathematics</h3><p>University of Colorado Boulder</p></div>
+        <div><span>Expected May 2028</span><h3>M.S. Computer Science</h3><p>University of Colorado Boulder</p></div>
+        </div>`
     },
     skills: {
-      kind: 'SKILLS / THE TOOLBOX',
-      title: 'What is on the workbench.',
-      intro: 'Tools are fun when they help make an idea real.',
+      title: 'Skills',
       body: `<div class="city-tool-grid">
-        <div><span>LANGUAGES I REACH FOR</span><p>Python, TypeScript and JavaScript, C/C++, Java, SQL, and Bash.</p></div>
-        <div><span>THINGS I HAVE SHIPPED WITH</span><p>React, Node, Express, Firebase, GCP, and Jenkins helped make Edvise work.</p></div>
-        <div><span>DEEPER INTO THE ENGINE ROOM</span><p>Databricks, Spark, event-driven backends, video workflows, and compact language models.</p></div>
-        </div>
-        <p class="city-side-note">The most interesting tool is usually the one that lets someone try the idea for themselves.</p>`
+        <div><span>Languages</span><p>Python, TypeScript, JavaScript, C/C++, Java, SQL, and Bash.</p></div>
+        <div><span>Web and infrastructure</span><p>React, Node, Express, Firebase, GCP, and Jenkins.</p></div>
+        <div><span>Data and machine learning</span><p>Databricks, Spark, video workflows, and small language models.</p></div>
+        </div>`
     },
     contact: {
-      kind: 'CONTACT / THE SIGNAL TOWER',
-      title: 'Send a signal.',
-      intro: 'If any of this is your kind of weird, I would love to hear from you.',
+      title: 'Contact',
       body: `<div class="city-signal-links">
-        <a href="https://www.linkedin.com/in/alex-zhou2/" target="_blank" rel="noopener noreferrer"><span>PROFESSIONAL FREQUENCY</span><strong>LinkedIn ↗</strong></a>
-        <a href="https://github.com/Alexz3221" target="_blank" rel="noopener noreferrer"><span>BUILD LOG</span><strong>GitHub ↗</strong></a>
-        </div>
-        <p class="city-side-note">For now, these are the two open channels.</p>`
+        <a href="https://www.linkedin.com/in/alex-zhou2/" target="_blank" rel="noopener noreferrer"><strong>LinkedIn</strong></a>
+        <a href="https://github.com/Alexz3221" target="_blank" rel="noopener noreferrer"><strong>GitHub</strong></a>
+        </div>`
     }
   };
   const labels = {about: 'About', projects: 'Projects', experience: 'Experience', education: 'Education', skills: 'Skills', contact: 'Contact'};
@@ -177,7 +161,7 @@
     const guideButton = document.createElement('button');
     guideButton.type = 'button';
     guideButton.className = 'city-guide-trigger';
-    guideButton.textContent = '✦ CITY GUIDE / EXPLORE';
+    guideButton.textContent = 'CITY GUIDE';
     guideButton.setAttribute('aria-haspopup', 'dialog');
     guideButton.hidden = true;
     (routePicker || document.body).appendChild(guideButton);
@@ -201,7 +185,7 @@
         <section class="city-panel" role="dialog" aria-modal="true" aria-labelledby="cityPanelTitle" tabindex="-1">
           <div class="city-panel-head"><div><p class="city-panel-kicker">ALEX / AFTER DARK</p><h2 id="cityPanelTitle">City Guide</h2></div><button class="city-close" type="button" aria-label="Close city guide">×</button></div>
           <div class="city-guide-view">
-            <p class="city-guide-intro">Take the long way around, or open a stop right here. The city is yours either way.</p>
+            <p class="city-guide-intro">Choose a stop to open it or jump there.</p>
             <div class="city-guide-layout">
               <div class="city-map" role="group" tabindex="0" aria-label="Interactive city map. Drag to pan, scroll to zoom, or use the map controls. Portfolio stops and city centers are clickable.">
                 <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true" focusable="false"></svg>
@@ -519,8 +503,8 @@
       title.textContent = stop.title;
       guide.hidden = true;
       storyView.hidden = false;
-      const landmark = stop.landmark ? `<p class="city-story-landmark">This stop is near ${escapeHtml(stop.landmark)} in the city I built.</p>` : '';
-      storyContent.innerHTML = `<p class="city-story-kind">${escapeHtml(story.kind)}</p><h3>${escapeHtml(story.title)}</h3><p class="city-story-intro">${escapeHtml(story.intro)}</p>${landmark}${story.body}`;
+      const landmark = stop.landmark ? `<p class="city-story-landmark">Near ${escapeHtml(stop.landmark)}</p>` : '';
+      storyContent.innerHTML = `<h3>${escapeHtml(story.title)}</h3>${landmark}${story.body}`;
       driveButton.hidden = typeof onJump !== 'function';
       panel.focus();
       return true;
