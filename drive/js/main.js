@@ -19,7 +19,7 @@
   const carSpecs = Object.fromEntries(Object.entries({
     comet: {name:'Comet',color:0x4e83df},
     rally: {name:'Rally',color:0xe3d57b},
-    hypercar: {name:'DeLorean',color:0x9ba6ac},
+    hypercar: {name:'Hypercar',color:0xe14839},
     pickup: {name:'Pickup',color:0x25975b},
     u9xtreme: {name:'Yangwang U9 Xtreme',color:0x252a31}
   }).map(([type,style]) => [type,{...DrivePhysics.vehicles[type],...style,wheelRadius:DrivePhysics.vehicles[type].radius}]));
@@ -67,7 +67,7 @@
   let importedAssetScene = null;
   let worldGeneration = 0;
   let portfolio = null;
-  const carModels = {};
+  const carModels = {}, portfolioGarageModels = {};
   let selectedCar = 'comet';
   let stuntRecords = null, sharedGhost = null;
   const ghostUI = {
@@ -740,6 +740,11 @@
     vehicle.add(portfolioComet.group);
   }
   function usesPortfolioComet(type) { return !!portfolioComet && type === 'comet' && isPortfolioCity(); }
+  function activeCarModel(type) {
+    if (!isPortfolioCity() || !['rally','pickup','hypercar'].includes(type)) return carModels[type];
+    return portfolioGarageModels[type] ||= buildCar(type,
+      type==='hypercar' ? {...carSpecs[type],color:0x9ba6ac} : carSpecs[type]);
+  }
   function formatGhostTime(seconds) {
     const tenths = Math.floor(Math.max(0, seconds) * 10);
     return Math.floor(tenths / 600) + ':' + String(Math.floor(tenths / 10) % 60).padStart(2, '0') + '.' + tenths % 10;
@@ -1026,15 +1031,17 @@
   }
   function modelStatus(type) {
     if (usesPortfolioComet(type)) return 'Comet · Night edition';
-    if (type === 'u9xtreme') return carModels[type].assetState === 'ready' ? 'Ddiaz Design · CC BY-NC-SA'
-      : carModels[type].assetState === 'failed' ? 'U9 Xtreme model unavailable · fallback visual' : 'Loading U9 Xtreme model…';
-    return carModels[type].assetState === 'ready' ? DriveVehicleAssets.credits?.[type] || 'Model loaded'
-      : carModels[type].assetState === 'failed' ? 'Model unavailable · fallback car' : 'Loading car model…';
+    const model = activeCarModel(type);
+    if (type === 'u9xtreme') return model.assetState === 'ready' ? 'Ddiaz Design · CC BY-NC-SA'
+      : model.assetState === 'failed' ? 'U9 Xtreme model unavailable · fallback visual' : 'Loading U9 Xtreme model…';
+    if (model.assetState === 'ready') return model===portfolioGarageModels[type]
+      ? DriveVehicleAssets.credits?.[type] || 'Model loaded' : 'Comrade1280 · CC BY 4.0';
+    return model.assetState === 'failed' ? 'Model unavailable · fallback car' : 'Loading car model…';
   }
   // Load only the selected car. Keep a playable fallback if an asset fails.
-  function loadCarAsset(type) {
-    const model = carModels[type];
+  function loadCarAsset(type, model = carModels[type]) {
     if (model.assetState) return;
+    const portfolioEdition = model===portfolioGarageModels[type];
     if (type === 'u9xtreme' ? typeof DriveU9XtremeAsset === 'undefined' : typeof DriveVehicleAssets === 'undefined') {
       model.assetState = 'failed'; return;
     }
@@ -1056,8 +1063,8 @@
       model.rearLamp = imported.rearLamp || new THREE.MeshBasicMaterial({color:0xff354e});
       model.brakeMaterials = imported.brakeMaterials || [];
       model.assetState = 'ready';
-      if(selectedCar === type) document.querySelector('#modelStatus').textContent = modelStatus(type);
-      if(ghost.car === type && ghost.model && !ghost.model.sharedGeometry) {
+      if(selectedCar===type && model===activeCarModel(type)) document.querySelector('#modelStatus').textContent = modelStatus(type);
+      if(!portfolioEdition && ghost.car === type && ghost.model && !ghost.model.sharedGeometry) {
         const rotation = ghost.wheelRotation;
         buildGhostModel(type);
         ghost.wheelRotation = rotation;
@@ -1067,10 +1074,10 @@
     const onFailure = error => {
       model.assetState = 'failed';
       console.warn('Vehicle asset could not load:', type, error);
-      if(selectedCar === type) document.querySelector('#modelStatus').textContent = modelStatus(type);
+      if(selectedCar===type && model===activeCarModel(type)) document.querySelector('#modelStatus').textContent = modelStatus(type);
     };
     if (type === 'u9xtreme') DriveU9XtremeAsset.load(carSpecs[type], onSuccess, onFailure);
-    else DriveVehicleAssets.load(type, carSpecs[type], onSuccess, onFailure);
+    else DriveVehicleAssets.load(type, carSpecs[type], onSuccess, onFailure,{portfolioEdition});
   }
   scene.add(vehicleFrame);
   function resetVehicle() {
@@ -1288,11 +1295,15 @@
     }
     selectedCar = type;
     const useCustom = usesPortfolioComet(type);
+    const activeModel = activeCarModel(type);
     if (useCustom) portfolioComet.load?.();
-    else loadCarAsset(type);
+    else loadCarAsset(type,activeModel);
     document.querySelector('#modelStatus').textContent = modelStatus(type);
-    Object.entries(carModels).forEach(([name, model]) => { model.group.visible = name === type && !useCustom; });
+    for (const model of [...Object.values(carModels),...Object.values(portfolioGarageModels)]) {
+      model.group.visible = model===activeModel && !useCustom;
+    }
     if (portfolioComet) portfolioComet.group.visible = useCustom;
+    document.querySelector('#garageHypercarName').textContent = isPortfolioCity() ? 'DeLorean' : 'Hypercar';
     motion.speed = THREE.MathUtils.clamp(motion.speed, -carSpecs[type].maxSpeed * .45, carSpecs[type].maxSpeed);
     document.querySelectorAll('[data-car]').forEach(button => {
       button.classList.toggle('active', button.dataset.car === type);
@@ -1461,7 +1472,7 @@
       vehicle.position.copy(physics.renderPosition).add(offset);
       const forward=new THREE.Vector3(0,0,1).applyQuaternion(vehicle.quaternion);
       if (Math.hypot(forward.x,forward.z)>.15) motion.heading=Math.atan2(forward.x,forward.z);
-      const model = usesPortfolioComet(selectedCar) ? portfolioComet : carModels[selectedCar];
+      const model = usesPortfolioComet(selectedCar) ? portfolioComet : activeCarModel(selectedCar);
       model.wheels.forEach(({wheel,pivot},i)=>{
         const w=physics.renderWheels[i];
         pivot.position.y=1.05-drop+physics.car.wheelInfos[i].chassisConnectionPointLocal.y-w.suspensionLength;

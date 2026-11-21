@@ -8,12 +8,14 @@
 
 The three models were fitted to the existing garage chassis and use the original driving parameters. The DeLorean replaces the appearance of the internal `hypercar` slot.
 
-The Pickup uses exposed steel and oxidized patches, with cyan cage accents and lime safety stripes picked from its original palette. Rally keeps its livery with a lighter satin finish and traces of wear. Both pick up soft reflections from the same light map used by the Comet.
+The DeLorean's original front wheels had about 15° of steering baked into their mesh placements. The fitted GLB straightens the front wheel positions, normals, and tangents around the retained pivots and keeps their rolling radius.
+
+The Pickup uses exposed steel and oxidized patches, with subdued cyan cage accents and lime safety stripes in its original markings. Rally keeps its livery shape with muted cyan stripes, lime mirror caps, and weathered satin metal. Both pick up soft reflections from the same light map used by the Comet.
 
 `rust-detail.webp` packs the color and roughness maps from [Rust Coarse 01 by Dimitrios Savva and Rico Cilliers](https://polyhaven.com/a/rust_coarse_01), released under [CC0](https://polyhaven.com/license). The 1K maps were resized to 512 × 512 and packed as color in RGB and roughness in alpha. The garage shaders sample it in chassis space and blend it with a procedural wear mask.
 
 ## Source files
 
-- [Objaverse mirror of JandroS’s Sketchfab GLB](https://huggingface.co/datasets/allenai/objaverse/resolve/main/glbs/000-158/7001f739fe594314b5a3081163577139.glb). SHA-256 `286932df77d89c440a78fc1b1c0d00af4210beba8a747094fe098fb81ddaa5c4`.
+- Cadwalader’s archived GLB linked above. SHA-256 `0ffbb45fff39417bc79488f784e1388998f2b48801cbfc72c856145f75aeffdb`.
 - [Pinned tevy Rally Car v1 LOD1](https://tevy.dev/models/rally-car/v1/lod1.glb). SHA-256 `40b963744bb7e3adc7e759b0e7146a21a1764237c8ac3506baba22afeff9b369`.
 - [Quaternius asset downloaded from Poly Pizza](https://static.poly.pizza/cc992b7f-3e7f-474e-8e45-f80b72010669.glb). SHA-256 `38f1cae38a5302cf702edd2c7459bdf104b17ec2fdbc8465330c1a6b99b4375b`.

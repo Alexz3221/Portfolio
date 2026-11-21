@@ -1,8 +1,7 @@
 (function(root, factory) {
-  const city = factory();
-  if (typeof module === 'object' && module.exports) module.exports = city;
-  else root.DrivePortfolioCity = city;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function() {
+  if (typeof module === 'object' && module.exports) module.exports = factory(require('./portfolio-exchange'));
+  else root.DrivePortfolioCity = factory(root.DrivePortfolioExchange);
+})(typeof globalThis !== 'undefined' ? globalThis : this, function(exchange) {
   'use strict';
 
   const driveBase = typeof document !== 'undefined' && document.currentScript?.src
@@ -394,6 +393,12 @@
   const supports = [[-80,-30.8,3.25],[-50,-31.8,10.25],[-14,-28,11.12],[14,-28,11.12],
     [56,-27.5,10.6],[75,-27.5,6.34],[92,-27.5,3.0]].map(([x,z,height]) =>
     ({x,z,y:height/2,width:1.58,depth:1.72,height}));
+  const walkObstacles = [
+    ...supports.map(({x,z,width:w,depth:d})=>({x,z,w,d})),
+    ...testRamp.map(({x,z,width:w,length:d})=>({x,z,w,d})),
+    ...skywaySegments.filter(segment=>Math.min(segment.topStart,segment.topEnd)<2.2 &&
+      Math.max(segment.topStart,segment.topEnd)<4.2).map(({x,z,length:w,width:d})=>({x,z,w,d}))
+  ];
 
   function constrainCamera(focus,eye) {
     const dx=eye.x-focus.x, dy=eye.y-focus.y, dz=eye.z-focus.z;
@@ -769,7 +774,7 @@
     const paneColor=new THREE.Color(tower.glass).convertSRGBToLinear();
     const roomColor=new THREE.Color(tower.id==='glazed-sweep' ? 0xffc79a : 0x9fd8dc).convertSRGBToLinear();
     for (const [floor,y] of tower.floors.entries()) {
-      const height=tower.id==='exchange-canopy' ? 1.24 : tower.beveled ? 1.85 : 1.39;
+      const height=tower.beveled ? 1.85 : 1.39;
       for (let sector=0;sector<contourSides;sector+=2) {
         if ((sector/2+floor*3)%7===6) continue;
         const lower=contourAt(tower,y-height*.5,.13),upper=contourAt(tower,y+height*.5,.13);
@@ -933,6 +938,19 @@
 
     instance('portfolio-transfer-round-base',materials.steel,36.5,24.82,-27.5,17.5,4.64,18);
     for (const tower of [...shapedTowers,...arrivalCurves]) {
+      if (tower.id==='exchange-canopy' && exchange) {
+        exchange.attach(THREE,world,{tower,materials,instance,beam,grime,
+          point:(y,sector,extend=0)=>contourPoint(tower,contourAt(tower,y,extend),sector),
+          shell:(profile,name,belts,material,group)=>{
+            const plates=belts.map(([y,h,reach])=>[contourAt(profile,y-h/2,reach*.91),contourAt(profile,y+h/2,reach)]);
+            const mesh=new THREE.Mesh(contourGeometry(THREE,profile,plates,1,1,true),material);
+            mesh.name='portfolio-'+profile.id+'-'+name;
+            mesh.userData.portfolioAuditSolid=true;
+            group.add(mesh);
+          }
+        });
+        continue;
+      }
       const finish=tower.skin ? new THREE.MeshStandardMaterial({color:tower.skin,bumpMap:grime,bumpScale:.088,
         roughness:.75,metalness:.13}) : curtain(tower.style);
       shell(tower,'facade',[tower.contours],finish,false);
@@ -1082,7 +1100,8 @@
 
     instance('portfolio-foundation',materials.foundation,0,.004,0,edge*2,.008,edge*2);
     const streets=globalThis.DrivePortfolioStreets;
-    if (streets) streets.build(THREE,world,{roads:networkRoads,areas:pavedAreas,asphalt:materials.asphalt,curb:materials.concrete});
+    if (streets) streets.build(THREE,world,{roads:networkRoads,areas:pavedAreas,asphalt:materials.asphalt,curb:materials.concrete,
+      buildings,obstacles:walkObstacles,publicSpaces:globalThis.DrivePortfolioPublicSpaces?.footprints,cacheLayout:true});
     for (const street of networkRoads) {
       const angle = Math.atan2(street.x2-street.x1,street.z2-street.z1);
       const x=(street.x1+street.x2)/2, z=(street.z1+street.z2)/2;

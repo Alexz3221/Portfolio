@@ -63,6 +63,30 @@ for (const {type,file,author,license,triangles,maxBytes} of files) {
       const center = new THREE.Box3().setFromObject(wheel).getCenter(new THREE.Vector3());
       assert.ok(center.length()<.0001, 'each wheel rotates about its hub');
     }
+    if (type==='hypercar') {
+      const point = new THREE.Vector3(), rimCenter = new THREE.Vector3();
+      for (const index of [1,3]) {
+        const wheel = prepared.wheels[index];
+        const rim = wheel.children.find(part=>part.material.name==='material');
+        const tire = wheel.children.find(part=>part.material.name==='tyre');
+        assert.ok(rim && tire, 'source wheel includes its rim and tire');
+        const rimBounds = new THREE.Box3().setFromBufferAttribute(rim.geometry.attributes.position);
+        assert.ok(rimBounds.max.x-rimBounds.min.x<.05, 'rim face is perpendicular to the spin axle');
+        const positions = tire.geometry.attributes.position;
+        for (let eighth=0;eighth<8;eighth++) {
+          wheel.rotation.x = eighth*Math.PI/4;
+          wheel.updateMatrixWorld(true);
+          rimBounds.getCenter(rimCenter).applyMatrix4(rim.matrixWorld);
+          assert.ok(Math.hypot(rimCenter.y,rimCenter.z)<.004, 'spinning rim center stays on the axle');
+          let radius = 0;
+          for (let i=0;i<positions.count;i++) {
+            point.fromBufferAttribute(positions,i).applyMatrix4(tire.matrixWorld);
+            radius = Math.max(radius,Math.abs(point.y));
+          }
+          assert.ok(Math.abs(radius-spec.wheelLayout[index].radius)<.004, 'tread stays round throughout a turn');
+        }
+      }
+    }
     const lampBounds = new THREE.Box3();
     const atlasLampSides = new Set();
     prepared.body.traverse(mesh => {

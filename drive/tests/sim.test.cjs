@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const THREE = require('three');
 
-function harness(assetLoader, importer, u9Asset) {
+function harness(assetLoader, importer, u9Asset, portfolioCity) {
   class Element {
     constructor(dataset = {}) { this.style = {}; this.dataset = dataset; this.listeners = {}; this.classes = new Set(); this.attributes = {}; this.textContent = ''; this.value = ''; this.classList = {add: x => this.classes.add(x), remove: x => this.classes.delete(x), toggle: (x, on) => on ? this.classes.add(x) : this.classes.delete(x)}; }
     addEventListener(name, fn) { this.listeners[name] = fn; }
@@ -22,9 +22,10 @@ function harness(assetLoader, importer, u9Asset) {
   };
   const window = {THREE, DriveImportedCity: importer, devicePixelRatio: 1, innerWidth: 1280, innerHeight: 800, addEventListener: (name, fn) => { window[name] = fn; }};
   const fakeThree = {...THREE, WebGLRenderer: class {constructor(){this.shadowMap={};} setPixelRatio(){} setSize(){} render(){} }};
-  const context = vm.createContext({window, document, THREE: fakeThree, DriveVehicleAssets: assetLoader, DriveU9XtremeAsset: u9Asset, DrivePhysics: require('../js/physics.js'), requestAnimationFrame() {}, console});
+  const context = vm.createContext({window, document, THREE: fakeThree, DriveVehicleAssets: assetLoader, DriveU9XtremeAsset: u9Asset,
+    DrivePortfolioCity:portfolioCity,DrivePhysics: require('../js/physics.js'), requestAnimationFrame() {}, console});
   const source = fs.readFileSync(require.resolve('../js/main.js'), 'utf8');
-  vm.runInContext(source.replace(/\}\)\(\);\s*$/, 'globalThis.sim = {physics: () => physics, maps, samples: () => samples, world, vehicle, vehicleFrame, motion, carSpecs, carModels, keys, chooseMap, chooseCar, resetVehicle, recoverVehicleInPlace, jumpToStop, updateVehicle, distanceToRoad, camera, updateCamera, setCameraMode, renderer, sky, animate};})();'), context);
+  vm.runInContext(source.replace(/\}\)\(\);\s*$/, 'globalThis.sim = {physics: () => physics, maps, samples: () => samples, world, vehicle, vehicleFrame, motion, carSpecs, carModels, activeCarModel, keys, chooseMap, chooseCar, resetVehicle, recoverVehicleInPlace, jumpToStop, updateVehicle, distanceToRoad, camera, updateCamera, setCameraMode, renderer, sky, animate};})();'), context);
   context.sim.chooseMap('city');
   return {sim: context.sim, document, window, cars, controls};
 }
@@ -333,21 +334,46 @@ test('key 6 loads the supplied U9 GLB once and swaps out the fallback visual',()
 });
 
 
-test('lazy models cache once, late completion never changes selection, and failures retain fallback',()=>{
+test('lazy models cache per map edition, late completion keeps the current visual, and failures retain fallback',()=>{
   const pending={},calls={};
   const garageAsset = {
-    credits:{hypercar:'JandroS · CC BY 4.0'},
-    load(type,spec,success,failure){calls[type]=(calls[type]||0)+1;pending[type]={success,failure};}
+    credits:{hypercar:'cadwalader · CC BY 4.0'},
+    load(type,spec,success,failure,{portfolioEdition}) {
+      const key=type+(portfolioEdition ? '-city' : '');
+      calls[key]=(calls[key]||0)+1;
+      pending[key]={success,failure};
+    }
   };
-  const {sim,document}=harness(garageAsset);
+  const {sim,document}=harness(garageAsset,undefined,undefined,require('../js/portfolio-city'));
+  const status=document.querySelector('#modelStatus');
+  const label=document.querySelector('#garageHypercarName');
   assert.equal(calls.comet,1);assert.equal(calls.hypercar,undefined);
-  sim.chooseCar('hypercar');sim.chooseCar('rally');
   const imported=()=>({body:new THREE.Mesh(new THREE.BoxGeometry(2,1,5),new THREE.MeshBasicMaterial()),wheels:Array.from({length:4},()=>new THREE.Group())});
-  pending.hypercar.success(imported());assert.equal(sim.carModels.hypercar.group.visible,false);
-  pending.rally.failure(new Error('test network failure'));
-  assert.equal(sim.carModels.rally.assetState,'failed');assert.ok(sim.carModels.rally.group.children.length>4);
-  assert.match(document.querySelector('#modelStatus').textContent,/fallback/);
-  sim.chooseCar('hypercar');assert.equal(calls.hypercar,1);assert.equal(sim.carModels.hypercar.group.visible,true);
-  assert.equal(document.querySelector('#modelStatus').textContent,'JandroS · CC BY 4.0');
-  sim.chooseMap('city');sim.chooseMap('mountain');assert.equal(calls.hypercar,1);
+  sim.chooseCar('hypercar');
+  const cityModel=sim.activeCarModel('hypercar');
+  assert.equal(label.textContent,'DeLorean');
+  sim.chooseMap('mountain');
+  const standardModel=sim.activeCarModel('hypercar');
+  assert.notEqual(cityModel,standardModel);
+  assert.equal(label.textContent,'Hypercar');
+  pending['hypercar-city'].success(imported());
+  assert.match(status.textContent,/Loading/);
+  assert.equal(cityModel.group.visible,false);
+  assert.equal(standardModel.group.visible,true);
+  pending.hypercar.success(imported());
+  assert.equal(status.textContent,'Comrade1280 · CC BY 4.0');
+
+  sim.chooseMap('city');
+  assert.equal(status.textContent,'cadwalader · CC BY 4.0');
+  sim.chooseCar('rally');
+  pending['rally-city'].failure(new Error('test network failure'));
+  assert.equal(sim.activeCarModel('rally').assetState,'failed');
+  assert.ok(sim.activeCarModel('rally').group.children.length>4);
+  assert.match(status.textContent,/fallback/);
+  sim.chooseCar('hypercar');
+  assert.equal(cityModel.group.visible,true);
+  sim.chooseMap('mountain');
+  assert.equal(standardModel.group.visible,true);
+  assert.equal(calls.hypercar,1);
+  assert.equal(calls['hypercar-city'],1);
 });

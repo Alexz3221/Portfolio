@@ -7,6 +7,19 @@ fakeThree.TextureLoader=class {setCrossOrigin(){return this;}setRequestHeader(){
 const context=vm.createContext({THREE:fakeThree,console,TextDecoder,TextEncoder,Blob,self:{URL},URL,setTimeout,clearTimeout});
 vm.runInContext(fs.readFileSync(require.resolve('../js/vendor/GLTFLoader.js'),'utf8'),context);
 vm.runInContext(fs.readFileSync(require.resolve('../js/vehicle-assets.js'),'utf8'),context);
+test('the garage loads a distinct car file for each map edition',()=>{
+ const paths=[], OriginalLoader=fakeThree.GLTFLoader;
+ fakeThree.GLTFLoader=class {load(url){paths.push(url.replace(/\?.*$/,''));}};
+ try {
+  for(const type of ['rally','pickup','hypercar']) for(const portfolioEdition of [true,false])
+   context.DriveVehicleAssets.load(type,physics.vehicles[type],()=>{},error=>{throw error;},{portfolioEdition});
+ } finally { fakeThree.GLTFLoader=OriginalLoader; }
+ assert.deepEqual(paths,[
+  'assets/vehicles/garage/rally.glb','assets/vehicles/passenger/rally.glb',
+  'assets/vehicles/garage/pickup.glb','assets/vehicles/passenger/pickup.glb',
+  'assets/vehicles/garage/delorean.glb','assets/vehicles/passenger/hypercar.glb'
+ ]);
+});
 test('approved passenger GLBs preserve geometry, licenses and physical wheel alignment',async()=>{
  let total=0;
  for(const [type,meta] of Object.entries(manifest)){

@@ -102,15 +102,21 @@
         float extremity = smoothstep(1.2,2.72,abs(p.z));
         float outward = smoothstep(.57,1.13,abs(p.x));
         float rustDistribution = broad*.61 + fleck*.20 + fine*.13 + lower*.14 + extremity*.13 + outward*.03;
-        float corrosion = smoothstep(${pickup ? '.57,.77' : '.81,1.02'},rustDistribution)
-          * (1.-max(cage,tape)*.85) * (${pickup ? '.68+.32*painted' : '.64'});
+        ${pickup ? '' : `
+          float arch = length(vec2(abs(p.z)-1.48,p.y-.55));
+          float fender = (1.-smoothstep(.048,.18,abs(arch-.51))) * smoothstep(.65,.93,abs(p.x));
+          float seam = (1.-smoothstep(.028,.105,abs(p.z+.25))) * outward * lower;
+          rustDistribution += fender * (.10+.16*fleck) + seam*.105;
+        `}
+        float corrosion = smoothstep(${pickup ? '.57,.77' : '.60,.83'},rustDistribution)
+          * (1.-max(cage,tape)*.85) * (${pickup ? '.68+.32*painted' : '.82'});
         float scar = smoothstep(.53,.83,patina(p*vec3(19.,106.,3.8))) * (.075+.34*lower) * steel;
         vec3 oxide = mix(vec3(.047,.016,.008),vec3(.192,.071,.026),fleck*.68+fine*.32);
         oxide = mix(oxide,pow(sampleRust.rgb,vec3(2.2))*vec3(1.18,.92,.74),garageRustReady*.80);
         diffuseColor.rgb = mix(diffuseColor.rgb,oxide,corrosion);
         diffuseColor.rgb = mix(diffuseColor.rgb,vec3(.29,.35,.36),scar*.52*(1.-corrosion));
-        diffuseColor.rgb = mix(diffuseColor.rgb,vec3(.016,.26,.32),cage*.91);
-        diffuseColor.rgb = mix(diffuseColor.rgb,vec3(.28,.51,.025),tape*.97);
+        diffuseColor.rgb = mix(diffuseColor.rgb,vec3(.023,.153,.174),cage*.91);
+        diffuseColor.rgb = mix(diffuseColor.rgb,vec3(.162,.236,.042),tape*.97);
         float rustRoughness = mix(.82,sampleRust.a,garageRustReady);
       `);
       shader.fragmentShader = shader.fragmentShader.replace('#include <roughnessmap_fragment>',`#include <roughnessmap_fragment>
@@ -130,8 +136,8 @@
       if (pickup) {
         shader.fragmentShader = shader.fragmentShader.replace('#include <emissivemap_fragment>',`#include <emissivemap_fragment>
           float outerStrip = smoothstep(.65,1.36,p.y);
-          totalEmissiveRadiance += vec3(.012,.56,.73)*cage*(.53+.57*outerStrip);
-          totalEmissiveRadiance += vec3(.47,.73,.027)*tape*.64;`);
+          totalEmissiveRadiance += vec3(.013,.235,.298)*cage*(.36+.39*outerStrip);
+          totalEmissiveRadiance += vec3(.18,.31,.019)*tape*.43;`);
       }
     };
   }
@@ -166,13 +172,18 @@
         material.roughness = .28;
       }
       if (key==='paint_body') {
-        material.color.setHex(0xb9c9ca).convertSRGBToLinear();
+        material.color.setHex(0xaebebd).convertSRGBToLinear();
         weatheredMetal(material,false);
       }
-      if (key.startsWith('livery_blue')) {
-        material.color.setHex(0x087e94).convertSRGBToLinear();
-        material.emissive.setHex(0x09657d).convertSRGBToLinear();
-        material.emissiveIntensity=.26;
+      if (key==='livery_blue_body') {
+        material.color.setHex(0x326c75).convertSRGBToLinear();
+        material.emissive.setHex(0x196477).convertSRGBToLinear();
+        material.emissiveIntensity=.31;
+      }
+      if (key==='livery_blue') {
+        material.color.setHex(0x78864b).convertSRGBToLinear();
+        material.emissive.setHex(0x799b36).convertSRGBToLinear();
+        material.emissiveIntensity=.24;
       }
       if (/^light_front/.test(key)) {
         material.emissive.setHex(0xb5edff).convertSRGBToLinear();
@@ -180,9 +191,9 @@
       }
     }
     if (type==='pickup' && key==='Headlights') {
-      material.color.setHex(0xbef8e9).convertSRGBToLinear();
-      material.emissive.setHex(0xbef8e9).convertSRGBToLinear();
-      material.emissiveIntensity = .89;
+      material.color.setHex(0xb0ebdf).convertSRGBToLinear();
+      material.emissive.setHex(0xb0ebdf).convertSRGBToLinear();
+      material.emissiveIntensity = .71;
     }
     if (type==='hypercar' && key==='DeLorean') {
       reflections(material,.76);
@@ -261,11 +272,12 @@
     originals.forEach(geometry=>geometry.dispose());
     return {body,wheels,brakeMaterials:[...brakeMaterials],rearLamp:[...brakeMaterials][0]};
   }
-  function load(type,spec,success,failure) {
+  function load(type,spec,success,failure,{portfolioEdition=true}={}) {
     if(!THREE.GLTFLoader){failure(new Error('Vehicle loader unavailable'));return;}
-    const revision = type==='hypercar' ? '?v=3' : '';
-    new THREE.GLTFLoader().load('assets/vehicles/'+files[type]+revision,gltf=>{
-      try{success(prepare(gltf.scene,spec,type));}catch(error){failure(error);}
+    const file = portfolioEdition ? files[type] : 'passenger/'+type+'.glb';
+    const revision = portfolioEdition && type==='hypercar' ? '?v=4' : '';
+    new THREE.GLTFLoader().load('assets/vehicles/'+file+revision,gltf=>{
+      try{success(prepare(gltf.scene,spec,portfolioEdition ? type : undefined));}catch(error){failure(error);}
     },undefined,failure);
   }
   root.DriveVehicleAssets={load,prepare,files,credits};

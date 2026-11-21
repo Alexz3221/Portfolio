@@ -9,8 +9,10 @@
 
   const surfaceY=.17, graniteY=.146, kerbY=.117, chamferWidth=.075, curbDepth=.30, walkWidth=2.35;
   const sidewalkSurfaces = new WeakMap();
+  const empty=[];
+  let cachedLayout;
 
-  function streetFootprint(roads, areas, margin) {
+  function streetFootprint(roads, areas, margin, roundSteps=32) {
     const junctions = new Map();
     const shapes = [];
     for (const {x1,z1,x2,z2,width} of roads) {
@@ -33,8 +35,8 @@
     // streets. Unioning the caps and strips removes shared triangle faces.
     for (const {x,z,radius} of junctions.values()) {
       const ring = [];
-      for (let step=0; step<32; step++) {
-        const angle = step*Math.PI/16;
+      for (let step=0; step<roundSteps; step++) {
+        const angle = step*2*Math.PI/roundSteps;
         ring.push([x+Math.cos(angle)*radius,z+Math.sin(angle)*radius]);
       }
       shapes.push([ring]);
@@ -92,15 +94,155 @@
   }
 
   function contains(area, x, z) {
-    function inRing(ring) {
-      let inside=false;
-      for (let i=0, j=ring.length-1; i<ring.length; j=i++) {
-        const [ax,az]=ring[j], [bx,bz]=ring[i];
-        if ((az>z)!==(bz>z) && x < (bx-ax)*(z-az)/(bz-az)+ax) inside=!inside;
-      }
-      return inside;
+    return area.some(([outline,...holes])=>inRing(outline,x,z) && !holes.some(hole=>inRing(hole,x,z)));
+  }
+
+  function inRing(ring,x,z) {
+    let inside=false;
+    for (let i=0, j=ring.length-1; i<ring.length; j=i++) {
+      const [ax,az]=ring[j], [bx,bz]=ring[i];
+      if ((az>z)!==(bz>z) && x < (bx-ax)*(z-az)/(bz-az)+ax) inside=!inside;
     }
-    return area.some(([outline,...holes])=>inRing(outline) && !holes.some(inRing));
+    return inside;
+  }
+
+  function bounds(ring) {
+    const box={minX:Infinity,maxX:-Infinity,minZ:Infinity,maxZ:-Infinity};
+    for (const [x,z] of ring) {
+      box.minX=Math.min(box.minX,x);
+      box.maxX=Math.max(box.maxX,x);
+      box.minZ=Math.min(box.minZ,z);
+      box.maxZ=Math.max(box.maxZ,z);
+    }
+    return box;
+  }
+
+  function boxArea({minX,maxX,minZ,maxZ}) {
+    return [[[minX,minZ],[maxX,minZ],[maxX,maxZ],[minX,maxZ]]];
+  }
+
+  function expand({minX,maxX,minZ,maxZ},distance) {
+    return {minX:minX-distance,maxX:maxX+distance,minZ:minZ-distance,maxZ:maxZ+distance};
+  }
+
+  function footprint({x,z,width,depth}) {
+    return {minX:x-width/2,maxX:x+width/2,minZ:z-depth/2,maxZ:z+depth/2};
+  }
+
+  function buildingWalks(network, road, routingRoad, premium, buildings, obstacles, publicSpaces) {
+    const ground=buildings.filter(building=>building.baseY===0);
+    const destinations=ground.filter(({width,depth,height,collisionOnly})=>
+      !collisionOnly && width>=4.5 && depth>=4.5 && height>=6);
+    if (!destinations.length) return {area:network,access:[]};
+
+    const decks=Object.values(publicSpaces || {});
+    // Continue underneath the beveled edges until the higher deck takes over.
+    const deckSlabs=decks.map(box=>boxArea(expand(box,-.34)));
+    const blocks=[...ground.map(footprint),...obstacles.map(({x,z,w,d})=>footprint({x,z,width:w,depth:d}))];
+    const spacing=1.55, pathWidth=1.86, lotWidth=2.45;
+    const obstruction=pathWidth/2+.10;
+    // Start one search from the existing walks and public decks. The shared
+    // search lets a row of buildings use the same passage back to the street.
+    const limits=bounds([
+      ...network.flatMap(([outline])=>outline),
+      ...blocks.flatMap(box=>boxArea(box)[0]),
+      ...decks.flatMap(box=>boxArea(box)[0])
+    ]);
+    const originX=Math.floor((limits.minX-5)/spacing)*spacing;
+    const originZ=Math.floor((limits.minZ-5)/spacing)*spacing;
+    const columns=Math.ceil((limits.maxX+5-originX)/spacing)+1;
+    const rows=Math.ceil((limits.maxZ+5-originZ)/spacing)+1;
+    const size=columns*rows;
+    const closed=new Uint8Array(size), distance=new Uint32Array(size);
+    const previous=new Int32Array(size).fill(-1), queue=new Int32Array(size);
+    const xAt=column=>originX+column*spacing, zAt=row=>originZ+row*spacing;
+    const pointAt=index=>({x:xAt(index%columns),z:zAt(Math.floor(index/columns))});
+    const insideBox=({minX,maxX,minZ,maxZ},x,z)=>x>minX && x<maxX && z>minZ && z<maxZ;
+    function scan({minX,maxX,minZ,maxZ},visit) {
+      const lastColumn=Math.min(columns-1,Math.floor((maxX-originX)/spacing));
+      const lastRow=Math.min(rows-1,Math.floor((maxZ-originZ)/spacing));
+      for (let row=Math.max(0,Math.ceil((minZ-originZ)/spacing));row<=lastRow;row++) {
+        for (let column=Math.max(0,Math.ceil((minX-originX)/spacing));column<=lastColumn;column++) {
+          visit(row*columns+column,xAt(column),zAt(row));
+        }
+      }
+    }
+    function cover(area,visit) {
+      for (const [outline,...holes] of area) {
+        scan(bounds(outline),(index,x,z)=>{
+          if (inRing(outline,x,z) && !holes.some(hole=>inRing(hole,x,z))) visit(index);
+        });
+      }
+    }
+    cover(routingRoad,index=>{closed[index]=1;});
+    for (const block of blocks) scan(expand(block,obstruction),index=>{closed[index]=1;});
+    let count=0;
+    function seed(index) {
+      if (closed[index] || previous[index]>=0) return;
+      previous[index]=index;
+      queue[count++]=index;
+    }
+    cover(network,seed);
+    cover(premium || [],seed);
+    for (const box of decks) scan(box,seed);
+
+    // Diagonals keep paths short, but the two adjacent cells must also clear
+    // the obstacles so a diagonal cannot cut through a building corner.
+    const directions=[[1,0],[-1,0],[0,1],[0,-1],[1,1],[-1,1],[1,-1],[-1,-1]];
+    for (let read=0;read<count;read++) {
+      const source=queue[read], column=source%columns, row=Math.floor(source/columns);
+      for (const [dx,dz] of directions) {
+        if (column+dx<0 || column+dx>=columns || row+dz<0 || row+dz>=rows) continue;
+        const next=source+dz*columns+dx;
+        if (previous[next]>=0 || closed[next] || closed[source+dx] || closed[source+dz*columns]) continue;
+        previous[next]=source;
+        distance[next]=distance[source]+1;
+        queue[count++]=next;
+      }
+    }
+
+    const lotAreas=[], connectors=[], access=[];
+    const laid=new Uint8Array(size);
+    function addPath(from,to) {
+      if (from===to) return;
+      const a=pointAt(from), b=pointAt(to);
+      connectors.push({x1:a.x,z1:a.z,x2:b.x,z2:b.z,width:pathWidth});
+    }
+    for (const building of destinations) {
+      const box=footprint(building), apron=expand(box,lotWidth);
+      let anchor=-1, nearest=Infinity;
+      scan(expand(box,lotWidth-.10),(index,x,z)=>{
+        if (previous[index]<0 || distance[index]>=nearest || insideBox(box,x,z)) return;
+        anchor=index;
+        nearest=distance[index];
+      });
+      if (anchor<0) continue;
+      const accessPoint=pointAt(anchor);
+      const {x,z}=accessPoint;
+      const surface=decks.some(box=>insideBox(box,x,z)) ? 'public' :
+        contains(premium || [],x,z) ? 'arrival' : 'network';
+      access.push({building,x,z,surface});
+      lotAreas.push(boxArea(apron));
+      let start=anchor, next=anchor, direction=0;
+      while (!laid[next] && previous[next]!==next) {
+        laid[next]=1;
+        const following=previous[next];
+        if (next!==start && direction!==following-next) {
+          addPath(start,next);
+          start=next;
+        }
+        direction=following-next;
+        next=following;
+      }
+      addPath(start,next);
+    }
+
+    if (!lotAreas.length) return {area:network,access};
+    const links=streetFootprint(connectors,[],0,12);
+    const lot=polygons.difference(polygons.union(links,...lotAreas),...deckSlabs);
+    // Tuck the slab edge just inside the wall to avoid coplanar curb faces.
+    const obstructionArea=polygons.union(...blocks.map(box=>boxArea(expand(box,-.018))));
+    return {area:polygons.difference(polygons.union(network,lot),road,premium || [],obstructionArea),access};
   }
 
   function chamferHeight(area,x,z) {
@@ -128,16 +270,32 @@
     mesh.geometry.setAttribute('color',new THREE.Float32BufferAttribute(colors,3));
   }
 
-  function build(THREE, world, {roads, areas, asphalt, curb, premium=globalThis.DrivePortfolioArrivalSidewalks?.footprint()}) {
+  function streetLayout(roads,areas,buildings,obstacles,publicSpaces,premium) {
     const pavement = streetFootprint(roads,areas,0);
-    if (!pavement.length) return;
+    if (!pavement.length) return null;
     const chamfer = streetFootprint(roads,areas,chamferWidth);
     const granite = streetFootprint(roads,areas,curbDepth);
     const offset = streetFootprint(roads,areas,walkWidth);
     const exclusions = premium?.length ? [premium] : [];
-    const sidewalk = polygons.difference(offset,granite,...exclusions);
+    const network = polygons.difference(offset,granite,...exclusions);
+    const routingRoad = buildings.length ? streetFootprint(roads,areas,curbDepth+.40) : granite;
+    const {area:sidewalk,access}=buildingWalks(network,granite,routingRoad,premium,buildings,obstacles,publicSpaces);
     const apron = polygons.difference(granite,chamfer,...exclusions);
     const bevel = polygons.difference(chamfer,pavement,...exclusions);
+    return {pavement,sidewalk,access,apron,bevel};
+  }
+
+  function build(THREE, world, {roads, areas, asphalt, curb, buildings=empty, obstacles=empty, publicSpaces,premium,cacheLayout=false}) {
+    const authoredFootprint=globalThis.DrivePortfolioArrivalSidewalks?.footprint;
+    const inputs=[roads,areas,buildings,obstacles,publicSpaces,premium===undefined ? authoredFootprint : premium];
+    // Authored maps can reuse the union and path search after a car switch.
+    // Each world still owns its Three meshes, materials and physics bodies.
+    const hit=cacheLayout && cachedLayout && inputs.every((input,index)=>input===cachedLayout.inputs[index]);
+    const layout=hit ? cachedLayout.layout : streetLayout(roads,areas,buildings,obstacles,publicSpaces,
+      premium===undefined ? authoredFootprint?.() : premium);
+    if (cacheLayout && !hit) cachedLayout={inputs,layout};
+    if (!layout) return;
+    const {pavement,sidewalk,access,apron,bevel}=layout;
     surface(THREE,world,pavement,.044,asphalt,'portfolio-streets',4);
     const slabs=curb.clone();
     slabs.color.multiplyScalar(1.42);
@@ -155,7 +313,7 @@
     // step down to it and to the road, including along the curves of a junction.
     curbSides(THREE,world,sidewalk,surfaceY,wall,'portfolio-sidewalk-faces');
     curbSides(THREE,world,bevel,kerbY,innerWall,'portfolio-curb-faces');
-    if (slabMesh) sidewalkSurfaces.set(world,{pavement,sidewalk,apron,bevel,slabMesh,lipMesh,bevelMesh});
+    if (slabMesh) sidewalkSurfaces.set(world,{pavement,sidewalk,apron,bevel,slabMesh,lipMesh,bevelMesh,access});
   }
 
   function activeSurfaces(world) {
@@ -169,6 +327,10 @@
     if (contains(active.sidewalk,x,z)) return surfaceY;
     if (contains(active.apron,x,z)) return graniteY;
     return contains(active.bevel,x,z) ? chamferHeight(active.pavement,x,z) : 0;
+  }
+
+  function buildingAccess(world) {
+    return activeSurfaces(world)?.access || [];
   }
 
   function attachSidewalkPhysics(world, physics) {
@@ -195,5 +357,5 @@
     return {dispose() { for(const body of bodies) physics.world.removeBody(body); }};
   }
 
-  return {build,attachSidewalkPhysics,surfaceHeight};
+  return {build,attachSidewalkPhysics,surfaceHeight,buildingAccess};
 });
