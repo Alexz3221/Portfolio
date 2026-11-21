@@ -29,7 +29,7 @@ Open **Records** in Ghost Challenge on the stunt course. **Copy race link** shar
 
 Portfolio City has a flat collision plane beneath its roads and jump ramp. Mountain and racetrack retain 200 m half-width boundaries. The mountain road follows its heightfield triangle sampler. Changing maps resets onto the selected route. Changing cars preserves position and orientation while stopping momentum. World geometry, materials, and textures are disposed on rebuild.
 
-Portfolio City uses a planar reflection pass for signs, buildings, and cars in the asphalt. Its Comet Night edition has original bodywork and uses the Comet driving setup. See the [model and texture sources](assets/portfolio/SOURCE.md) and [display art and type](assets/portfolio-type/SOURCE.md).
+Portfolio City uses a planar reflection pass for signs, buildings, and cars in the asphalt. Weathered concrete, painted steel, and ceramic tiles add detail to the lower walls. Its Comet Night edition has original bodywork and uses the Comet driving setup. See the [model and texture sources](assets/portfolio/SOURCE.md) and [display art, wall textures, and type](assets/portfolio-type/SOURCE.md).
 
 ## Imported city
 

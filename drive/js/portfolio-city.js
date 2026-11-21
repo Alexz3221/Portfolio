@@ -5,8 +5,8 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function() {
   'use strict';
 
-  const concreteBump = typeof document !== 'undefined' && document.currentScript?.src
-    ? new URL('../assets/portfolio/concrete-bump.jpg', document.currentScript.src).href : 'assets/portfolio/concrete-bump.jpg';
+  const driveBase = typeof document !== 'undefined' && document.currentScript?.src
+    ? new URL('../', document.currentScript.src).href : '';
   const edge = 211, roadHalfWidth = 11;
   const spawn = {x:0, z:-103, heading:0};
   const routeSamples = [{x:spawn.x, y:0, z:spawn.z, tx:0, tz:1}];
@@ -229,7 +229,57 @@
     return texture;
   }
 
-  function facadeMaterial(THREE,style,grime) {
+  function tileWallMaterial(THREE,material,facade,surface) {
+    if (!facade && !surface) return material;
+    material.customProgramCacheKey = () => `wall:${Boolean(facade)}:${Boolean(surface)}`;
+    material.onBeforeCompile = shader => {
+      const point = 'districtPoint.xy';
+      const facadeUv = `(${point} / districtPeriod)`;
+      let uniforms = '';
+      if (facade) {
+        uniforms += 'uniform vec2 districtPeriod;\n';
+        shader.uniforms.districtPeriod = {value:new THREE.Vector2(facade.width,facade.height)};
+      }
+      if (surface) {
+        uniforms += 'uniform sampler2D districtSurface; uniform vec2 districtSurfacePeriod;\n'
+          + 'uniform vec4 districtSurfaceMix; uniform float districtSurfaceReady;\n';
+        shader.uniforms.districtSurface = {value:surface.texture};
+        shader.uniforms.districtSurfacePeriod = {value:new THREE.Vector2(surface.width,surface.height)};
+        shader.uniforms.districtSurfaceMix = {value:new THREE.Vector4(surface.opacity,surface.fadeStart,surface.fadeEnd,surface.tint)};
+        shader.uniforms.districtSurfaceReady = surface.ready;
+      }
+      shader.vertexShader = `varying vec4 districtPoint;\n${shader.vertexShader}`
+        .replace('#include <uv_vertex>',`#include <uv_vertex>
+          vec3 partSize = vec3(1.0);
+          float baseHeight = modelMatrix[3].y;
+          #ifdef USE_INSTANCING
+            partSize = vec3(length(instanceMatrix[0].xyz),length(instanceMatrix[1].xyz),length(instanceMatrix[2].xyz));
+            baseHeight += instanceMatrix[3].y;
+          #endif
+          bool isWall = abs(normal.y) < .5;
+          vec2 faceSize = isWall ? vec2(abs(normal.x) > .5 ? partSize.z : partSize.x,partSize.y) : partSize.xz;
+          districtPoint = vec4(uv * faceSize, baseHeight + position.y * partSize.y, isWall ? 1.0 : 0.0);`);
+      shader.fragmentShader = `varying vec4 districtPoint;\n${uniforms}${shader.fragmentShader}`;
+      if (facade) {
+        shader.fragmentShader = shader.fragmentShader
+          .replace('#include <map_fragment>',THREE.ShaderChunk.map_fragment.replace('vUv',facadeUv))
+          .replace('#include <emissivemap_fragment>',THREE.ShaderChunk.emissivemap_fragment.replace('vUv',facadeUv))
+          .replace('#include <bumpmap_pars_fragment>',THREE.ShaderChunk.bumpmap_pars_fragment.replace(/\bvUv\b/g,`(${facadeUv} * 4.8)`));
+      }
+      if (surface) {
+        // Blend the cladding into the wall color before lighting.
+        // Upper windows keep their own independent emissive pattern.
+        shader.fragmentShader = shader.fragmentShader.replace('#include <color_fragment>',`#include <color_fragment>
+          vec3 cladding = sRGBToLinear(texture2D(districtSurface, ${point} / districtSurfacePeriod)).rgb;
+          float heightBlend = 1.0 - smoothstep(districtSurfaceMix.y,districtSurfaceMix.z,districtPoint.z);
+          float claddingBlend = districtSurfaceMix.x * districtSurfaceReady * districtPoint.w * heightBlend;
+          diffuseColor.rgb = mix(diffuseColor.rgb,cladding * districtSurfaceMix.w,claddingBlend);`);
+      }
+    };
+    return material;
+  }
+
+  function facadeMaterial(THREE,style,grime,surface) {
     const facade = facades[style];
     const size = 128, bytes = size*size*4;
     const diffuse = new Uint8Array(bytes), emission = new Uint8Array(bytes);
@@ -307,24 +357,8 @@
     const material = new THREE.MeshStandardMaterial({map:repeatedTexture(THREE,diffuse,size),
       emissiveMap:repeatedTexture(THREE,emission,size),emissive:0xffffff,emissiveIntensity:1.1,
       roughness:facade.roughness,metalness:.21,bumpMap:grime,bumpScale:.045});
-    // Repeat material details in world metres so a small storefront and a tower
-    // can share an instanced material without either one stretching its windows.
-    material.onBeforeCompile = shader => {
-      shader.uniforms.districtPeriod = {value:new THREE.Vector2(facade.width,facade.height)};
-      shader.vertexShader = `varying vec2 districtUv; uniform vec2 districtPeriod;\n${shader.vertexShader}`
-        .replace('#include <uv_vertex>',`#include <uv_vertex>
-          vec3 partSize = vec3(1.0);
-          #ifdef USE_INSTANCING
-            partSize = vec3(length(instanceMatrix[0].xyz),length(instanceMatrix[1].xyz),length(instanceMatrix[2].xyz));
-          #endif
-          vec2 faceSize = abs(normal.y) > .5 ? partSize.xz : vec2(abs(normal.x) > .5 ? partSize.z : partSize.x,partSize.y);
-          districtUv = uv * faceSize / districtPeriod;`);
-      shader.fragmentShader = `varying vec2 districtUv;\n${shader.fragmentShader}`
-        .replace('#include <map_fragment>',THREE.ShaderChunk.map_fragment.replace('vUv','districtUv'))
-        .replace('#include <emissivemap_fragment>',THREE.ShaderChunk.emissivemap_fragment.replace('vUv','districtUv'))
-        .replace('#include <bumpmap_pars_fragment>',THREE.ShaderChunk.bumpmap_pars_fragment.replace(/\bvUv\b/g,'(districtUv * 4.8)'));
-    };
-    return material;
+    // Repeat every tile in world metres so one material fits buildings of different sizes.
+    return tileWallMaterial(THREE,material,facade,surface);
   }
 
   function surfaceTexture(THREE,slabs) {
@@ -528,15 +562,42 @@
       }
     }
 
-    const grime = typeof document === 'undefined' ? null : new THREE.TextureLoader().load(concreteBump);
+    const loader = typeof document === 'undefined' ? null : new THREE.TextureLoader();
+    const wallTextures = [];
+    let disposed = false;
+    function loadWallTexture(file,{width,height,opacity,fadeStart=3.5,fadeEnd=7.5,tint}) {
+      if (!loader) return null;
+      const ready = {value:0};
+      const texture = loader.load(driveBase+'assets/portfolio-type/'+file,loaded => {
+        if (disposed) loaded.dispose();
+        else ready.value = 1;
+      });
+      texture.name = file;
+      texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+      wallTextures.push(texture);
+      return {texture,ready,width,height,opacity,fadeStart,fadeEnd,tint};
+    }
+    const grime = loader?.load(driveBase+'assets/portfolio/concrete-bump.jpg') || null;
     if (grime) grime.wrapS = grime.wrapT = THREE.RepeatWrapping;
-    const facadeMaterials = facades.map((_,style) => facadeMaterial(THREE,style,grime));
+    const boardConcrete = loadWallTexture('board-concrete.webp',{width:2.8,height:2.3,opacity:.88,tint:.66});
+    const servicePanels = loadWallTexture('service-panels.webp',{
+      width:4.8,height:3.7,opacity:.81,fadeStart:7.5,fadeEnd:15,tint:.74
+    });
+    const marketTile = loadWallTexture('market-tile.webp',{width:1.85,height:1.15,opacity:.89,tint:.68});
+    const concreteFooting = tileWallMaterial(THREE,
+      new THREE.MeshStandardMaterial({color:surfaceColor(0x44434a),roughness:.91}),null,boardConcrete);
+    const marketFooting = tileWallMaterial(THREE,
+      new THREE.MeshStandardMaterial({color:surfaceColor(0x554947),roughness:.68}),null,marketTile);
+    const facadeMaterials = facades.map((_,style) => facadeMaterial(THREE,style,grime,
+      style===3 || style===5 ? servicePanels : null));
     for (const [index,b] of buildings.entries()) {
       const {name,light:color}=facades[b.style];
       instance('portfolio-building-'+name,facadeMaterials[b.style],b.x,b.baseY+b.height/2,b.z,b.width,b.height,b.depth);
       const detailed = b.detail && b.width > 3;
       if (detailed && !b.baseY) {
-        instance('portfolio-footings',materials.steel,b.x,1.1,b.z,b.width+.16,2.2,b.depth+.18);
+        const tiledMarket = b.style===1 || (b.style===2 && b.x<0 && b.z<55);
+        const footingName = tiledMarket ? 'portfolio-market-tile-footings' : 'portfolio-board-concrete-footings';
+        instance(footingName,tiledMarket ? marketFooting : concreteFooting,b.x,1.1,b.z,b.width+.16,2.2,b.depth+.18);
         if (b.style===1 || b.style===2 || b.style===7) {
           for (const side of [-1,1]) {
             instance('portfolio-shop-awnings',b.style===1 ? materials.copper : materials.metal,b.x,3.3,b.z+side*(b.depth/2+.65),b.width*.89,.46,1.7);
@@ -676,7 +737,11 @@
       rainGeometry.attributes.position.needsUpdate=true;
     }
     update({position:spawn},0);
-    return {update};
+    function dispose() {
+      disposed = true;
+      for (const texture of wallTextures) texture.dispose();
+    }
+    return {update,dispose};
   }
 
   return {edge, roadHalfWidth, spawn, routeSamples, stops, buildings, networkRoads, highwaySegments,
