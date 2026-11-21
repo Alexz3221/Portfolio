@@ -1362,7 +1362,7 @@
       map.ensureNear = () => Promise.resolve([]);
       map.ensureAll = () => Promise.resolve([]);
     }
-    map.build = (THREE, world) => build(THREE, world, map);
+    map.build = (THREE, world, options) => build(THREE, world, map, options);
     return map;
   }
 
@@ -1392,7 +1392,7 @@
     return map;
   }
 
-  function build(THREE, world, map) {
+  function build(THREE, world, map, {showPortfolioStops = true} = {}) {
     const mirrorGlyphs = world.scale.z < 0;
     const chunkRoot = new THREE.Group(), terrainRoot = new THREE.Group();
     chunkRoot.name = 'imported-city-tiles'; terrainRoot.name = 'imported-city-terrain';
@@ -4241,7 +4241,7 @@
       if (THREE.sRGBEncoding) texture.encoding = THREE.sRGBEncoding;
       return texture;
     }
-    for (const stop of map.stops) {
+    for (const stop of showPortfolioStops ? map.stops : []) {
       const beacon = new THREE.Group(); beacon.name = 'imported-city-landmark';
       const heading = Number.isFinite(stop.heading) ? stop.heading : 0;
       const edge = Math.max(5, Number.isFinite(stop.roadWidth) ? stop.roadWidth / 2 + 1.4 : 6);

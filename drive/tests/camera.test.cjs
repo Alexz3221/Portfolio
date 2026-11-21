@@ -73,7 +73,7 @@ test('hood look stays anchored to car and returns to forward view', () => {
 
 test('map textures dispose when changing routes', () => {
   const {sim}=harness();
-  for(const id of Object.keys(sim.maps)) {
+  for(const id of ['city','mountain','racetrack']) {
     sim.chooseMap(id);
     const textures=new Set();
     sim.world.traverse(mesh=>{if(mesh.material?.map){
@@ -268,7 +268,7 @@ test('chase and wide cameras center the car body at every heading, including orb
 
 test('map lineup has city buildings, mountain elevation and circuit obstacles',()=>{
   const {sim}=harness();
-  assert.deepEqual(Object.keys(sim.maps).sort(),['city','mountain','racetrack']);
+  assert.deepEqual(Object.keys(sim.maps).sort(),['city','mountain','racetrack','skylines']);
   sim.chooseMap('city');
   assert.equal(sim.world.getObjectByName('terrain').geometry.attributes.position.count,4);
   assert.ok(sim.world.getObjectByName('city-building'));

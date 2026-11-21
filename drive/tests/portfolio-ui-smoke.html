@@ -12,6 +12,8 @@ ui.setMap('city');
 ui.update({x: stops[0].x, z: stops[0].z}, 0);
 check(!document.querySelector('.city-guide-trigger').hidden, 'guide trigger visible');
 check(!document.querySelector('.city-nearby').hidden, 'nearby prompt visible');
+check(document.querySelectorAll('.city-minimap-stop').length === 6, 'minimap shows all portfolio destinations');
+check(document.querySelector('.city-minimap-hint').textContent.includes('Nearest: About'), 'minimap names the nearest portfolio stop');
 document.querySelector('.city-guide-trigger').click();
 check(ui.isOpen(), 'guide opens');
 check(document.querySelectorAll('.city-stop-item').length === 6, 'all six cards');
@@ -137,11 +139,19 @@ const centerCity = {stops, bounds:{minX:-500,maxX:500,minZ:-500,maxZ:500},
   overviewRoads:[{x1:-400,z1:0,x2:400,z2:0,width:16}],
   manifest:{source:{cityName:'Test City'},centerCandidates:[{id:'center-0_0',x:0,z:0}]},
   snapToRoad(x,z){return {x:x+4,z,heading:0,distance:4,roadId:'street-1'};}};
-ui.setCity(centerCity);
+ui.setCity(centerCity, 'skylines');
+check(!document.querySelector('.city-guide-trigger').hidden &&
+  document.querySelector('.city-guide-trigger').textContent === 'CITY MAP', 'import offers its own city map');
+check(document.querySelectorAll('.city-stop-item, .city-map-stop, .city-minimap-stop').length === 0,
+  'import has no portfolio destinations');
+ui.update({x: stops[0].x, z: stops[0].z}, 0);
+document.dispatchEvent(new KeyboardEvent('keydown', {key: 'e', bubbles: true}));
+check(!ui.isOpen() && document.querySelector('.city-nearby').hidden, 'portfolio interactions are disabled in the import');
 check(document.querySelectorAll('.city-center-item').length === 1, 'one road-safe city center');
 check(document.querySelectorAll('.city-minimap-center').length === 1, 'minimap shows the center');
 document.querySelector('.city-minimap').click();
 check(ui.isOpen() && document.activeElement === document.querySelector('.city-panel'), 'minimap opens the guide and focuses panel');
+check(document.querySelector('#cityPanelTitle').textContent === 'City Map', 'import panel is labeled City Map');
 document.querySelector('.city-center-item').click();
 check(jumped === 'center-0_0' && !ui.isOpen(), 'center fast travel jumps and closes guide');
 check(document.activeElement === document.querySelector('#drive-scene'), 'fast travel returns focus to the canvas');
@@ -171,11 +181,13 @@ ui.setCity(centerCity);
 ui.setMap('course');
 check(document.querySelector('.city-guide-trigger').hidden, 'guide hidden off city');
 ui.setMap('city');
+check(document.querySelectorAll('.city-stop-item').length === 6 && document.querySelector('.city-centers').hidden,
+  'switching back restores portfolio stops and hides imported travel points');
 document.querySelector('#drive-scene').dispatchEvent(new KeyboardEvent('keydown', {key:'m', bubbles:true}));
 check(ui.isOpen(), 'M opens city map');
 document.dispatchEvent(new KeyboardEvent('keydown', {key:'m', bubbles:true}));
 check(!ui.isOpen(), 'M closes city map');
-document.getElementById('results').textContent = failures.length ? 'FAIL: ' + failures.join(', ') : 'PASS: guide, large zoomable map, pan, M hotkey, center fast travel, E prompt, Escape';
+document.getElementById('results').textContent = failures.length ? 'FAIL: ' + failures.join(', ') : 'PASS: separate city maps, zoom, pan, M hotkey, center fast travel, E prompt, Escape';
 document.documentElement.dataset.result = failures.length ? 'fail' : 'pass';
 if (new URLSearchParams(location.search).has('preview')) {
   if (new URLSearchParams(location.search).has('narrow')) {

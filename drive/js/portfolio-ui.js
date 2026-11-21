@@ -155,8 +155,7 @@
   function create({document, window, stops, city, onJump, onOpen, onClose, driveTarget}) {
     if (!document?.createElement || !document?.body) throw new Error('Portfolio UI needs a browser document');
     let cityMap = city || null;
-    let locations = (stops || cityMap?.stops || []).filter(stop => stories[stop.id]);
-    let byId = new Map(locations.map(stop => [stop.id, stop]));
+    let locations = [], byId = new Map(), mapRoads = [];
     const routePicker = document.querySelector('.route-picker');
     const guideButton = document.createElement('button');
     guideButton.type = 'button';
@@ -170,7 +169,7 @@
     host.className = 'city-ui';
     host.hidden = true;
     host.innerHTML = `
-      <button class="city-nearby" type="button" hidden></button>
+      <button class="city-nearby" type="button" hidden><span></span><kbd aria-hidden="true">E</kbd></button>
       <button class="city-minimap" type="button" aria-label="Open city map and fast travel">
         <span class="city-minimap-label">CITY MAP <b>↗</b></span>
         <span class="city-minimap-canvas">
@@ -179,13 +178,13 @@
           <span class="city-minimap-centers" aria-hidden="true"></span>
           <span class="city-minimap-player" aria-hidden="true"></span>
         </span>
-        <span class="city-minimap-hint">CLICK OR M / OPEN</span>
+        <span class="city-minimap-hint" aria-hidden="true"></span>
       </button>
       <div class="city-overlay" hidden>
         <section class="city-panel" role="dialog" aria-modal="true" aria-labelledby="cityPanelTitle" tabindex="-1">
-          <div class="city-panel-head"><div><p class="city-panel-kicker">ALEX / AFTER DARK</p><h2 id="cityPanelTitle">City Guide</h2></div><button class="city-close" type="button" aria-label="Close city guide">×</button></div>
+          <div class="city-panel-head"><div><p class="city-panel-kicker"></p><h2 id="cityPanelTitle">City Guide</h2></div><button class="city-close" type="button" aria-label="Close map panel">×</button></div>
           <div class="city-guide-view">
-            <p class="city-guide-intro">Choose a stop to open it or jump there.</p>
+            <p class="city-guide-intro"></p>
             <div class="city-guide-layout">
               <div class="city-map" role="group" tabindex="0" aria-label="Interactive city map. Drag to pan, scroll to zoom, or use the map controls. Portfolio stops and city centers are clickable.">
                 <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true" focusable="false"></svg>
@@ -220,12 +219,17 @@
     const overlay = host.querySelector('.city-overlay');
     const panel = host.querySelector('.city-panel');
     const title = host.querySelector('#cityPanelTitle');
+    const kicker = host.querySelector('.city-panel-kicker');
     const guide = host.querySelector('.city-guide-view');
+    const guideIntro = host.querySelector('.city-guide-intro');
+    const guideLayout = host.querySelector('.city-guide-layout');
     const storyView = host.querySelector('.city-story-view');
     const storyContent = host.querySelector('.city-story-content');
     const nearby = host.querySelector('.city-nearby');
+    const nearbyLabel = nearby.querySelector('span');
     const playerDot = host.querySelector('.city-player-dot');
     const minimap = host.querySelector('.city-minimap');
+    const minimapHint = host.querySelector('.city-minimap-hint');
     const minimapPlayer = host.querySelector('.city-minimap-player');
     const minimapCanvas = host.querySelector('.city-minimap-canvas');
     const minimapCenters = host.querySelector('.city-minimap-centers');
@@ -276,8 +280,9 @@
     }
     function applyMinimapView() {
       const span = Math.max(1, bounds.maxX - bounds.minX, bounds.maxZ - bounds.minZ);
-      // About 650 metres of nearby streets vertically, regardless of city size.
-      const height = Math.min(92, 650 * 92 / span), width = height * miniAspect;
+      // Use a tighter view in the compact portfolio district.
+      const radarDistance = map === 'city' ? 300 : 650;
+      const height = Math.min(92, radarDistance * 92 / span), width = height * miniAspect;
       const center = point(radarPosition?.x ?? locations[0]?.x ?? 0,
         radarPosition?.z ?? locations[0]?.z ?? 0);
       miniView = {left: center.x - width / 2, top: center.y - height / 2, width, height};
@@ -359,7 +364,7 @@
         path('city-map-highway', paths.highway);
     }
     function drawRadarRoads() {
-      const roads = cityMap?.networkRoads || cityMap?.overviewRoads || cityMap?.roadSegments;
+      const roads = mapRoads;
       if (!roads?.length || !radarPosition) return;
       const span = Math.max(1, bounds.maxX - bounds.minX, bounds.maxZ - bounds.minZ);
       // Include the diagonal of the rotated viewport plus movement between
@@ -379,14 +384,14 @@
       radarRoadGroup = minimapSvg.firstElementChild;
     }
     function renderMap() {
-      const lines=cityMap?.networkRoads || cityMap?.overviewRoads || cityMap?.roadSegments;
+      const lines = mapRoads;
       if(lines?.length) {
         // Keep every source segment, but batch by style. Thousands of SVG
         // elements made every viewBox pan and zoom trigger expensive paint.
         svg.innerHTML = roadPaths(lines, true);
         radarRoadAnchor = null;
       } else {
-        const roads = [-400,-320,-240,-160,-80,0,80,160,240,320,400];
+        const roads = cityMap?.roadCenters || [-400,-320,-240,-160,-80,0,80,160,240,320,400];
         const roadMarkup = roads.map(c => {
           const a=point(c,-400),b=point(c,400),d=point(-400,c),e=point(400,c);
           return `<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}"/><line x1="${d.x}" y1="${d.y}" x2="${e.x}" y2="${e.y}"/>`;
@@ -402,7 +407,8 @@
       centerList.replaceChildren();
       locations.forEach((stop, index) => {
         const number = String(index + 1).padStart(2, '0');
-        const mapped=point(stop.x,stop.z);
+        const label = labels[stop.id];
+        const mapped = point(stop.mapX ?? stop.x, stop.mapZ ?? stop.z);
         const dot = document.createElement('button');
         dot.type = 'button';
         dot.className = 'city-map-stop';
@@ -413,16 +419,24 @@
         const stopColor = typeof stop.color === 'string' && /^#[\da-f]{6}$/i.test(stop.color)
           ? stop.color : '#' + Number(stop.color || 0x66e7f1).toString(16).padStart(6, '0');
         dot.style.setProperty('--stop-color', stopColor);
-        dot.setAttribute('aria-label', `${labels[stop.id]} at ${stop.title}`);
+        dot.setAttribute('aria-label', `Open ${label}${label === stop.title ? '' : ` at ${stop.title}`}`);
         dot.title = stop.title;
         dot.dataset.stop = stop.id;
         dot.textContent = number;
         mapStops.appendChild(dot);
+        const radarDot = document.createElement('span');
+        radarDot.className = 'city-minimap-stop';
+        radarDot.dataset.mapX = mapped.x;
+        radarDot.dataset.mapY = mapped.y;
+        radarDot.style.setProperty('--stop-color', stopColor);
+        minimapCenters.appendChild(radarDot);
         const item = document.createElement('button');
         item.type = 'button';
         item.className = 'city-stop-item';
         item.dataset.stop = stop.id;
-        item.innerHTML = `<span>${number} / ${escapeHtml(labels[stop.id])}</span><strong>${escapeHtml(stop.title)}</strong><small>OPEN STOP ↗</small>`;
+        item.style.setProperty('--stop-color', stopColor);
+        const location = label === stop.title ? '' : `<small>${escapeHtml(stop.title)}</small>`;
+        item.innerHTML = `<span aria-hidden="true">${number}</span><strong>${escapeHtml(label)}</strong>${location}`;
         stopList.appendChild(item);
       });
       centerSection.hidden = !centers.length || typeof onJump !== 'function';
@@ -461,22 +475,51 @@
       resetMapView();
       measureMinimap();
     }
-    function setCity(nextCity) {
-      cityMap=nextCity || null;
+    function setCity(nextCity, nextMap = map) {
+      nextCity = nextCity || null;
+      if (nextCity === cityMap && nextMap === map) return;
+      close(true);
+      cityMap = nextCity;
+      map = nextMap;
+      const active = isCityMap();
+      const isPortfolio = map === 'city';
+      host.hidden = guideButton.hidden = !active;
+      document.body.classList.toggle('city-map-active', active);
+      nearby.hidden = true;
+      nearbyStop = null;
+      if (!active) return;
+
+      guideButton.textContent = isPortfolio ? 'CITY GUIDE' : 'CITY MAP';
+      kicker.textContent = isPortfolio ? 'PORTFOLIO CITY' : 'CITIES: SKYLINES';
+      guideIntro.textContent = isPortfolio ? 'Open a stop here, or drive up to it and slow down.' :
+        'Pick a street or district to jump there. Zoom in to see individual roads.';
+      minimap.setAttribute('aria-label', isPortfolio ? 'Open the portfolio city guide' : 'Open the Cities: Skylines map');
+      minimapHint.hidden = !isPortfolio;
+      minimapHint.textContent = '';
+      mapViewport.setAttribute('aria-label', isPortfolio ?
+        'Interactive city map. Zoom or pan the map, then choose a portfolio stop.' :
+        'Interactive city map. Zoom or pan the map, then choose a district or street for fast travel.');
+      guideLayout.classList.toggle('city-guide-map-only', !isPortfolio);
+      mapStops.hidden = stopList.hidden = !isPortfolio;
       const edge=Number(cityMap?.edge) || 440;
       bounds=cityMap?.bounds || {minX:-edge,maxX:edge,minZ:-edge,maxZ:edge};
-      locations=(cityMap?.stops || stops || []).filter(stop=>stories[stop.id]);
+      locations = isPortfolio ? (cityMap?.stops || stops || []).filter(stop => stories[stop.id]) : [];
       byId=new Map(locations.map(stop=>[stop.id,stop]));
-      centers=deriveCenters(cityMap);
+      centers = !isPortfolio && typeof onJump === 'function' ? deriveCenters(cityMap) : [];
       centersById=new Map(centers.map(center=>[center.id,center]));
-      if(currentStop)currentStop=byId.get(currentStop.id) || null;
-      nearbyStop=null;
+      mapRoads = [cityMap?.networkRoads, cityMap?.overviewRoads, cityMap?.roadSegments].find(roads => roads?.length) || [];
+      if (!mapRoads.length && !cityMap?.roadCenters && cityMap?.routeSamples?.length) {
+        mapRoads = cityMap.routeSamples.slice(1).map((point, index) => ({
+          x1:cityMap.routeSamples[index].x, z1:cityMap.routeSamples[index].z, x2:point.x, z2:point.z
+        }));
+      }
       radarPosition = locations[0] || cityMap?.focus || {x:0,z:0};
       radarRoadAnchor = null;
       renderMap();
     }
 
     let map = null, activeView = null, currentStop = null, nearbyStop = null, previousFocus = null, currentSpeed = 0;
+    function isCityMap() { return map === 'city' || map === 'skylines'; }
     function begin(view, returnFocus) {
       if (!activeView) {
         previousFocus = returnFocus || document.activeElement;
@@ -487,9 +530,10 @@
       nearby.hidden = true;
     }
     function openGuide(returnFocus) {
+      if (!isCityMap()) return;
       begin('guide', returnFocus);
       currentStop = null;
-      title.textContent = 'City Guide';
+      title.textContent = map === 'city' ? 'City Guide' : 'City Map';
       guide.hidden = false;
       storyView.hidden = true;
       applyMapView();
@@ -515,23 +559,15 @@
       currentStop = null;
       overlay.hidden = true;
       onClose?.();
-      const desiredFocus = driveFocus || previousFocus;
+      const desiredFocus = toDrive ? driveFocus : previousFocus || driveFocus;
       const returnTarget = desiredFocus && desiredFocus !== document.body && desiredFocus.isConnected &&
         !desiredFocus.closest?.('[hidden]') ? desiredFocus : driveFocus || guideButton;
       returnTarget.focus?.();
       previousFocus = null;
     }
-    function setMap(nextMap) {
-      map = nextMap;
-      if (map !== 'city') close(true);
-      host.hidden = map !== 'city';
-      document.body.classList.toggle('city-map-active', map === 'city');
-      guideButton.hidden = map !== 'city';
-      if (map !== 'city') nearby.hidden = true;
-      else measureMinimap();
-    }
+    function setMap(nextMap) { setCity(cityMap, nextMap); }
     function update(position, speed = 0, heading = 0) {
-      if (map !== 'city' || !position) return;
+      if (!isCityMap() || !position) return;
       currentSpeed = speed;
       const mapped=point(position.x,position.z);
       playerDot.dataset.mapX = mapped.x;
@@ -544,22 +580,29 @@
         radarPosition = {x: position.x, z: position.z};
         applyMinimapView();
       } else orientRadar();
+      if (map !== 'city') return;
       let nearest = null, distance = Infinity;
       for (const stop of locations) {
         const d = Math.hypot(position.x - stop.x, position.z - stop.z);
         if (d < distance) { nearest = stop; distance = d; }
       }
-      nearbyStop = distance < 23 ? nearest : null;
+      if (nearest) {
+        const meters = Math.round(distance / 5) * 5;
+        const hint = `Nearest: ${labels[nearest.id]} · ${meters} m`;
+        if (minimapHint.textContent !== hint) minimapHint.textContent = hint;
+      }
+      nearbyStop = nearest && distance < (nearest.interactionRadius ?? 23) ? nearest : null;
       if (!nearbyStop || activeView) { nearby.hidden = true; return; }
       const slow = Math.abs(speed) < 3;
       nearby.disabled = !slow;
-      nearby.textContent = slow ? `Press E / explore ${nearbyStop.title}` : `Slow down for ${nearbyStop.title}`;
+      const label = slow ? `Open ${labels[nearbyStop.id]}` : `Slow down for ${labels[nearbyStop.id]}`;
+      if (nearbyLabel.textContent !== label) nearbyLabel.textContent = label;
       nearby.hidden = false;
     }
     function isOpen() { return activeView !== null; }
 
     guideButton.addEventListener('click', event => activeView ? close(event.detail > 0) : openGuide(event.detail > 0 ? driveFocus : guideButton));
-    minimap.addEventListener('click', () => openGuide(driveFocus));
+    minimap.addEventListener('click', event => openGuide(event.detail > 0 ? driveFocus : minimap));
     zoomInButton.addEventListener('click', () => zoomMap(1.5));
     zoomOutButton.addEventListener('click', () => zoomMap(1 / 1.5));
     zoomResetButton.addEventListener('click', resetMapView);
@@ -627,7 +670,7 @@
       else if (event.target === overlay) close(true);
     });
     document.addEventListener('keydown', event => {
-      if (map !== 'city') return;
+      if (!isCityMap()) return;
       if (!event.repeat && event.key.toLowerCase() === 'm' &&
           !event.target.matches?.('input, select, textarea, [contenteditable]')) {
         event.preventDefault(); event.stopPropagation();
@@ -638,7 +681,7 @@
       if (activeView) {
         if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close(); return; }
         if (event.key === 'Tab') {
-          const focusable = [...panel.querySelectorAll('button:not([hidden]):not([disabled]), a[href]')].filter(el => !el.closest('[hidden]'));
+          const focusable = [...panel.querySelectorAll('button:not([hidden]):not([disabled]), a[href], [tabindex="0"]')].filter(el => !el.closest('[hidden]'));
           if (focusable.length) {
             const first = focusable[0], last = focusable[focusable.length - 1];
             if (event.shiftKey && (document.activeElement === first || !panel.contains(document.activeElement))) { event.preventDefault(); last.focus(); }
@@ -652,7 +695,7 @@
         }
         return;
       }
-      if (!event.repeat && (event.key === 'e' || event.key === 'E') && nearbyStop && Math.abs(currentSpeed || 0) < 3 &&
+      if (map === 'city' && !event.repeat && (event.key === 'e' || event.key === 'E') && nearbyStop && Math.abs(currentSpeed || 0) < 3 &&
           !event.target.matches?.('input, select, textarea, button, a, [contenteditable]')) {
         event.preventDefault();
         event.stopPropagation();
@@ -664,7 +707,6 @@
       new window.ResizeObserver(applyMapView).observe(mapViewport);
       new window.ResizeObserver(measureMinimap).observe(minimapCanvas);
     }
-    setCity(cityMap);
     return {setCity, setMap, update, isOpen, open, close};
   }
 

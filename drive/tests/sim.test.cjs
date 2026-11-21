@@ -29,19 +29,30 @@ function harness(assetLoader, importer, u9Asset) {
   return {sim: context.sim, document, window, cars, controls};
 }
 
-test('browser adopts a loaded imported district while keeping other routes playable',async()=>{
+test('the imported city loads on demand without replacing the portfolio city or a newer selection',async()=>{
   const fallback=require('../js/city');
   const imported={...fallback,edge:520,bounds:{minX:-500,maxX:500,minZ:-500,maxZ:500},
     terrain:{elementSize:880,originX:-440,maxZ:440,data:[[-50,-50],[-50,-50]]}};
-  const {sim}=harness(undefined,{load:()=>Promise.resolve(imported)});
-  assert.equal(sim.physics().edge,fallback.edge,'built-in district starts immediately');
+  let completeImport, loads=0;
+  const {sim}=harness(undefined,{load:()=>{
+    loads++;
+    return new Promise(resolve=>{completeImport=resolve;});
+  }});
   await new Promise(setImmediate);
-  assert.equal(sim.physics().edge,520,'imported city replaces the fallback');
-  assert.equal(sim.samples().length,imported.routeSamples.length);
+  assert.equal(loads,0,'portfolio city does not start importing');
+  assert.equal(sim.physics().edge,fallback.edge,'portfolio city starts immediately');
+  const pending=sim.chooseMap('skylines');
+  await new Promise(setImmediate);
   sim.chooseMap('mountain');
+  completeImport(imported);
+  await pending;
   assert.equal(sim.physics().edge,200);
   sim.chooseMap('city');
-  assert.equal(sim.physics().edge,520,'imported district survives route switches');
+  assert.equal(sim.physics().edge,fallback.edge,'returning to the portfolio uses its own map');
+  sim.chooseMap('skylines');
+  assert.equal(sim.physics().edge,520,'the imported district is its own route');
+  assert.equal(sim.samples().length,imported.routeSamples.length);
+  assert.equal(loads,1,'the loaded city can be reopened without another import');
   const p=sim.physics(),spawnX=sim.samples()[0].point.x;
   p.body.position.x=spawnX+5;p.body.position.y=-49;p.syncRenderState();
   sim.updateVehicle(0);
@@ -59,7 +70,7 @@ test('imported city display keeps physical left turns on the big map’s left si
     build(_three, world) { world.add(landmark); return {
       update(camera) { streamedCamera = {...camera.position}; }, dispose() {}}; }};
   const {sim} = harness(undefined, {load:() => Promise.resolve(imported)});
-  await new Promise(setImmediate);
+  await sim.chooseMap('skylines');
   assert.equal(sim.world.scale.z, -1, 'the imported city is reflected for Three.js');
   assert.equal(sim.vehicleFrame.scale.z, -1, 'the visible car shares the city frame');
   const physics = sim.physics();
@@ -131,7 +142,7 @@ test('right and left arrows steer toward the driver’s right and left at either
 test('all three maps have distinct drivable, finite closed routes and safe spawns', () => {
   const {sim} = harness();
   const shapes = new Set();
-  for (const id of Object.keys(sim.maps).filter(id => id !== 'course')) {
+  for (const id of ['city','mountain','racetrack']) {
     sim.chooseMap(id);
     const points = sim.samples();
     assert.equal(points.length, id==='racetrack'?require('../js/physics').stuntRoute.length:480);
@@ -157,7 +168,7 @@ test('map switching disposes old GPU resources and does not accumulate scenery',
   let disposed = false;
   sim.world.children[0].geometry.addEventListener('dispose', () => { disposed = true; });
   for (let i = 0; i < 12; i++) {
-    const id = Object.keys(sim.maps).filter(id => id !== 'course')[i % 3]; sim.chooseMap(id);
+    const id = ['city','mountain','racetrack'][i % 3]; sim.chooseMap(id);
     counts[id] ??= sim.world.children.length;
     assert.equal(sim.world.children.length, counts[id]);
   }

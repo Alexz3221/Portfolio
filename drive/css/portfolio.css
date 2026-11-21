@@ -20,6 +20,10 @@
 .city-nearby {
   position: fixed;
   z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
   left: 50%;
   bottom: clamp(160px, 25vh, 220px);
   transform: translateX(-50%);
@@ -39,6 +43,9 @@
 }
 .city-nearby:hover:not(:disabled) { background: #1c4050; }
 .city-nearby:disabled { border-color: #78939c; background: #101b23db; color: #bfd0d3; cursor: default; box-shadow: none; }
+.city-nearby kbd { padding: 2px 5px; border: 1px solid #487684; border-radius: 3px; color: #a4fcf8; }
+.city-nearby:disabled kbd { display: none; }
+@media (pointer: coarse) { .city-nearby kbd { display: none; } }
 .city-minimap {
   position: fixed;
   z-index: 4;
@@ -56,9 +63,11 @@
   touch-action: manipulation;
 }
 .city-minimap:hover { border-color: #78f2ee; background: #102b38f2; }
+.portfolio-city-active .city-minimap { width: 208px; }
+.portfolio-city-active .city-minimap-canvas { height: 136px; }
 .city-minimap-label, .city-minimap-hint { display: flex; justify-content: space-between; font: 700 9px ui-monospace, Consolas, monospace; letter-spacing: .13em; }
 .city-minimap-label b { color: #f596df; font-size: 13px; }
-.city-minimap-hint { margin-top: 6px; color: #a4cdd3; font-size: 8px; }
+.city-minimap-hint { margin-top: 6px; color: #a4cdd3; font-size: 10px; letter-spacing: .01em; }
 .city-minimap-canvas {
   position: relative;
   display: block;
@@ -78,6 +87,7 @@
 .city-minimap-centers { position: absolute; z-index: 2; inset: 0; }
 .city-minimap-center { position: absolute; width: 5px; height: 5px; transform: translate(-50%, -50%) rotate(45deg); border: 1px solid #ffb8e6; background: #f067cc; box-shadow: 0 0 5px #f067cc; }
 .city-minimap-center[data-kind="street"] { width: 4px; height: 4px; border-color: #9ee9eb; background: #2ab7c5; box-shadow: 0 0 4px #57d9e5; }
+.city-minimap-stop { position: absolute; width: 7px; height: 7px; transform: translate(-50%, -50%); border: 1px solid #061421; border-radius: 50%; background: var(--stop-color); box-shadow: 0 0 6px var(--stop-color); }
 .city-minimap-player { position: absolute; z-index: 3; left: 50%; top: 50%; width: 12px; height: 12px; transform: translate(-50%, -50%); border: 2px solid white; border-radius: 50%; background: #5eecf3; box-shadow: 0 0 0 3px #5eecf351, 0 0 9px #5eecf3; }
 .city-minimap-player::before { content: ''; position: absolute; left: 50%; top: -9px; transform: translateX(-50%); border-left: 4px solid transparent; border-right: 4px solid transparent; border-bottom: 7px solid white; }
 @media (min-width: 761px) and (min-height: 601px) {
@@ -175,6 +185,7 @@
   background: repeating-linear-gradient(120deg, transparent 0 19px, #7b558e0c 20px 21px, transparent 22px 42px);
 }
 .city-map svg { display: block; width: 100%; height: 100%; position: absolute; inset: 0; }
+.city-guide-layout.city-guide-map-only { grid-template-columns: minmax(0, 1fr); }
 .city-map svg :is(line, path) { fill: none; stroke: #52818e; stroke-width: 1; opacity: .68; vector-effect: non-scaling-stroke; }
 .city-map svg .city-map-arterial { stroke: #86bfc8; stroke-width: 1.2; opacity: .8; vector-effect: non-scaling-stroke; }
 .city-map svg .city-map-highway-glow { stroke: #ee62cb; stroke-width: 5; opacity: .22; vector-effect: non-scaling-stroke; }
@@ -240,10 +251,12 @@
 .city-center-key { position: absolute; right: 10px; bottom: 10px; padding: 5px 7px; background: #0b1522d9; color: #ed9bda; font: 700 9px ui-monospace, Consolas, monospace; letter-spacing: .06em; pointer-events: none; }
 .city-stop-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: start; gap: 9px; }
 .city-stop-item {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  min-height: 107px;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  align-content: center;
+  align-items: baseline;
+  column-gap: 6px;
+  min-height: 66px;
   padding: 12px;
   border: 1px solid #466473;
   border-radius: 5px;
@@ -252,9 +265,9 @@
   text-align: left;
 }
 .city-stop-item:hover { border-color: #66e7f1; background: #203b4a; box-shadow: 0 0 14px #66e7f12e; }
-.city-stop-item span, .city-stop-item small { color: #82e8ed; font: 700 9px ui-monospace, Consolas, monospace; letter-spacing: .1em; }
-.city-stop-item strong { margin: 4px 0 auto; font-size: 15px; line-height: 1.2; }
-.city-stop-item small { margin-top: 10px; color: #d9a7dc; }
+.city-stop-item span { color: var(--stop-color); font: 700 11px ui-monospace, Consolas, monospace; }
+.city-stop-item strong { font-size: 15px; line-height: 1.25; }
+.city-stop-item small { grid-column: 2; margin-top: 4px; color: #b6cbd7; font-size: 12px; }
 .city-centers { margin-top: 22px; padding-top: 15px; border-top: 1px solid #4a7e8b80; }
 .city-centers-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
 .city-centers-head h3 { margin: 0; color: #fff; font-size: 20px; letter-spacing: -.03em; }
@@ -312,7 +325,9 @@ a.city-project:hover { border-color: #e27fd6; background: #2a2940; }
 @media (max-width: 760px) {
   .city-minimap { left: max(18px, env(safe-area-inset-left)); bottom: calc(200px + env(safe-area-inset-bottom)); width: 200px; padding: 6px; }
   .city-minimap-canvas { height: 136px; }
-  .city-minimap-hint { font-size: 7px; }
+  .city-minimap-hint { font-size: 9px; }
+  .portfolio-city-active .city-minimap { width: 140px; }
+  .portfolio-city-active .city-minimap-canvas { height: 92px; }
   .city-overlay { padding: 10px; }
   .city-panel { max-height: calc(100dvh - 20px); }
   .city-panel-head { padding: 19px 18px 11px; }
@@ -327,7 +342,7 @@ a.city-project:hover { border-color: #e27fd6; background: #2a2940; }
   .city-minimap-canvas { height: 122px; }
   .city-center-key { right: 6px; bottom: 6px; font-size: 7px; }
   .city-stop-list, .city-project-grid, .city-school, .city-tool-grid, .city-signal-links { grid-template-columns: 1fr; }
-  .city-stop-item { min-height: 82px; }
+  .city-stop-item { min-height: 52px; }
   .city-panel-head h2 { font-size: 27px; }
   .city-map { min-height: 260px; aspect-ratio: 1; }
   .city-map-gesture { top: auto; bottom: 42px; font-size: 7px; }

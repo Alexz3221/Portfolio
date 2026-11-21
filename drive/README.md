@@ -6,9 +6,10 @@ Static Three.js driving playground and interactive portfolio. Serve the reposito
 
 Five cars share a 120 Hz rigid-body, four-wheel raycast suspension engine: Comet (141 mph target), Rally (115 mph), Pickup (99 mph), Hypercar (205 mph), and the hidden Yangwang U9 Xtreme (313 mph target). Actual speed depends on drag and terrain. The HUD uses mph; physics uses metres, seconds, and kilograms.
 
-The selector offers the City, mountain, and a Racetrack / stunt course group:
+The selector offers two separate cities, the mountain, and a Racetrack / stunt course group:
 
-- **City / Alex after dark** starts as an 880 m rainy neon street grid with 100 blocks, 163 varied buildings, businesses, six portfolio landmarks, and a driveable elevated highway with ramps. Buildings, highway deck, rails, and supports have solid colliders. The City Guide opens every stop directly; slow down near a landmark and press E to explore it there. Each story can jump back to that location.
+- **Portfolio City** is the default map. Drive through a compact neon district with six portfolio stops, wet streets, and a test bay with a jump and movable pylons. Signs and colored parking bays point to stops. Use the City Guide to open a stop directly or slow down near one and press E.
+- **Cities: Skylines** is the imported free-drive map. Select it in the menu or open `/drive/?map=skylines` directly. The first visit loads the terrain and nearby streets. Its map offers district and street jumps.
 - **Cliffside mountain** is an 894 m winding ledge with 7 m asphalt, real collision cliffs, and a steep ascent and descent. Falling off requires a reset.
 - **Racetrack / stunt course** is a 1.19 km ordered route with a 9 m overpass, slalom gates, an 8 m jump gap, a lower crossing, and a narrow balance bridge. Its road slabs are the colliders; there is no paved shortcut around a stunt. Approach the orange jump around 52–63 mph and slow down for the blue bridge.
 
@@ -26,11 +27,11 @@ Open **Records** in Ghost Challenge on the stunt course. **Copy race link** shar
 
 **Post best lap** publishes the replay under your public driver name using the records API on the hosted reader backend. The community board shows the fastest posted lap for each name, and every ranked lap has **Race** and **Copy link** actions. The API keeps previous race links usable after a driver improves. Times are recorded by the game client and driver names are unreserved. The static site can also copy a longer link containing the replay when a lap has no public record ID.
 
-The built-in City has a 440 m half-width boundary and a flat collision plane beneath its raised highway. Mountain and racetrack retain 200 m half-width boundaries; the mountain road follows its heightfield triangle sampler. The old proving-ground ramp remains only as a physics test fixture. Changing maps resets onto the selected route; changing cars preserves position and orientation while stopping momentum. World geometry, materials, and procedural textures are disposed on rebuild.
+Portfolio City has a flat collision plane beneath its roads and jump ramp. Mountain and racetrack retain 200 m half-width boundaries. The mountain road follows its heightfield triangle sampler. Changing maps resets onto the selected route. Changing cars preserves position and orientation while stopping momentum. World geometry, materials, and textures are disposed on rebuild.
 
-## Optional imported city
+## Imported city
 
-If `data/imported-city/manifest.json` exists, the page loads that converted CSLModernMap city and switches from the built-in district after the first nearby tiles arrive. If the data is absent or cannot load, the built-in City remains playable. The import keeps source terrain and road elevations, loads and evicts detail tiles around the car, and places the six portfolio stops beside suitable streets. The lower-left radar keeps the car and its vision cone pointing up while nearby streets turn around it. Click it or press M for the larger City Guide map with wheel/button zoom and drag/keyboard panning. Its markers lead to seven density-selected city centers and six portfolio stops. FIT restores the full-city view.
+The map loads its converted CSLModernMap data from `data/imported-city/manifest.json` when selected. If it cannot load, the current map stays playable and you can select Cities: Skylines to retry. The import preserves source terrain and road elevations and streams detail tiles around the car. Click the lower-left radar or press M for the city map. It supports zoom, pan, and fast travel to seven city centers and additional street jumps. FIT restores the full view.
 
 The imported driving physics uses the decoded terrain grid as a collision heightfield. Building colliders follow the rendered, inset footprints, leaving gaps between neighboring buildings; raised streets, true bridges, rails, and supports get nearby colliders as tiles load. Tile unload removes them. Ground road edge joins and junction mouths share pavement geometry sampled against the terrain, closing gaps at bends and multi-road intersections. Elevated road detail stays a continuous deck through its ramps, with matching collision surfaces and trimmed guardrails at merges. Grade-separated roads stay separate. Underground roads are omitted until the terrain can be carved for tunnels. Lane markings and directional arrows use exported vehicle lane positions and directions, while roadside speed signs show converted lane limits in km/h. Sidewalks, curbs, crosswalks, and street trees are inferred or procedurally placed because the export contains no sidewalk meshes or tree instances. Buildings use exported prefab names, footprints, categories, and heights to choose among 75 geometric recipes in 15 families, including distinct forms for special buildings. These are browser-authored interpretations: exact game meshes, materials, and adaptive lane connections are absent from this export. See [the conversion guide](docs/imported-city.md) for the `.cmm.gz` workflow and output schema.
 
@@ -38,7 +39,7 @@ A real CSLModernMap export is now converted in `data/imported-city/`: 293 detail
 
 ## Portfolio stops
 
-The six City stops are About / The Workshop, Projects / Project Arcade, Experience / The Shift Log, Education / Campus Corner, Skills / The Toolbox, and Contact / Signal Tower. Five are anchored near named landmarks in the actual save using `config/obamnas-america-stops.json`; About remains in the densest downtown area. Their stories paraphrase Alex's resume and link to existing projects. The public Contact stop shows LinkedIn and GitHub only. The guide and nearby prompt are accessible HTML over the 3D scene, so visitors can read the portfolio without driving. The home page links directly to the City while keeping its quick project list.
+Portfolio City's six stops are About, Projects, Experience, Education, Skills, and Contact. The guide lists all six and shows the nearest stop while driving. Each story can also send the car to its parking bay. The home page links to both cities.
 
 ## Controls and mobile
 
