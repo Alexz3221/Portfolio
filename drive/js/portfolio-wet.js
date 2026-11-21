@@ -24,22 +24,22 @@
     target.texture.name = 'Portfolio City pavement reflection';
     target.texture.generateMipmaps = true;
     const mirror = new THREE.PerspectiveCamera();
-    const projection = new THREE.Matrix4(), gaze = new THREE.Vector3(), lastSkyPosition = new THREE.Vector3();
+    const projection = new THREE.Matrix4(), nextProjection = new THREE.Matrix4();
+    const gaze = new THREE.Vector3(), lastSkyPosition = new THREE.Vector3();
     const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -.048), viewPlane = new THREE.Plane();
     const clip = new THREE.Vector4(), corner = new THREE.Vector4();
     const capturePosition = new THREE.Vector3(), captureRotation = new THREE.Quaternion();
     const captureProjection = new THREE.Matrix4();
-    const previousPosition = new THREE.Vector3(), previousRotation = new THREE.Quaternion();
     const texture = new THREE.TextureLoader().load('assets/portfolio/asphalt-diffuse.jpg', image => {
       if (disposed) image.dispose();
       else uniforms.wetHasAsphalt.value = 1;
     }, undefined, () => { /* Procedural aggregate is available before the texture arrives. */ });
     texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
     texture.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
-    let disposed = false, elapsed = Infinity, hasPreviousCamera = false;
+    let disposed = false, elapsed = Infinity, hasCapture = false;
     const uniforms = {
       wetImage:{value:target.texture}, wetProjection:{value:projection},
-      wetAsphalt:{value:texture}, wetHasAsphalt:{value:0}, wetImageReady:{value:0}, wetMotion:{value:0}
+      wetAsphalt:{value:texture}, wetHasAsphalt:{value:0}, wetImageReady:{value:0}
     };
 
     for (const material of materials) {
@@ -65,7 +65,7 @@
             varying vec4 wetClip;
             varying vec2 wetStreet;
             uniform sampler2D wetImage, wetAsphalt;
-            uniform float wetHasAsphalt, wetImageReady, wetMotion;
+            uniform float wetHasAsphalt, wetImageReady;
             float aggregate(vec2 p) { return fract(sin(dot(p,vec2(93.17,71.31)))*453.47); }
           `)
           .replace('#include <color_fragment>', `#include <color_fragment>
@@ -84,10 +84,10 @@
             float fresnel = pow(1. - viewAngle, 2.7);
             // Sample averaged mip levels rather than moving individual window
             // pixels across the pavement at grazing camera angles.
-            float roughMip = 1.75 + .90*(1.-puddle) + .62*fresnel + 1.38*wetMotion;
+            float roughMip = 2.10 + .90*(1.-puddle) + .62*fresnel;
             vec3 streetMirror = texture2D(wetImage, reflected, roughMip).rgb;
             streetMirror /= 1.0 + .9 * max(streetMirror.r,max(streetMirror.g,streetMirror.b));
-            float reflectivity = (.14+.34*fresnel) * mix(.28,.88,puddle) * fade * mix(1.,.44,wetMotion)
+            float reflectivity = (.14+.34*fresnel) * mix(.28,.88,puddle) * fade
               * smoothstep(.01,.4,wetClip.w) * wetImageReady;
             outgoingLight = outgoingLight * (1. - .34 * reflectivity) + streetMirror * reflectivity;
             gl_FragColor = vec4( outgoingLight, diffuseColor.a );
@@ -96,38 +96,25 @@
       material.needsUpdate = true;
     }
 
+    function fadeCapture(towards, delta) {
+      const remaining = Math.exp(-4 * delta);
+      uniforms.wetImageReady.value = towards + (uniforms.wetImageReady.value - towards) * remaining;
+    }
+
     function update(camera, delta) {
       elapsed += delta;
-      if (hasPreviousCamera && delta > 0) {
-        const displacement = camera.position.distanceTo(previousPosition);
-        const rotation = 2 * Math.acos(Math.min(1, Math.abs(camera.quaternion.dot(previousRotation))));
-        const pan = THREE.MathUtils.smoothstep(rotation / delta, .16, 1.65);
-        const travel = THREE.MathUtils.smoothstep(displacement / delta, 3.5, 25);
-        const motion = Math.max(pan, travel);
-        const factor = 1 - Math.exp(-(motion > uniforms.wetMotion.value ? 24 : 6) * delta);
-        uniforms.wetMotion.value = THREE.MathUtils.lerp(uniforms.wetMotion.value, motion, factor);
-      }
-      previousPosition.copy(camera.position);
-      previousRotation.copy(camera.quaternion);
-      hasPreviousCamera = true;
       if (plane.distanceToPoint(camera.position) < .085) {
-        uniforms.wetImageReady.value = 0;
+        fadeCapture(0, delta);
+        elapsed = Infinity;
         return;
       }
       // The image and its projection need to follow the moving eye together.
       const cameraMoved = camera.position.distanceToSquared(capturePosition) > .0009
         || 1 - Math.abs(camera.quaternion.dot(captureRotation)) > .0000003
         || !captureProjection.equals(camera.projectionMatrix);
-      if (uniforms.wetImageReady.value && !cameraMoved && elapsed < (compact ? .13 : .09)) return;
-
-      const portrait = camera.aspect < .8;
-      const wide = camera.aspect > 1.25;
-      // Both axes stay powers of two so the mirror's rough mip levels are
-      // available on WebGL 1 devices as well.
-      const width = portrait ? 128 : 256;
-      const height = wide || compact && !portrait ? 128 : 256;
-      if (width !== target.width || height !== target.height) {
-        target.setSize(width, height);
+      if (hasCapture && !cameraMoved && elapsed < (compact ? .13 : .09)) {
+        fadeCapture(1, delta);
+        return;
       }
 
       camera.updateMatrixWorld();
@@ -152,17 +139,28 @@
       corner.set((Math.sign(clip.x) + matrix[8]) / matrix[0], (Math.sign(clip.y) + matrix[9]) / matrix[5],
         -1, (1 + matrix[10]) / matrix[14]);
       const scale = clip.dot(corner);
-      if (scale < .00001) {
-        uniforms.wetImageReady.value = 0;
+      if (!Number.isFinite(scale) || scale < .00001) {
+        // Keep the last valid texture and projection together. A near-plane
+        // rejection must not switch the reflected lights off for one frame.
+        fadeCapture(0, delta);
+        elapsed = Infinity;
         return;
       }
-      projection.multiplyMatrices(mirror.projectionMatrix, mirror.matrixWorldInverse);
+      nextProjection.multiplyMatrices(mirror.projectionMatrix, mirror.matrixWorldInverse);
       clip.multiplyScalar(2 / scale);
       matrix[2] = clip.x;
       matrix[6] = clip.y;
       matrix[10] = clip.z + 1 - .0005;
       matrix[14] = clip.w;
       mirror.projectionMatrixInverse.copy(mirror.projectionMatrix).invert();
+
+      const portrait = camera.aspect < .8;
+      const wide = camera.aspect > 1.25;
+      // Both axes stay powers of two so the mirror's rough mip levels are
+      // available on WebGL 1 devices as well.
+      const width = portrait ? 128 : 256;
+      const height = wide || compact && !portrait ? 128 : 256;
+      if (width !== target.width || height !== target.height) target.setSize(width, height);
 
       const previous = renderer.getRenderTarget();
       const toneMapping = renderer.toneMapping, shadowUpdate = renderer.shadowMap.autoUpdate;
@@ -176,11 +174,14 @@
         renderer.setRenderTarget(target);
         renderer.state.buffers.depth.setMask(true);
         renderer.render(scene, mirror);
+        projection.copy(nextProjection);
         capturePosition.copy(camera.position);
         captureRotation.copy(camera.quaternion);
         captureProjection.copy(camera.projectionMatrix);
         elapsed = 0;
-        uniforms.wetImageReady.value = 1;
+        if (hasCapture) fadeCapture(1, delta);
+        else uniforms.wetImageReady.value = 1;
+        hasCapture = true;
       } finally {
         renderer.setRenderTarget(previous);
         renderer.toneMapping = toneMapping;

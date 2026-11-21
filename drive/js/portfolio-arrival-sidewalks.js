@@ -59,6 +59,19 @@
     return 0;
   }
 
+  function footprint() {
+    // Leave the surrounding network out of the lowered crossing, food apron,
+    // and storefront pads, including the narrow joint next to the road.
+    const arrival = [-1,1].map(side => {
+      const stations=[...new Set(easement[side].map(([z])=>z).concat([-45,-44.5,-44.05,-43.6]))].sort((a,b)=>a-b);
+      const inner=stations.map(z=>[side*(outline(z)-.075),z]);
+      const outer=stations.map(z=>[side*along(easement[side],z),z]).reverse();
+      return [inner.concat(outer)];
+    });
+    return arrival.concat([[marketFrontage.map(([x,z])=>[x,z-.035])
+      .concat([[marketEnd,marketWall],[marketStart,marketWall]])]]);
+  }
+
   function quads() { return {positions:[], colors:[], uvs:[]}; }
 
   function face(batch, points, tint, reverse = false) {
@@ -280,5 +293,5 @@
     }};
   }
 
-  return {attach,surfaceHeight};
+  return {attach,surfaceHeight,footprint};
 });

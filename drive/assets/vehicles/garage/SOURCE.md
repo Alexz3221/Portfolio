@@ -2,13 +2,15 @@
 
 | Game model | Source and license | Changes |
 | --- | --- | --- |
-| DeLorean DMC-12 | [DeLorean DMC-12 by JandroS](https://sketchfab.com/3d-models/delorean-dmc-12-7001f739fe594314b5a3081163577139), [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). [Sketchfab metadata](https://api.sketchfab.com/v3/models/7001f739fe594314b5a3081163577139). | All 169,930 source triangles are present. The source's existing tire, rim and hub faces were assigned to separate wheel pivots and the stainless finish was adapted for the game's lighting. Existing red lenses from the source’s `BackLights and Plate_4` assembly light up during braking. The original source uses solid materials. The export omits unused UV and tangent data. |
+| DeLorean DMC-12 | [Delorean-dmc-12 by cadwalader](https://sketchfab.com/3d-models/delorean-dmc-12-6d5569d1bb8648beb744e88a99f36752), [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). [Sketchfab metadata](https://api.sketchfab.com/v3/models/6d5569d1bb8648beb744e88a99f36752) and [Objaverse archive](https://huggingface.co/datasets/allenai/objaverse/resolve/main/glbs/000-100/6d5569d1bb8648beb744e88a99f36752.glb). | Retains all 117,341 car triangles from the archived GLB along with its 1K window, lamp, plate, and rim maps. The showroom floor was removed and the four original wheel assemblies were fitted to separate pivots. Braking brightens the existing red taillight cells through their source emissive texture. The body uses the garage's reflection lighting. |
 | Rally | [Rally Car by tevy](https://tevy.dev/models/rally-car), [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/). | Converted the 17,770-triangle LOD1 to standard glTF geometry and PNG textures. Preserved the sponsor-free blue livery, gravel tires, and four hood lamps. |
 | Pickup | [Pickup Truck Armored by Quaternius](https://poly.pizza/m/RUwMItmU4B), [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/). | Separated the rear axle into two animated wheels and added brake lenses beside the tailgate. Preserved the reinforced body, bed, fenders, and protective plow. |
 
 The three models were fitted to the existing garage chassis and use the original driving parameters. The DeLorean replaces the appearance of the internal `hypercar` slot.
 
-The game renders Rally with a pearl-blue finish and cool front lamps. The Pickup uses violet body enamel beside its original safety-colored cage and strips. Both pick up soft reflections from the same light map used by the Comet.
+The Pickup uses exposed steel and oxidized patches, with cyan cage accents and lime safety stripes picked from its original palette. Rally keeps its livery with a lighter satin finish and traces of wear. Both pick up soft reflections from the same light map used by the Comet.
+
+`rust-detail.webp` packs the color and roughness maps from [Rust Coarse 01 by Dimitrios Savva and Rico Cilliers](https://polyhaven.com/a/rust_coarse_01), released under [CC0](https://polyhaven.com/license). The 1K maps were resized to 512 × 512 and packed as color in RGB and roughness in alpha. The garage shaders sample it in chassis space and blend it with a procedural wear mask.
 
 ## Source files
 

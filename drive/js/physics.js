@@ -1062,7 +1062,7 @@
       }
       return false;
     }
-    reset();return {world,body,car,step,reset,dispose,addTree,edge,obstacles,addObstacle,bridges,stuntSlabs,stuntSupports,courseRoute,courseSlabs,addCourseCollisionMeshes,useCourseProxy,roadHeight,terrainHeight:height,ramp,spec,renderPosition,renderQuaternion,renderWheels,syncRenderState,getAssistState,restoreAssistState};
+    reset();return {world,body,car,step,reset,dispose,addTree,edge,obstacles,addObstacle,addStaticSurface:junctionBody,bridges,stuntSlabs,stuntSupports,courseRoute,courseSlabs,addCourseCollisionMeshes,useCourseProxy,roadHeight,terrainHeight:height,ramp,spec,renderPosition,renderQuaternion,renderWheels,syncRenderState,getAssistState,restoreAssistState};
   }
   return {create,terrainHeight,scenicHeight,ramp,vehicles,mountainPoints,stuntBumps,overpasses,stuntRoute,stuntFeatures,stuntProfile,city:City};
 });

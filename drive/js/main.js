@@ -62,7 +62,8 @@
   let cityVisual = null;
   let portfolioPlay = null;
   let portfolioHolograms = null, portfolioWet = null, portfolioAssets = null, portfolioSkyAds = null;
-  let arrivalMarket = null, arrivalSidewalks = null;
+  let arrivalMarket = null, arrivalSidewalks = null, streetSidewalks = null;
+  let portfolioPublicSpaces = null, portfolioAirship = null;
   let importedAssetScene = null;
   let worldGeneration = 0;
   let portfolio = null;
@@ -215,7 +216,10 @@
     portfolioSkyAds?.dispose();
     arrivalMarket?.dispose();
     arrivalSidewalks?.dispose();
-    arrivalMarket = arrivalSidewalks = null;
+    streetSidewalks?.dispose();
+    portfolioPublicSpaces?.dispose();
+    arrivalMarket = arrivalSidewalks = streetSidewalks = null;
+    portfolioPublicSpaces = portfolioAirship = null;
     portfolioWet = portfolioHolograms = portfolioAssets = portfolioSkyAds = null;
     cityVisual?.dispose?.();
     physics?.dispose?.();
@@ -604,7 +608,12 @@
       globalThis.DrivePortfolioFacades?.attach(THREE, world, city);
       const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
       arrivalSidewalks = globalThis.DrivePortfolioArrivalSidewalks?.attach(THREE, world, physics);
+      streetSidewalks = globalThis.DrivePortfolioStreets?.attachSidewalkPhysics(world, physics);
       arrivalMarket = globalThis.DrivePortfolioArrivalMarket?.attach(THREE, world, {reducedMotion});
+      portfolioPublicSpaces = globalThis.DrivePortfolioPublicSpaces?.attach(THREE, world, {
+        Cannon:globalThis.CANNON, physics
+      });
+      portfolioAirship = globalThis.DrivePortfolioAirship?.attach(THREE, world, {reducedMotion});
       portfolioSkyAds = globalThis.DrivePortfolioSkyAds?.attach(THREE, world, {reducedMotion});
       portfolioWet = globalThis.DrivePortfolioWet?.create(THREE, renderer, scene, world, sky, {
         compact:window.matchMedia?.('(pointer: coarse)')?.matches || window.innerWidth < 700
@@ -1537,6 +1546,7 @@
       ? {position:{x:camera.position.x,y:camera.position.y,z:-camera.position.z}} : camera, delta);
     portfolioPlay?.update(driveDelta);
     portfolioSkyAds?.update(delta);
+    portfolioAirship?.update(delta);
     arrivalMarket?.update(delta);
     portfolio?.update(physics.body.position, motion.speed, motion.heading);
     if (!document.hidden) portfolioWet?.update(camera, delta);

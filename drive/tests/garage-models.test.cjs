@@ -7,7 +7,7 @@ const THREE = require('three');
 const {vehicles} = require('../js/physics.js');
 
 const files = [
-  {type:'hypercar', file:'delorean.glb', author:'JandroS', license:'CC BY 4.0', triangles:169930, maxBytes:4500000},
+  {type:'hypercar', file:'delorean.glb', author:'cadwalader', license:'CC BY 4.0', triangles:117341, maxBytes:5200000},
   {type:'rally', file:'rally.glb', author:'tevy', license:'CC0 1.0', triangles:17770, maxBytes:800000},
   {type:'pickup', file:'pickup.glb', author:'Quaternius', license:'CC0 1.0', triangles:13184, maxBytes:800000}
 ];
@@ -57,19 +57,34 @@ for (const {type,file,author,license,triangles,maxBytes} of files) {
       assert.ok(Math.abs(radius-axle.radius)<.001);
     }
 
-    const prepared = context.DriveVehicleAssets.prepare(source.scene,spec);
+    const prepared = context.DriveVehicleAssets.prepare(source.scene,spec,type);
     assert.equal(prepared.wheels.length,4);
     for (const wheel of prepared.wheels) {
       const center = new THREE.Box3().setFromObject(wheel).getCenter(new THREE.Vector3());
       assert.ok(center.length()<.0001, 'each wheel rotates about its hub');
     }
     const lampBounds = new THREE.Box3();
+    const atlasLampSides = new Set();
     prepared.body.traverse(mesh => {
       if (!mesh.isMesh || !prepared.brakeMaterials.includes(mesh.material)) return;
       assert.equal(mesh.material.emissiveIntensity,.22);
       lampBounds.union(new THREE.Box3().setFromObject(mesh));
+      if (type==='hypercar') {
+        assert.ok(mesh.material.map && mesh.material.emissiveMap, 'both original lamp maps are present');
+        const {position,uv} = mesh.geometry.attributes;
+        assert.ok(uv, 'the lamp atlas is mapped onto its source geometry');
+        for (let i=0;i<position.count;i++) {
+          if (position.getZ(i)<-2.05 && uv.getX(i)>.107 && uv.getX(i)<.293 && uv.getY(i)>.534 && uv.getY(i)<.737)
+            atlasLampSides.add(Math.sign(position.getX(i)));
+        }
+      }
     });
-    assert.ok(lampBounds.min.x<-.15 && lampBounds.max.x>.15, 'lenses on both sides');
-    assert.ok(lampBounds.max.z<-.8, 'lenses face rearward');
+    if (type==='hypercar') {
+      assert.deepEqual([...atlasLampSides].sort(),[-1,1], 'rear red atlas cells are present on both sides');
+      assert.ok(prepared.brakeMaterials.every(material=>material.customProgramCacheKey()==='garage-delorean-brake-atlas'));
+    } else {
+      assert.ok(lampBounds.min.x<-.15 && lampBounds.max.x>.15, 'lenses on both sides');
+      assert.ok(lampBounds.max.z<-.8, 'lenses face rearward');
+    }
   });
 }

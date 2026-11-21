@@ -471,6 +471,8 @@
         item.setAttribute('aria-label', `Fast travel to ${center.title}`);
         if (center.kind === 'skyway') {
           item.innerHTML = `<strong>${escapeHtml(center.title)}</strong><small>DRIVE TO RAMP ↗</small>`;
+        } else if (center.kind === 'landmark') {
+          item.innerHTML = `<strong>${escapeHtml(center.title)}</strong><small>DRIVE HERE ↗</small>`;
         } else {
           item.innerHTML = `<span>${String(index + 1).padStart(2, '0')} / ${center.kind === 'street' ? 'STREET JUMP' : 'CENTER'}</span><strong>${escapeHtml(center.title)}</strong><small>JUMP TO STREET ↗</small>`;
         }
@@ -488,6 +490,7 @@
       const active = isCityMap();
       const isPortfolio = map === 'city';
       const skyway = cityMap?.skyway;
+      const landmarks = isPortfolio ? globalThis.DrivePortfolioPublicSpaces?.destinations || [] : [];
       host.hidden = guideButton.hidden = !active;
       document.body.classList.toggle('city-map-active', active);
       nearby.hidden = true;
@@ -497,13 +500,13 @@
       guideButton.textContent = isPortfolio ? 'CITY GUIDE' : 'CITY MAP';
       kicker.textContent = isPortfolio ? 'PORTFOLIO CITY' : 'CITIES: SKYLINES';
       if (!isPortfolio) guideIntro.textContent = 'Pick a street or district to jump there. Zoom in to see individual roads.';
-      else if (skyway?.entrances?.length) guideIntro.textContent = 'Pick a portfolio stop or fast-travel to a Skyway ramp.';
+      else if (skyway?.entrances?.length || landmarks.length) guideIntro.textContent = 'Pick a portfolio stop or fast-travel to a landmark.';
       else guideIntro.textContent = 'Open a stop here, or drive up to it and slow down.';
       minimap.setAttribute('aria-label', isPortfolio ? 'Open the portfolio city guide' : 'Open the Cities: Skylines map');
       minimapHint.hidden = !isPortfolio;
       minimapHint.textContent = '';
       mapViewport.setAttribute('aria-label', isPortfolio ?
-        'Interactive city map. Zoom or pan the map, then choose a portfolio stop or Skyway ramp.' :
+        'Interactive city map. Zoom or pan the map, then choose a portfolio stop or a fast travel destination.' :
         'Interactive city map. Zoom or pan the map, then choose a district or street for fast travel.');
       guideLayout.classList.toggle('city-guide-map-only', !isPortfolio);
       mapStops.hidden = stopList.hidden = !isPortfolio;
@@ -512,8 +515,8 @@
       locations = isPortfolio ? (cityMap?.stops || stops || []).filter(stop => stories[stop.id]) : [];
       byId=new Map(locations.map(stop=>[stop.id,stop]));
       centers = typeof onJump !== 'function' ? [] : isPortfolio
-        ? (skyway?.entrances || []).map(entrance => ({...entrance, kind:'skyway'})) : deriveCenters(cityMap);
-      centerKey.textContent = isPortfolio ? '◆ SKYWAY RAMP' : '◆ CENTER · ◇ JUMP';
+        ? [...(skyway?.entrances || []).map(entrance => ({...entrance, kind:'skyway'})),...landmarks] : deriveCenters(cityMap);
+      centerKey.textContent = isPortfolio ? '◆ FAST TRAVEL' : '◆ CENTER · ◇ JUMP';
       centersById=new Map(centers.map(center=>[center.id,center]));
       mapRoads = [cityMap?.networkRoads, cityMap?.overviewRoads, cityMap?.roadSegments].find(roads => roads?.length) || [];
       if (isPortfolio && skyway?.overviewRoads?.length) mapRoads = mapRoads.concat(skyway.overviewRoads);

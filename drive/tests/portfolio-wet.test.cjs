@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const THREE = require('three');
 const wet = require('../js/portfolio-wet');
 
-test('wet roads capture the current camera while moving and reuse the mirror when idle', () => {
+test('wet roads keep steady light while panning and retain the last valid capture', () => {
   const texture = new THREE.Texture();
   const three = {...THREE, TextureLoader: class { load() { return texture; } }};
   const world = new THREE.Group();
@@ -35,12 +35,14 @@ test('wet roads capture the current camera while moving and reuse the mirror whe
   camera.position.set(0, 4, -60);
   camera.lookAt(0, 3, -50);
   const reflection = wet.create(three, renderer, scene, world, sky);
-  const shader = {uniforms:{},vertexShader:'',fragmentShader:''};
+  const shader = {uniforms:{},vertexShader:'',fragmentShader:
+    'gl_FragColor = vec4( outgoingLight, diffuseColor.a );'};
   road.material.onBeforeCompile(shader);
   reflection.update(camera, .016);
   assert.equal(captures.length, 1);
   assert.equal(shader.uniforms.wetImage.value.generateMipmaps, true);
   assert.equal(shader.uniforms.wetImage.value.minFilter, THREE.LinearMipmapLinearFilter);
+  assert.doesNotMatch(shader.fragmentShader, /wetMotion/);
   assert.ok(Math.abs(captures[0].position.y + 3.904) < 1e-6);
   assert.equal(target, null);
   assert.equal(road.visible, true);
@@ -58,20 +60,27 @@ test('wet roads capture the current camera while moving and reuse the mirror whe
   reflection.update(camera, .008);
   assert.equal(captures.length, 3);
   assert.ok(captures[2].direction.distanceTo(captures[1].direction) > .1);
-  assert.ok(shader.uniforms.wetMotion.value > .2, 'a turn softens the specular highlights');
+  assert.equal(shader.uniforms.wetImageReady.value, 1, 'moving or stopping does not dim the mirror');
   camera.aspect = .5;
   camera.updateProjectionMatrix();
   reflection.update(camera, .008);
   assert.equal(captures.length, 4);
   assert.ok(captures[3].height > captures[3].width);
 
+  const validProjection = shader.uniforms.wetProjection.value.clone();
   camera.position.y = .07;
+  camera.aspect = 1.5;
+  camera.updateProjectionMatrix();
   reflection.update(camera, .008);
   assert.equal(captures.length, 4);
+  assert.ok(shader.uniforms.wetProjection.value.equals(validProjection));
+  assert.equal(shader.uniforms.wetImage.value.image.width, captures[3].width,
+    'an invalid capture does not destroy the last valid texture on resize');
+  assert.ok(shader.uniforms.wetImageReady.value > .95, 'one bad frame does not switch the lights off');
   camera.position.y = 4;
   reflection.update(camera, .008);
   assert.equal(captures.length, 5);
   for (let frame = 0; frame < 80; frame++) reflection.update(camera, .016);
-  assert.ok(shader.uniforms.wetMotion.value < .02, 'the asphalt recovers its steady reflection at rest');
+  assert.ok(shader.uniforms.wetImageReady.value > .999, 'the last valid reflection returns smoothly');
   reflection.dispose();
 });
