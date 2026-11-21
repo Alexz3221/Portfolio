@@ -187,7 +187,7 @@
       ctx.strokeRect(w-226,42,183,h-85);
       ctx.globalAlpha = .2; ctx.fillStyle = accent;
       ctx.fillRect(w-222,46,175,h-93);
-      const mx = x => w-135+x*.42, my = z => h/2-z*.42;
+      const mx = x => w-135+x*.42, my = z => h/2+z*.42;
       ctx.lineCap = 'round';
       for (const street of networkRoads) {
         ctx.globalAlpha = street.roadClass === 'main' ? .8 : .45;

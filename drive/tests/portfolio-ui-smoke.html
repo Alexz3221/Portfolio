@@ -21,12 +21,12 @@ const largeMap = document.querySelector('.city-map');
 const mapSvg = largeMap.querySelector('svg');
 const stopsByZ = [...stops].sort((a, b) => a.z - b.z);
 const stopsByX = [...stops].sort((a, b) => a.x - b.x);
-check(Number(largeMap.querySelector(`.city-map-stop[data-stop="${stopsByZ.at(-1).id}"]`).dataset.mapY) <
+check(Number(largeMap.querySelector(`.city-map-stop[data-stop="${stopsByZ.at(-1).id}"]`).dataset.mapY) >
   Number(largeMap.querySelector(`.city-map-stop[data-stop="${stopsByZ[0].id}"]`).dataset.mapY),
-  'city map has its upright Z orientation');
+  'portfolio map matches the unreflected 3D city');
 check(Number(largeMap.querySelector(`.city-map-stop[data-stop="${stopsByX.at(-1).id}"]`).dataset.mapX) >
   Number(largeMap.querySelector(`.city-map-stop[data-stop="${stopsByX[0].id}"]`).dataset.mapX),
-  'city map mirrors north/south while preserving east/west');
+  'portfolio map places the east loop on the east side');
 const miniCanvas = document.querySelector('.city-minimap-canvas');
 const miniParts = miniCanvas.querySelector('svg').getAttribute('viewBox').split(' ').map(Number);
 const miniRect = miniCanvas.getBoundingClientRect();
@@ -42,15 +42,15 @@ const radarVector = (matrix, x, y) => ({
   x: matrix[0] * x + matrix[2] * y,
   y: matrix[1] * x + matrix[3] * y
 });
-const northRadar = radarMatrix();
-check(northRadar && radarVector(northRadar, 10, 0).x > 9 &&
-  radarVector(northRadar, 0, -10).y < -9,
-  'north-facing radar matches the big map and keeps forward up');
+const initialRadar = radarMatrix();
+check(initialRadar && radarVector(initialRadar, -10, 0).x > 9 &&
+  radarVector(initialRadar, 0, 10).y < -9,
+  'portfolio radar puts the street on the camera’s right and keeps forward up');
 check(Math.abs(Number(miniPlayer.dataset.mapY) -
   Number(largeMap.querySelector('.city-player-dot').dataset.mapY)) < .001,
   'minimap and guide put the player on the same side of the road');
 const firstRadarView = miniCanvas.querySelector('svg').getAttribute('viewBox');
-ui.update({x: stops[0].x + 100, z: stops[0].z + 50}, 0, Math.PI / 2);
+ui.update({x: stops[0].x + 100, z: stops[0].z + 50}, 0, -Math.PI / 2);
 const movedRadarView = miniCanvas.querySelector('svg').getAttribute('viewBox');
 const [radarLeft, radarTop, radarWidth, radarHeight] = movedRadarView.split(' ').map(Number);
 check(movedRadarView !== firstRadarView &&
@@ -58,17 +58,18 @@ check(movedRadarView !== firstRadarView &&
   Math.abs(radarTop + radarHeight / 2 - Number(miniPlayer.dataset.mapY)) < .001,
   'local radar follows the car at center');
 const rightTurnRadar = radarMatrix();
-check(rightTurnRadar && Math.abs(radarVector(rightTurnRadar, 10, 0).x) < .001 &&
-  radarVector(rightTurnRadar, 10, 0).y < -9 &&
-  radarVector(rightTurnRadar, 0, -10).x < -9,
-  'right steering keeps the road ahead up while the world turns left');
+check(rightTurnRadar && Math.abs(radarVector(rightTurnRadar, -10, 0).x) < .001 &&
+  radarVector(rightTurnRadar, -10, 0).y < -9 &&
+  radarVector(rightTurnRadar, 0, 10).x < -9,
+  'right turn in the unreflected portfolio city keeps the road ahead up');
 check(getComputedStyle(miniCone).transform === coneTransform &&
   getComputedStyle(miniPlayer).transform === playerTransform,
   'radar vision cone and car arrow stay fixed up');
-ui.update({x: stops[0].x + 100, z: stops[0].z + 50}, 0, -Math.PI / 2);
+ui.update({x: stops[0].x + 100, z: stops[0].z + 50}, 0, Math.PI / 2);
 const leftTurnRadar = radarMatrix();
-check(leftTurnRadar && radarVector(leftTurnRadar, 0, -10).x > 9,
-  'left steering turns the world right');
+check(leftTurnRadar && radarVector(leftTurnRadar, 10, 0).y < -9 &&
+  radarVector(leftTurnRadar, 0, 10).x > 9,
+  'left turn in the unreflected portfolio city keeps the road ahead up');
 ui.update({x: stops[0].x, z: stops[0].z}, 0);
 const fitView = mapSvg.getAttribute('viewBox');
 const viewParts = () => mapSvg.getAttribute('viewBox').split(' ').map(Number);
@@ -145,6 +146,13 @@ check(!document.querySelector('.city-guide-trigger').hidden &&
 check(document.querySelectorAll('.city-stop-item, .city-map-stop, .city-minimap-stop').length === 0,
   'import has no portfolio destinations');
 ui.update({x: stops[0].x, z: stops[0].z}, 0);
+const skylinesRadar = radarMatrix();
+check(skylinesRadar && radarVector(skylinesRadar, 10, 0).x > 9 &&
+  radarVector(skylinesRadar, 0, -10).y < -9, 'Skylines radar uses the reflected city view');
+ui.update({x: stops[0].x, z: stops[0].z}, 0, Math.PI / 2);
+const skylinesRightTurn = radarMatrix();
+check(skylinesRightTurn && radarVector(skylinesRightTurn, 10, 0).y < -9 &&
+  radarVector(skylinesRightTurn, 0, -10).x < -9, 'right turn in Skylines keeps the road ahead up');
 document.dispatchEvent(new KeyboardEvent('keydown', {key: 'e', bubbles: true}));
 check(!ui.isOpen() && document.querySelector('.city-nearby').hidden, 'portfolio interactions are disabled in the import');
 check(document.querySelectorAll('.city-center-item').length === 1, 'one road-safe city center');

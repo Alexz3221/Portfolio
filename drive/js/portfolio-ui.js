@@ -292,8 +292,7 @@
     }
     function orientRadar() {
       if (!radarPosition) return;
-      // Rotate the guide's city coordinates around the car. The imported 3D
-      // city is reflected into the same frame, so turns keep their handedness.
+      // Rotate the map heading around the car so forward stays up.
       const center = point(radarPosition.x, radarPosition.z);
       const cosine = Math.cos(radarHeading), sine = Math.sin(radarHeading);
       const a = cosine, b = -sine, c = sine, d = cosine;
@@ -341,9 +340,10 @@
     function point(x,z) {
       const span=Math.max(1,bounds.maxX-bounds.minX,bounds.maxZ-bounds.minZ);
       const midX=(bounds.minX+bounds.maxX)/2,midZ=(bounds.minZ+bounds.maxZ)/2;
-      // The city save needs a north/south mirror, not a 180-degree turn.
+      // Only Skylines reflects its 3D world across Z. Match each map to its view.
+      const depth = map === 'skylines' ? midZ - z : z - midZ;
       return {x:Math.max(0,Math.min(100,50+(x-midX)*92/span)),
-        y:Math.max(0,Math.min(100,50-(z-midZ)*92/span))};
+        y:Math.max(0,Math.min(100,50+depth*92/span))};
     }
     function roadPaths(roads, glow = false) {
       const paths = {street: [], arterial: [], highway: []};
@@ -575,7 +575,7 @@
       placeMapMarker(playerDot, mapView.left, mapView.top, mapView.width, mapView.height);
       minimapPlayer.dataset.mapX = mapped.x;
       minimapPlayer.dataset.mapY = mapped.y;
-      radarHeading = heading;
+      radarHeading = map === 'skylines' ? heading : Math.PI - heading;
       if (!radarPosition || Math.hypot(position.x - radarPosition.x, position.z - radarPosition.z) > .4) {
         radarPosition = {x: position.x, z: position.z};
         applyMinimapView();
