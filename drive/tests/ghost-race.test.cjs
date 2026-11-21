@@ -6,6 +6,7 @@ const C = require('cannon');
 const P = require('../js/physics');
 const THREE = require('three');
 const PersonalBest = require('../js/personal-best');
+const StuntRecords = require('../js/stunt-records');
 const ImportedCourses = require('../js/imported-courses');
 
 const traceContext = vm.createContext({});
@@ -460,7 +461,7 @@ test('U9 best laps keep the legacy ghost height after its lower center of mass',
     'an existing best still renders at the recorded height');
 });
 
-test('a complete physical lap finishes the ghost challenge and reports the result', () => {
+test('a complete physical lap can be saved, raced, and shared', async () => {
   const storage = memoryStorage();
   const {sim, document} = context.makeGhostHarness(storage);
   sim.chooseMap('racetrack');
@@ -503,7 +504,11 @@ test('a complete physical lap finishes the ghost challenge and reports the resul
   assert.match(document.querySelector('#ghostStatus').textContent, /New personal best!/);
   assert.equal(document.querySelector('#ghostStartButton').textContent, 'RESET TO START');
   assert.ok(storage.values.get(PersonalBest.KEY), 'best lap persisted in browser storage');
-  assert.equal(JSON.parse(storage.values.get(PersonalBest.KEY)).car, 'comet');
+  const best = JSON.parse(storage.values.get(PersonalBest.KEY));
+  assert.equal(best.car, 'comet');
+  assert.ok(PersonalBest.validStuntTrace(best));
+  assert.deepEqual(await StuntRecords.decodeGhost(await StuntRecords.encodeGhost(best)), best);
+  await assert.rejects(StuntRecords.decodeGhost('broken-link'));
   const source = document.querySelector('#ghostSource');
   source.value = 'best'; source.listeners.change({target: source});
   assert.equal(sim.ghost.trace.car, 'comet');

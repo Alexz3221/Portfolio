@@ -103,9 +103,38 @@ html,body{height:100dvh}
 /* The ghost settings sit below the route picker and stay usable on short screens. */
 .ghost-panel{position:fixed;z-index:3;top:255px;left:clamp(18px,4vw,60px);width:230px;max-height:calc(100dvh - 440px);overflow:auto;padding:14px;border:1px solid #a9f2e966;border-radius:9px;background:#09121be8;backdrop-filter:blur(15px);box-shadow:0 15px 50px #0006;touch-action:manipulation}
 .ghost-panel h2{margin:0 0 12px;color:#a9f2e9;font:700 11px ui-monospace,Consolas,monospace;letter-spacing:.14em}
+.ghost-panel-header{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px}
+.ghost-panel .ghost-panel-header h2{margin:0}
+.ghost-panel-header button,.stunt-records button{min-height:36px;padding:6px 10px;border:1px solid #a9f2e966;border-radius:5px;background:#173038;color:#e8fffa;font:inherit;cursor:pointer}
+.ghost-panel-header button{font-size:11px}
+.ghost-panel-header button:hover,.stunt-records button:hover:not(:disabled){background:#24464c}
+.stunt-records{width:min(100% - 24px,520px);max-height:calc(100dvh - 28px);max-height:calc(100dvh - 28px - env(safe-area-inset-top) - env(safe-area-inset-bottom));overflow:auto;overscroll-behavior:contain;padding:clamp(14px,4vw,24px);border:1px solid #a9f2e966;border-radius:12px;background:#09151f;color:#e8f0ef;box-shadow:0 20px 70px #000a;font-size:14px}
+.stunt-records::backdrop{background:#020810b8}
+.stunt-records header,.stunt-board-header,.stunt-record-actions{display:flex;align-items:center;gap:8px}
+.stunt-records header,.stunt-board-header{justify-content:space-between}
+.stunt-records h2,.stunt-records h3,.stunt-records p{margin:0}
+.stunt-records h2{font-size:clamp(17px,5vw,22px);color:#a9f2e9}
+.stunt-records h3{font-size:14px}
+.stunt-records p{color:#acc4c5;line-height:1.4}
+.stunt-record-card{display:grid;gap:8px;margin:16px 0;padding:12px;border:1px solid #a9f2e933;border-radius:7px;background:#10232c}
+.stunt-records label{display:block;margin:5px 0;font-size:12px;color:#b9d3d4}
+.stunt-records input{min-width:0;width:100%;min-height:36px;padding:6px 8px;border:1px solid #a9f2e966;border-radius:5px;background:#09151f;color:#f1f5f2;font-size:16px}
+.stunt-records button{white-space:nowrap}
+.stunt-records button:disabled{opacity:.5;cursor:default}
+.stunt-records :focus-visible,.ghost-panel-header button:focus-visible{outline:2px solid #a9f2e9;outline-offset:2px}
+#stuntBoardStatus:not(:empty){margin-top:8px}
+#stuntBoard{margin:4px 0 0;padding-left:28px}
+#stuntBoard li{padding:8px 0 8px 4px;border-bottom:1px solid #a9f2e92b}
+#stuntBoard li::marker{color:#a9f2e9;font-variant-numeric:tabular-nums}
+.stunt-board-entry{display:flex;align-items:center;justify-content:space-between;gap:6px;flex-wrap:wrap}
+.stunt-board-entry span{overflow-wrap:anywhere}
+.stunt-board-entry strong,.stunt-board-entry small{display:block;font-variant-numeric:tabular-nums}
+.stunt-board-entry small{margin-top:3px;color:#acc4c5}
+@media(pointer:coarse){.stunt-records button,.ghost-panel-header button{min-height:44px}}
 .ghost-toggle{display:flex;align-items:center;gap:8px;margin-bottom:13px;color:#e8f0ef;font-size:12px;cursor:pointer}
 .ghost-toggle input{width:17px;height:17px;margin:0;accent-color:#a9f2e9}
 .ghost-fields{display:grid;gap:6px}
+.ghost-fields[hidden]{display:none}
 .ghost-fields label{color:#a8c3c1;font:700 10px ui-monospace,Consolas,monospace;letter-spacing:.1em}
 .ghost-fields select{width:100%;min-height:38px;margin-bottom:5px;padding:7px;border:1px solid #ffffff40;border-radius:4px;background:#13252d;color:#f1f5f2;font:inherit;font-size:16px}
 .ghost-fields select:disabled{opacity:.48;cursor:not-allowed}

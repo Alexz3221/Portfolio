@@ -10,6 +10,9 @@
   const DT = 1 / 20;
   const MAX_SECONDS = 900;
   const MAX_CHARS = 2_000_000;
+  const STUNT_REVISION = 1;
+  const STUNT_ROUTE_LENGTH = 427;
+  const STUNT_CARS = ['comet', 'rally', 'pickup', 'hypercar', 'u9xtreme'];
   const finite = Number.isFinite;
   const round = (value, places) => Math.round(value * 10 ** places) / 10 ** places;
   const clamp = (value, low, high) => Math.max(low, Math.min(high, value));
@@ -29,6 +32,19 @@
       progress = frame[7];
     }
     return Math.abs(progress - trace.routeLength) < .01;
+  }
+
+  function validStuntTrace(trace) {
+    if (trace?.routeLength !== STUNT_ROUTE_LENGTH || !STUNT_CARS.includes(trace.car) ||
+        trace.dt !== DT || trace.lapTime < 10 ||
+        Math.abs(trace.duration - trace.lapTime) > DT + .000001 || !validTrace(trace)) return false;
+    const start = trace.frames[0], finish = trace.frames.at(-1);
+    if (start[7] !== 0 || [start, finish].some(frame =>
+      Math.abs(frame[0] + 143.5) > 4 || Math.abs(frame[2]) > 6.3 ||
+      frame[1] < -2 || frame[1] > 5)) return false;
+    return trace.frames.every(frame => frame[7] >= 0 &&
+      Math.abs(frame[0]) < 256 && Math.abs(frame[1]) < 256 && Math.abs(frame[2]) < 256 &&
+      Math.abs(Math.hypot(frame[3], frame[4], frame[5], frame[6]) - 1) < .01);
   }
 
   function create(options = {}) {
@@ -137,5 +153,5 @@
     return {get best() { return best; }, start, record, finish, cancel};
   }
 
-  return {create, validTrace, KEY};
+  return {create, validTrace, validStuntTrace, KEY, STUNT_REVISION, MAX_CHARS};
 });

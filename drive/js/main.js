@@ -45,6 +45,7 @@
   const coursePicker = document.querySelector('#coursePicker');
   const courseSelect = document.querySelector('#courseSelect');
   function isRaceCourse() { return selectedMap === 'racetrack'; }
+  function isStuntCourse() { return isRaceCourse() && selectedCourse === 'racetrack'; }
   function activeCourse() {
     return selectedCourse === 'racetrack' ? raceCourses.racetrack
       : globalThis.DriveImportedCourses?.getCourse?.(selectedCourse) || raceCourses[selectedCourse];
@@ -59,10 +60,13 @@
   let portfolio = null;
   const carModels = {};
   let selectedCar = 'comet';
+  let stuntRecords = null, sharedGhost = null;
   const ghostUI = {
     panel: document.querySelector('#ghostPanel'),
     enabled: document.querySelector('#ghostEnabled'),
     source: document.querySelector('#ghostSource'),
+    sharedOption: document.querySelector('#stuntGhostOption'),
+    courseFields: document.querySelector('#courseGhostFields'),
     car: document.querySelector('#ghostCar'),
     pace: document.querySelector('#ghostPace'),
     start: document.querySelector('#ghostStartButton'),
@@ -785,6 +789,10 @@
   }
   function refreshGhostSetup() {
     const onTrack = isRaceCourse();
+    const hasSharedGhost = isStuntCourse() && !!sharedGhost;
+    stuntRecords?.show(isStuntCourse());
+    ghostUI.sharedOption.hidden = ghostUI.sharedOption.disabled = !hasSharedGhost;
+    if (!hasSharedGhost && ghostUI.source.value === 'shared') ghostUI.source.value = 'course';
     ghostUI.panel.hidden = !onTrack;
     ghostUI.best.textContent = personalBest.best ? formatGhostTime(personalBest.best.lapTime) + ' · ' + (carSpecs[personalBest.best.car]?.name || personalBest.best.car) : '—';
     if (!onTrack) { ghostFrame.visible = false; ghostUI.hud.hidden = true; return; }
@@ -792,14 +800,17 @@
     ghostUI.start.disabled = false;
     const enabled = !!ghostUI.enabled.checked;
     const useBest = ghostUI.source.value === 'best';
+    const useShared = ghostUI.source.value === 'shared';
+    const useCourse = !useBest && !useShared;
+    ghostUI.courseFields.hidden = useShared;
     ghostUI.source.disabled = !enabled;
-    ghostUI.car.disabled = ghostUI.pace.disabled = !enabled || useBest;
-    const candidate = useBest ? personalBest.best : courseGhostTrace();
+    ghostUI.car.disabled = ghostUI.pace.disabled = !enabled || !useCourse;
+    const candidate = useCourse ? courseGhostTrace() : (useBest ? personalBest.best : sharedGhost.trace);
+    const type = useCourse ? ghostCar() : candidate?.car;
     const trace = enabled && candidate && candidate.routeLength === activeRoute().length &&
-      carSpecs[useBest ? candidate.car : ghostCar()] ? candidate : null;
-    const type = useBest ? trace?.car : ghostCar();
+      carSpecs[type] ? candidate : null;
     ghost.trace = trace;
-    ghost.rate = useBest ? 1 : ghostRate();
+    ghost.rate = useCourse ? ghostRate() : 1;
     ghostUI.gapRow.hidden = !ghost.running || !trace;
     ghostFrame.visible = !!trace;
     if (trace) {
@@ -811,6 +822,8 @@
       : !trace ? selectedCourse === 'racetrack'
         ? 'Loading course ghost… Cross the line to start the timer.'
         : 'Course ghost unavailable here. Cross the line to start the timer.'
+      : useShared ? sharedGhost.name + ' · ' + carSpecs[type].name + ' · target ' +
+        DriveStuntRecords.formatTime(trace.lapTime) + '. Cross the line to start.'
       : carSpecs[type].name + ' ghost · target ' + formatGhostTime(trace.lapTime / ghost.rate) + '. Cross the line to start.';
   }
   function loadGhostTraces() {
@@ -1276,6 +1289,7 @@
     else keys.delete(key);
   }
   window.addEventListener('keydown', event => {
+    if (stuntRecords?.isOpen()) return;
     if (event.target.matches('select, input, textarea') || (event.target.matches('button') && [' ', 'Enter'].includes(event.key))) return;
     const key = event.key.toLowerCase();
     if (drivingKeys.has(key)) { event.preventDefault(); keyboardKeys.add(key); syncInputKey(key); }
@@ -1430,7 +1444,7 @@
   let firstFrame = true;
   function animate() {
     const delta = Math.min(clock.getDelta(), .05);
-    const driveDelta = document.hidden || !driveFocused || portfolio?.isOpen() ? 0 : delta;
+    const driveDelta = document.hidden || !driveFocused || portfolio?.isOpen() || stuntRecords?.isOpen() ? 0 : delta;
     updateVehicle(driveDelta);
     updateGhostRun(driveDelta);
     updateCamera(delta);
@@ -1440,6 +1454,30 @@
     renderer.render(scene, camera);
     if (firstFrame) { message.classList.add('done'); firstFrame = false; }
     requestAnimationFrame(animate);
+  }
+  if (globalThis.DriveStuntRecords) {
+    function raceSharedGhost(entry) {
+      stuntRecords.close();
+      if (!isStuntCourse()) chooseCourse('racetrack');
+      sharedGhost = entry;
+      ghostUI.sharedOption.textContent = entry.name === 'Shared lap' ? 'Shared lap' : entry.name + '’s ghost';
+      ghostUI.sharedOption.hidden = ghostUI.sharedOption.disabled = false;
+      ghostUI.source.value = 'shared';
+      ghostUI.enabled.checked = true;
+      chooseCar(entry.trace.car);
+      resetTimedLapToGrid();
+    }
+    stuntRecords = DriveStuntRecords.create({window, document, carName:car => carSpecs[car]?.name || car,
+      getBest:() => personalBest.best, onRace:raceSharedGhost, onOpen:releaseControls});
+    async function openRaceLink() {
+      const hash = window.location.hash;
+      if (!DriveStuntRecords.isRaceLink(hash)) return;
+      if (!isStuntCourse()) chooseCourse('racetrack');
+      const entry = await stuntRecords.readLink(hash);
+      if (entry && isStuntCourse() && window.location.hash === hash) raceSharedGhost(entry);
+    }
+    window.addEventListener('hashchange', openRaceLink);
+    openRaceLink();
   }
   resize();
   camera.position.set(vehicle.position.x - 8, 5, displayZ(vehicle.position.z - 8));
