@@ -1553,7 +1553,9 @@
 
   let firstFrame = true;
   function animate(frameTime) {
-    const delta = Math.min(clock.getDelta(), .05);
+    const frameDelta = clock.getDelta();
+    const delta = Math.min(frameDelta, .05);
+    const adDelta = document.hidden ? 0 : Math.min(frameDelta, .25);
     const driveDelta = document.hidden || !driveFocused || portfolio?.isOpen() || stuntRecords?.isOpen() ? 0 : delta;
     updateVehicle(driveDelta);
     updateGhostRun(driveDelta);
@@ -1562,8 +1564,8 @@
       ? {position:{x:camera.position.x,y:camera.position.y,z:-camera.position.z}} : camera, delta);
     portfolioPlay?.update(driveDelta);
     portfolioSkyAds?.update(delta);
-    portfolioCorporateAds?.update(delta);
-    portfolioAirship?.update(delta);
+    portfolioCorporateAds?.update(adDelta);
+    portfolioAirship?.update(adDelta);
     arrivalMarket?.update(delta);
     portfolio?.update(physics.body.position, motion.speed, motion.heading);
     if (!document.hidden) portfolioWet?.update(camera, delta);

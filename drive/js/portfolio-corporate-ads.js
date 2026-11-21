@@ -17,7 +17,19 @@
     oxide: {brand:'OXIDE', unit:'VEHICLE RECERTIFICATION', line:['Feel new', 'again.'], cta:'BOOK A RECERTIFICATION', color:'#c6a0ff', glyph:5},
     afterimage: {brand:'AFTERIMAGE', unit:'EMPLOYER REST SYSTEMS', line:['Wake up like', 'yourself.'], cta:'BUY A REST PASS', color:'#e2b4fb', glyph:6, poster:true},
     zenith: {brand:'ZENITH', unit:'MEMBER UNDERWRITING', line:['Breathe a little', 'easier.'], cta:'UPGRADE YOUR COVER', color:'#f4d894', glyph:7},
-    meridian: {brand:'MERIDIAN', unit:'OCCUPATIONAL RECOVERY', line:['Get back to the', 'life you love.'], cta:'BOOK PRIORITY RECOVERY', color:'#a8f3fb', glyph:8}
+    meridian: {brand:'MERIDIAN', unit:'OCCUPATIONAL RECOVERY', line:['Get back to the', 'life you love.'], cta:'BOOK PRIORITY RECOVERY', color:'#a8f3fb', glyph:8},
+    hush: {brand:'HUSH', unit:'QUIET ON DEMAND', line:['Hear yourself', 'think.'], cta:'BOOK A QUIET HOUR', color:'#91edda', glyph:9},
+    lumen: {brand:'LUMEN', unit:'PERSONAL DAYLIGHT', line:['Make room', 'for the sun.'], cta:'ADD DAYLIGHT', color:'#fff084', glyph:10},
+    hearth: {brand:'HEARTH', unit:'PERSONAL HEATING', line:['Come back', 'to warmth.'], cta:'START YOUR HEAT PLAN', color:'#ff9d82', glyph:11},
+    halo: {brand:'HALO', unit:'PERSONAL COMPANIONS', line:['Someone to', 'come home to.'], cta:'MEET YOUR COMPANION', color:'#fcc0e8', glyph:12},
+    aureole: {brand:'AUREOLE', unit:'PRIORITY WATER', line:['Feel good', 'about every drop.'], cta:'GET WATER PRIORITY', color:'#70f8f1', glyph:13},
+    vista: {brand:'VISTA', unit:'VIRTUAL WEEKENDS', line:['Get away', 'for a while.'], cta:'BOOK A WEEKEND', color:'#f3a1f9', glyph:14},
+    loop: {brand:'LOOP', unit:'MEMORY BACKUP', line:['Keep what', 'matters.'], cta:'BACK UP YOUR MEMORIES', color:'#c7adff', glyph:15},
+    pact: {brand:'PACT', unit:'PAY ADVANCE', line:['Payday can', 'come sooner.'], cta:'GET PAID EARLY', color:'#d9f881', glyph:16},
+    accord: {brand:'ACCORD', unit:'REPUTATION SERVICES', line:['Make a better', 'first impression.'], cta:'CHECK YOUR STANDING', color:'#ffb3a1', glyph:17},
+    threshold: {brand:'THRESHOLD', unit:'EMPLOYER HOUSING', line:['A place of', 'your own.'], cta:'FIND YOUR APARTMENT', color:'#ffd59a', glyph:18},
+    tideline: {brand:'TIDELINE', unit:'PERSONAL AIR PLAN', line:['Make every', 'breath count.'], cta:'GET CLEAN AIR', color:'#99f2ff', glyph:19},
+    shiftwell: {brand:'SHIFTWELL', unit:'SHIFT SCHEDULING', line:['Find time', 'for yourself.'], cta:'SYNC YOUR SCHEDULE', color:'#f0a3ed', glyph:20}
   };
 
   function drawGlyph(ctx, x, y, scale, glyph) {
@@ -37,7 +49,19 @@
       [[-.37,0],[0,-.36],[.37,0],[0,.36],[-.37,0],[.37,0]],
       [[-.31,.29],[-.31,-.31],[.08,-.31],[.36,-.03],[.36,.29],[-.03,.29],[-.31,.05],[.16,.05]],
       [[-.38,.29],[0,-.35],[.38,.29],[-.14,.29],[.03,.02],[.20,.29]],
-      [[-.34,.29],[-.34,-.29],[.34,.29],[.34,-.29],[-.34,.29]]
+      [[-.34,.29],[-.34,-.29],[.34,.29],[.34,-.29],[-.34,.29]],
+      [[-.38,.11],[-.18,.11],[-.06,-.24],[.07,.23],[.18,.11],[.39,.11]],
+      [[-.4,.29],[.40,.29],[.28,.12],[.20,-.05],[0,-.15],[-.20,-.05],[-.28,.12],[-.40,.29]],
+      [[-.38,.08],[0,-.34],[.38,.08],[.26,.32],[-.26,.32],[-.26,.13],[.03,.13],[.03,-.09]],
+      [[-.39,.23],[-.39,-.05],[-.14,-.33],[.15,-.33],[.39,-.06],[.39,.23],[.15,.33],[-.14,.33]],
+      [[0,-.38],[-.33,.13],[-.23,.30],[0,.38],[.24,.30],[.33,.13],[0,-.38],[0,.19]],
+      [[-.39,.24],[-.14,-.19],[.02,.03],[.24,-.27],[.39,.24],[-.39,.24]],
+      [[-.37,.04],[-.22,-.23],[-.04,-.23],[.20,.23],[.37,.23],[.37,-.04],[.22,-.23],[-.02,.23],[-.22,.23],[-.37,.04]],
+      [[-.37,.25],[-.07,-.05],[.12,.15],[.35,-.21],[.09,-.21],[.21,-.32],[.35,-.21]],
+      [[-.38,.19],[-.18,-.20],[.02,.05],[.23,-.20],[.38,.19],[.18,.30],[-.18,.30],[-.38,.19]],
+      [[-.36,.31],[-.36,-.24],[.36,-.24],[.36,.31],[.12,.31],[.12,-.06],[-.11,-.06],[-.11,.31]],
+      [[-.41,-.15],[-.23,-.26],[-.03,-.16],[.18,-.26],[.40,-.16],[.29,.12],[.07,.23],[-.15,.11],[-.38,.22]],
+      [[-.39,-.19],[-.15,-.31],[.11,-.19],[.39,-.31],[.24,.28],[0,.17],[-.26,.28],[-.39,-.19]]
     ];
     for (const [index,[u,v]] of symbols[glyph].entries()) {
       if (index===0) ctx.moveTo(u,v);
@@ -67,6 +91,7 @@
   function printArtwork(canvas, campaign, layout, image) {
     const ctx=canvas.getContext('2d');
     const {w,h,wide,poster,scaleX,gap,artX,artY,artW,artH,copyX,copyW,airborne}=layout;
+    ctx.setTransform(canvas.width/w,0,0,canvas.height/h,0,0);
     ctx.clearRect(0,0,w,h);
     ctx.fillStyle='#0c223b42';
     ctx.fillRect(0,0,w,h);
@@ -179,10 +204,12 @@
           // region, including the type, never gets a time-dependent sample.
           float photoMask=smoothstep(.0,.014+fwidth(inside),inside)*motion;
           if (motion>0.) {
-            float time=clock*.148+phase*6.283185;
-            float crop=.891+.022*cos(time*.83);
-            vec2 drift=vec2(.024*sin(time*.74),.026*cos(time*.93));
-            vec2 framed=clamp(.5+(photo-.5)*crop+drift,.005,.995);
+            float time=clock*.43+phase*6.283185;
+            float crop=.837+.017*cos(time*2.);
+            vec2 drift=vec2(.063*sin(time),.026*cos(time));
+            // Keep the whole moving sample inside the artwork, without clamping
+            // its edges. Only pixels already outside the bay need sanitizing.
+            vec2 framed=.5+(clamp(photo,0.,1.)-.5)*crop+drift;
             artwork=mix(artwork,texture2D(art,artBay.xy+framed*artBay.zw),photoMask);
           }
           vec3 ink=pow(artwork.rgb,vec3(2.2));
@@ -216,7 +243,7 @@
     return glass;
   }
 
-  function createCampaignDisplay(THREE,id,{displayAspect=2.6,clock,artShare,airborne=false,reducedMotion=false}={}) {
+  function createCampaignDisplay(THREE,id,{displayAspect=2.6,clock,artShare,airborne=false,compact=false,reducedMotion=false}={}) {
     const campaign=campaigns[id];
     if (!campaign) return null;
     const time=clock || {value:0};
@@ -224,8 +251,9 @@
     const color=new THREE.Color(campaign.color).convertSRGBToLinear();
     const canvas=typeof document==='undefined' ? null : document.createElement('canvas');
     if (canvas) {
-      canvas.width=layout.w;
-      canvas.height=layout.h;
+      const resolution=compact ? .5 : 1;
+      canvas.width=layout.w*resolution;
+      canvas.height=layout.h*resolution;
       printArtwork(canvas,campaign,layout);
     }
     const map=canvas ? new THREE.CanvasTexture(canvas) :
@@ -279,7 +307,9 @@
     }
 
     for (const {id,x,y,z,width,height,heading,mount,artShare} of placements) {
-      const campaignDisplay=createCampaignDisplay(THREE,id,{displayAspect:width/height,clock,artShare,reducedMotion});
+      const campaignDisplay=createCampaignDisplay(THREE,id,{
+        displayAspect:width/height,clock,artShare,compact:Math.max(width,height)<=10,reducedMotion
+      });
       if (!campaignDisplay) continue;
       displays.push(campaignDisplay);
       const accent=campaignDisplay.material.uniforms.accent.value;
@@ -367,6 +397,7 @@
         group.traverse(object=>{
           if (object.geometry) geometries.add(object.geometry);
           if (object.material) materials.add(object.material);
+          if (object.isInstancedMesh) object.dispose();
         });
         for (const display of displays) {
           materials.delete(display.material);

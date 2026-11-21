@@ -13,7 +13,8 @@ test('corporate projections face both ways, stay in place and release their reso
     await display.ready;
     world.updateMatrixWorld(true);
     const faces = placements.map(({id})=>world.getObjectByName('portfolio-corporate-projection-'+id));
-    assert.equal(faces.length,9);
+    assert.equal(placements.length,21);
+    assert.equal(new Set(placements.map(({id})=>id)).size,21);
     const ray = new THREE.Raycaster();
     const shown = [];
     for (const face of faces) {
@@ -29,14 +30,21 @@ test('corporate projections face both ways, stay in place and release their reso
       face.material.uniforms.art.value.addEventListener('dispose',()=>shown.push(face.name));
     }
     const matrix=faces[0].matrixWorld.clone();
-    assert.ok(world.getObjectByName('portfolio-corporate-emitters')?.isInstancedMesh);
+    const hardware=['portfolio-corporate-emitters','portfolio-corporate-edge-lights']
+      .map(name=>world.getObjectByName(name));
+    const releasedHardware=[];
+    for (const batch of hardware) {
+      assert.ok(batch?.isInstancedMesh);
+      batch.addEventListener('dispose',()=>releasedHardware.push(batch.name));
+    }
     assert.ok(world.getObjectByName('portfolio-corporate-carrier-beams')?.isLineSegments);
     display.update(.5);
     assert.equal(faces[0].material.uniforms.clock.value,.5);
     assert.ok(faces[0].matrixWorld.equals(matrix));
     display.dispose();
     display.dispose();
-    assert.equal(shown.length,9);
+    assert.equal(shown.length,faces.length);
+    assert.equal(releasedHardware.length,hardware.length);
     assert.equal(world.children.length,0);
 
     const staticDisplay = ads.attach(THREE,world,{reducedMotion:true});
