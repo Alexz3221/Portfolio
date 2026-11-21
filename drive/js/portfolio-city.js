@@ -1155,6 +1155,22 @@
       instance('portfolio-utility-pads',materials.concrete,x,(y+footing)/2,z,width,y-footing,depth);
     }
 
+    // The stock unit is an overhead service cabinet with hanging cables.
+    const {x:stageX,y:stageBase,z:stageZ,height:stageHeight} = maintenancePlatform;
+    const stageTop=stageBase+stageHeight*.93, rearRail=stageZ+.94;
+    instance('portfolio-platform-gantry',materials.steel,stageX,stageTop,rearRail,8.17,.35,.43);
+    for (const side of [-1,1]) {
+      const postX=stageX+side*3.88;
+      instance('portfolio-platform-gantry',materials.steel,postX,(stageBase+stageTop)/2,rearRail,
+        .31,stageTop-stageBase,.38);
+      instance('portfolio-platform-footplates',materials.metal,postX,stageBase+.06,rearRail,.65,.12,.67);
+      beam('portfolio-platform-gantry',materials.steel,[postX,stageTop-1,rearRail],
+        [postX-side*.89,stageTop-.06,rearRail],.18,.19);
+      instance('portfolio-platform-gantry',materials.steel,postX-side*.69,stageTop,stageZ+.39,.24,.22,1.39);
+    }
+    instance('portfolio-platform-junctions',materials.steel,stageX+stageHeight*.374,stageBase+.145,stageZ-.18,.84,.29,.56);
+    instance('portfolio-platform-junctions',materials.steel,stageX+stageHeight*.15,stageBase+.09,stageZ+.30,.43,.18,.47);
+
     for (const {x,y,z,height,heading,wallX} of airHandlers) {
       const outward=Math.sin(heading);
       const back=x-outward*height*.212;
