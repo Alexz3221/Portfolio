@@ -6,6 +6,7 @@ const physics = require('../js/physics');
 const city = require('../js/portfolio-city');
 const playground = require('../js/portfolio-play');
 const facades = require('../js/portfolio-facades');
+const signText = require('../js/portfolio-sign-text');
 
 test('each arrival podium has its own design and recessed bays on all four elevations', () => {
   const group = facades.attach(THREE, new THREE.Group(), city);
@@ -32,6 +33,58 @@ test('visible roof caps stand above the old roof plane', () => {
       Math.abs(building.baseY + building.height - top) < .6);
     assert.ok(source, 'each cap has a corresponding roof');
     assert.ok(top - (source.baseY + source.height) > .1, 'the visible faces have real separation');
+  }
+});
+
+test('every overhead utility line terminates on an entrance gantry', () => {
+  const world = new THREE.Group();
+  city.build(THREE, world);
+  world.updateMatrixWorld(true);
+  const cables = world.getObjectByName('portfolio-utility-cables');
+  const insulators = world.getObjectByName('portfolio-utility-insulators');
+  const positions = cables.geometry.getAttribute('position');
+  const matrix = new THREE.Matrix4();
+  insulators.geometry.computeBoundingBox();
+  const terminals = Array.from({length:insulators.count}, (_, index) => {
+    insulators.getMatrixAt(index, matrix);
+    return insulators.geometry.boundingBox.clone().applyMatrix4(matrix.premultiply(insulators.matrixWorld));
+  });
+  const terminalCenters = terminals.map(box => box.getCenter(new THREE.Vector3()));
+  const spanRanges = city.entryRibs.filter((_, index) => index % 2 === 0)
+    .map((rib, index) => [rib.z, city.entryRibs[index * 2 + 1].z]);
+  assert.equal(positions.count, 120);
+  assert.equal(terminals.length, 12);
+  for (let index = 0; index < positions.count; index++) {
+    const point = new THREE.Vector3().fromBufferAttribute(positions, index).applyMatrix4(cables.matrixWorld);
+    assert.ok(point.y > 8 && spanRanges.some(([from, to]) => point.z >= from && point.z <= to));
+    if (index % 20 === 0 || index % 20 === 19) {
+      assert.ok(terminalCenters.some(terminal => point.distanceTo(terminal) < .001));
+    }
+  }
+});
+
+test('sign lettering keeps its proportions when fitted to wide or narrow faces', () => {
+  const previousDocument = global.document;
+  const scales = [];
+  const ctx = {
+    scale: (x,y) => scales.push([x,y]),
+    save() {}, translate() {}, restore() {}, fillText() {},
+    measureText: () => ({width:200})
+  };
+  global.document = {createElement: () => ({getContext: () => ctx})};
+  try {
+    for (const faceWidth of [1,16]) {
+      scales.length = 0;
+      signText.canvas(faceWidth,1,512,256);
+      signText.text(ctx,'PROCESS MODEL',24,80,84);
+      const [, [x,y]] = scales;
+      assert.ok(Math.abs(x * faceWidth / 512 - y / 256) < .00001);
+      assert.ok(200 * x <= 84.00001);
+      assert.ok(y > 0 && y <= 1);
+    }
+  } finally {
+    if (previousDocument === undefined) delete global.document;
+    else global.document = previousDocument;
   }
 });
 

@@ -312,14 +312,20 @@
     const granite = streetFootprint(roads,areas,curbDepth);
     const streetWalk = streetFootprint(roads,areas,walkWidth,32,.7);
     const expanded = streetFootprint([],forecourts,0);
-    const offset = expanded.length ? polygons.union(streetWalk,expanded) : streetWalk;
+    const plazaJoin=publicSpaces?.plazaWestJoin;
+    const campusJoin=publicSpaces?.campusParkJoin;
+    // Fill the entire pedestrian corner before clipping the sidewalk around
+    // the real carriageway. The old disconnected curb appeared inside it.
+    const additions=[expanded.length ? expanded : null,plazaJoin ? boxArea(plazaJoin) : null,
+      campusJoin ? boxArea(campusJoin) : null].filter(Boolean);
+    const offset = additions.length ? polygons.union(streetWalk,...additions) : streetWalk;
     const exclusions = premium?.length ? [premium] : [];
     const network = polygons.difference(offset,granite,...exclusions);
     const routingRoad = buildings.length ? streetFootprint(roads,areas,curbDepth+.40) : granite;
     const {area:sidewalk,access}=buildingWalks(network,granite,routingRoad,premium,buildings,obstacles,publicSpaces);
     const apron = polygons.difference(granite,chamfer,...exclusions);
     const bevel = polygons.difference(chamfer,pavement,...exclusions);
-    return {pavement,sidewalk,access,apron,bevel,premium};
+    return {pavement,sidewalk,access,apron,bevel,premium,plazaJoin};
   }
 
   function build(THREE, world, {roads, areas, asphalt, curb, buildings=empty, obstacles=empty, publicSpaces,premium,
@@ -333,7 +339,7 @@
       premium===undefined ? authoredFootprint?.() : premium,forecourts);
     if (cacheLayout && !hit) cachedLayout={inputs,layout};
     if (!layout) return;
-    const {pavement,sidewalk,access,apron,bevel,premium:covered}=layout;
+    const {pavement,sidewalk,access,apron,bevel,premium:covered,plazaJoin}=layout;
     surface(THREE,world,pavement,.044,asphalt,'portfolio-streets',4);
     const slabs=curb.clone();
     slabs.color.multiplyScalar(1.42);
@@ -351,7 +357,7 @@
     // step down to it and to the road, including along the curves of a junction.
     curbSides(THREE,world,sidewalk,surfaceY,wall,'portfolio-sidewalk-faces',covered);
     curbSides(THREE,world,bevel,kerbY,innerWall,'portfolio-curb-faces',covered);
-    if (slabMesh) sidewalkSurfaces.set(world,{pavement,sidewalk,apron,bevel,slabMesh,lipMesh,bevelMesh,access});
+    if (slabMesh) sidewalkSurfaces.set(world,{pavement,sidewalk,apron,bevel,slabMesh,lipMesh,bevelMesh,access,plazaJoin});
   }
 
   function activeSurfaces(world) {
@@ -365,6 +371,42 @@
     if (contains(active.sidewalk,x,z)) return surfaceY;
     if (contains(active.apron,x,z)) return graniteY;
     return contains(active.bevel,x,z) ? chamferHeight(active.pavement,x,z) : 0;
+  }
+
+  function finishPlazaJoin(THREE,world,pavers) {
+    const active=activeSurfaces(world);
+    if (!active?.plazaJoin) return;
+    const {minX,maxX,minZ,maxZ}=active.plazaJoin;
+    const finish=active.slabMesh.material;
+    finish.onBeforeCompile=shader=>{
+      shader.uniforms.plazaJoinMap={value:pavers};
+      shader.uniforms.plazaJoinBounds={value:new THREE.Vector4(minX,maxX,minZ,maxZ)};
+      shader.uniforms.plazaJoinColor={value:new THREE.Color(0x9eaeae).convertSRGBToLinear()};
+      shader.vertexShader='varying vec2 vPlazaJoin;\n'+shader.vertexShader.replace(
+        '#include <begin_vertex>','#include <begin_vertex>\nvPlazaJoin=position.xz;');
+      shader.fragmentShader=`varying vec2 vPlazaJoin;
+        uniform sampler2D plazaJoinMap;
+        uniform vec4 plazaJoinBounds;
+        uniform vec3 plazaJoinColor;
+        `+shader.fragmentShader.replace('#include <color_fragment>',`#include <color_fragment>
+          vec2 p=vPlazaJoin;
+          vec4 limits=plazaJoinBounds;
+          float join=smoothstep(limits.x,limits.x+3.,p.x)*(1.-smoothstep(limits.y-2.,limits.y,p.x))*
+            smoothstep(limits.z,limits.z+4.,p.y)*(1.-smoothstep(limits.w-3.,limits.w,p.y));
+          vec2 tiles=p/vec2(1.34,1.15);
+          tiles.x+=mod(floor(tiles.y),2.)*.5;
+          vec2 edge=.5-abs(fract(tiles)-.5);
+          vec2 pixel=fwidth(p)/vec2(1.34,1.15);
+          vec2 joint=(1.-smoothstep(vec2(.012),vec2(.019)+pixel,edge))*
+            (1.-smoothstep(vec2(.07),vec2(.30),pixel));
+          float wear=fract(sin(dot(floor(tiles),vec2(12.9898,78.233)))*43758.5453);
+          vec3 shade=pow(texture2D(plazaJoinMap,p/3.5).rgb,vec3(2.2))*plazaJoinColor;
+          shade*=mix(.87,1.08,wear)*(1.-.56*max(joint.x,joint.y));
+          diffuseColor.rgb=mix(diffuseColor.rgb,shade,join);
+        `);
+    };
+    finish.customProgramCacheKey=()=>'portfolio-projects-plaza-walk-join';
+    finish.needsUpdate=true;
   }
 
   function buildingAccess(world) {
@@ -395,5 +437,5 @@
     return {dispose() { for(const body of bodies) physics.world.removeBody(body); }};
   }
 
-  return {build,attachSidewalkPhysics,surfaceHeight,buildingAccess};
+  return {build,attachSidewalkPhysics,surfaceHeight,buildingAccess,finishPlazaJoin};
 });

@@ -7,12 +7,11 @@
 
   const route = [[.17,.32],[.31,.40],[.46,.40],[.62,.59],[.79,.59],[.84,.67]];
 
-  function makeArtwork(THREE, paint, width, height) {
+  function makeArtwork(THREE, paint, width, height, faceWidth, faceHeight) {
     if (typeof document === 'undefined') return new THREE.DataTexture(new Uint8Array(4),1,1);
-    const canvas = document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
-    paint(canvas.getContext('2d'),width,height);
+    const signs = globalThis.DrivePortfolioSignText;
+    const {canvas,ctx} = signs.canvas(faceWidth,faceHeight,width,height);
+    paint(ctx,width,height,(value,x,y,limit)=>signs.text(ctx,value,x,y,limit));
     const texture = new THREE.CanvasTexture(canvas);
     texture.encoding = THREE.sRGBEncoding;
     texture.anisotropy = 4;
@@ -20,7 +19,7 @@
   }
 
   function farlineArtwork(THREE) {
-    return makeArtwork(THREE,(ctx,w,h)=>{
+    return makeArtwork(THREE,(ctx,w,h,write)=>{
       const cy = u=>h*(1-u);
       ctx.fillStyle = '#0c2834d0';
       ctx.beginPath();
@@ -82,16 +81,16 @@
       }
       ctx.fillStyle = '#caffef';
       ctx.font = '900 104px system-ui, sans-serif';
-      ctx.fillText('FARLINE',.116*w,.176*h,.77*w);
+      write('FARLINE',.116*w,.176*h,.77*w);
       ctx.fillStyle = '#f1a4d9';
       ctx.font = '700 29px ui-monospace, monospace';
-      ctx.fillText('NIGHT SERVICE',.122*w,.237*h);
+      write('NIGHT SERVICE',.122*w,.237*h,.77*w);
       ctx.fillStyle = '#a3e6e0';
       ctx.fillRect(.119*w,.26*h,.76*w,3);
       ctx.fillRect(.119*w,.803*h,.76*w,3);
       ctx.font = '700 37px ui-monospace, monospace';
-      ctx.fillText('PLAZA LOOP',.12*w,.88*h);
-    },640,890);
+      write('PLAZA LOOP',.12*w,.88*h,.77*w);
+    },640,890,12.4,17.2);
   }
 
   function curvedSurface(THREE,width,height) {
@@ -209,15 +208,15 @@
     const light = new THREE.MeshBasicMaterial({color:0xffb283,toneMapped:false});
     const warm = new THREE.MeshBasicMaterial({color:0xde8070,toneMapped:false,transparent:true,opacity:.86});
     mount(THREE,base,box,shell,light,0);
-    const trim = makeArtwork(THREE,ctx=>{
+    const trim = makeArtwork(THREE,(ctx,w,h,write)=>{
       ctx.fillStyle='#272735';
       ctx.fillRect(0,0,256,64);
       ctx.fillStyle='#ffd09e';
       ctx.font='900 24px system-ui, sans-serif';
       ctx.textAlign='center';
       ctx.textBaseline='middle';
-      ctx.fillText('MORROW GRID',128,32);
-    },256,64);
+      write('MORROW GRID',128,32,224);
+    },256,64,3.52,.54);
     const plaque = new THREE.MeshBasicMaterial({map:trim,toneMapped:false});
     const cabinet = box.clone();
     cabinet.clearGroups();

@@ -23,11 +23,9 @@
     {name:'SUBLIGHT', message:'VEHICLE SYSTEMS', color:'#95bcff', dark:'#131936', mark:'rail'}
   ];
 
-  function adTexture(THREE, design) {
-    const canvas = document.createElement('canvas');
-    canvas.width = 512;
-    canvas.height = 256;
-    const ctx = canvas.getContext('2d');
+  function adTexture(THREE, design, width, height) {
+    const signs = globalThis.DrivePortfolioSignText;
+    const {canvas,ctx} = signs.canvas(width,height,512,256);
     const fill = ctx.createLinearGradient(20, 15, 450, 256);
     fill.addColorStop(0, design.dark);
     fill.addColorStop(1, '#080914');
@@ -59,14 +57,14 @@
     ctx.fillStyle = design.color;
     ctx.fillRect(31, 43, 282, 4);
     ctx.fillRect(31, 199, 282, 4);
-    let size = 78;
-    do { ctx.font = '900 ' + size-- + 'px system-ui, sans-serif'; } while (size > 28 && ctx.measureText(design.name).width > 302);
-    ctx.fillText(design.name, 26, 144, 306);
-    ctx.font = '700 20px monospace';
+    ctx.font = '900 65px system-ui, sans-serif';
+    signs.text(ctx,design.name,26,144,306);
+    ctx.font = '700 24px monospace';
     ctx.fillStyle = '#edf5ff';
-    ctx.fillText(design.message, 32, 180, 282);
+    signs.text(ctx,design.message,32,180,282);
     const texture = new THREE.CanvasTexture(canvas);
     texture.encoding = THREE.sRGBEncoding;
+    texture.anisotropy = 4;
     return texture;
   }
 
@@ -88,9 +86,7 @@
 
   function addAdverts(THREE, world, adverts, box, cabinet, shell) {
     if (!adverts.length) return;
-    const screens = businesses.map(design => new THREE.MeshBasicMaterial({
-      map:typeof document === 'undefined' ? null : adTexture(THREE, design), toneMapped:false
-    }));
+    const screens = new Map();
     const brackets = new THREE.InstancedMesh(box, shell, adverts.length * 2);
     brackets.name = 'portfolio-ad-brackets';
     const transform = new THREE.Object3D();
@@ -100,7 +96,12 @@
       mount.position.set(x,y,z);
       mount.rotation.y = heading;
       const h = height || width * .5;
-      const display = block(THREE, mount, cabinet, [shell, screens[index % screens.length]], 0,0,0,width+.18,h+.18,.52);
+      const design = businesses[index % businesses.length];
+      const key = design.name + '-' + ((width+.18)/(h+.18)).toFixed(2);
+      if (!screens.has(key)) screens.set(key,new THREE.MeshBasicMaterial({
+        map:typeof document === 'undefined' ? null : adTexture(THREE,design,width+.18,h+.18),toneMapped:false
+      }));
+      const display = block(THREE, mount, cabinet, [shell,screens.get(key)], 0,0,0,width+.18,h+.18,.52);
       display.name = 'portfolio-ad-display';
       display.userData.portfolioAdFace = true;
       display.userData.portfolioAdId = id;

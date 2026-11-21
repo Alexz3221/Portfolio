@@ -1,16 +1,18 @@
 (function(root,factory) {
-  const landmarks=factory();
+  const signText = typeof module === 'object' && module.exports
+    ? require('./portfolio-sign-text') : root.DrivePortfolioSignText;
+  const landmarks=factory(signText);
   if (typeof module==='object' && module.exports) module.exports=landmarks;
   else root.DrivePortfolioDistrictLandmarks=landmarks;
-})(globalThis,function() {
+})(globalThis,function(signText) {
   'use strict';
 
   const sites=[
     {id:'about',x:36,z:-88.6,heading:Math.PI,title:'ARRIVAL CONCOURSE',detail:'TRANSIT / ABOUT',accent:0xffb197,build:transit},
     {id:'contact',x:60,z:-91.7,heading:Math.PI,title:'SOUTH STREET',detail:'MEDIA KIOSK / INTERESTS',accent:0xff9ace,build:mediaKiosk},
-    {id:'education',x:-94,z:23,heading:-Math.PI/2,title:'NIGHT MARKET',detail:'NIGHT SCHOOL / EDUCATION',accent:0xd3abff,build:studyStall},
+    {id:'education',x:-94,z:23,heading:-Math.PI/2,title:'BOULDER CAMPUS',detail:'COURSE RESERVES',accent:0xe5bf95,build:studyStall},
     {id:'experience',x:127.5,z:59.4,heading:Math.PI,title:'SERVICE DISTRICT',detail:'FIELD OPERATIONS / EXPERIENCE',accent:0xffbf78,build:substation},
-    {id:'skills',x:-34.4,z:94.4,heading:Math.PI,title:'CAMPUS',detail:'TOOL LIBRARY / SKILLS',accent:0xc3e99f,build:workshop}
+    {id:'skills',x:-34.4,z:94.4,heading:Math.PI,title:'WORKSHOP QUARTER',detail:'TOOL LIBRARY / SKILLS',accent:0xc3e99f,build:workshop}
   ];
   const deckWidth=5.5, deckDepth=2.45;
   const track=0x4d565b, enamel=0x303e48, steel=0x525d66, chalk=0x9b9b91;
@@ -179,10 +181,9 @@
       light(accent,0,signHeight+.464,1.007,5.07,.038,.115);
       for (const xx of [-2.29,2.29]) box('metal',track,xx,signHeight-.465,.89,.12,.67,.21);
       let face=finishes.light;
-      if (typeof document!=='undefined') {
-        const canvas=document.createElement('canvas');
-        canvas.width=768; canvas.height=132;
-        const ctx=canvas.getContext('2d');
+      const faceWidth=5.04, faceHeight=.615;
+      if (typeof document!=='undefined' && signText) {
+        const {canvas,ctx}=signText.canvas(faceWidth,faceHeight,768,132);
         const ink='#'+new THREE.Color(accent).getHexString();
         ctx.fillStyle='#15212a';
         ctx.fillRect(0,0,768,132);
@@ -192,17 +193,17 @@
         ctx.textAlign='center';
         ctx.fillStyle=ink;
         ctx.font='800 56px system-ui,sans-serif';
-        ctx.fillText(title,384,72,704);
+        signText.text(ctx,title,384,72,704);
         ctx.font='700 24px monospace';
         ctx.fillStyle='#e2e5df';
-        ctx.fillText(detail,384,105,700);
+        signText.text(ctx,detail,384,105,700);
         const texture=new THREE.CanvasTexture(canvas);
         texture.encoding=THREE.sRGBEncoding;
         textures.push(texture);
         face=new THREE.MeshBasicMaterial({map:texture,toneMapped:false});
         signMaterials.push(face);
       }
-      const faceGeometry=new THREE.PlaneGeometry(5.04,.615);
+      const faceGeometry=new THREE.PlaneGeometry(faceWidth,faceHeight);
       geometries.push(faceGeometry);
       const placard=new THREE.Mesh(faceGeometry,face);
       placard.name='portfolio-district-label-'+id;

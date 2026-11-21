@@ -62,6 +62,8 @@
   const colliders=shapes.flatMap(({bounds})=>bounds);
 
   function spectrum({tower,box,beam,display,body,steel,lit,soot}) {
+    const feeds = (globalThis.DrivePortfolioSpectrumProgramming?.count ?? 10) + 1;
+    let screen = 0;
     const levels=[[12.7,0,0,7.52,6.95],[23,-.46,0,7.33,6.60],[43.8,.50,-.17,6.55,5.93],
       [58.1,1.53,.60,5.77,4.84],[67.8,2.44,.81,4.70,3.78],[74.4,3.03,.51,2.68,2.31]];
     tower('splayed broadcast shaft',clipped,levels,body);
@@ -76,12 +78,12 @@
       for(let y=y1+3.19;y<y2-2.24;y+=4.84) {
         const t=(y-y1)/(y2-y1),x=x1+(x2-x1)*t, z=z1+(z2-z1)*t;
         const rx=rx1+(rx2-rx1)*t,rz=rz1+(rz2-rz1)*t;
-        const mountX=x-rx-.21,mountZ=z-rz-.17,variant=Math.floor(y/4)%5;
+        const mountX=x-rx-.21,mountZ=z-rz-.17,variant=screen++%feeds;
         const h=3.60,w=rz*1.18;
         box('mounted video wall',mountX,y,z,.82,h+.22,w+.22,soot);
         display('broadcast monitor','video',mountX-.42,y,z,w,h,west,variant);
         box('side preview housing',x,y,mountZ,rx*.74+.20,h+.13,.63,soot);
-        display('broadcast preview','video',x,y,mountZ-.324,rx*.74,h,Math.PI,(variant+2)%5);
+        display('broadcast preview','video',x,y,mountZ-.324,rx*.74,h,Math.PI,(variant+4)%feeds);
       }
     }
     for(const [y,x,z,rx,rz] of levels.slice(0,5)) {
@@ -175,11 +177,11 @@
     for(const x of [.31,2.2,4.15]) box('roof exchange pins',x,79.75,4.63,.11,1.51,.18,lit,'light');
     box('motto fascia',0,6.77,-10.53,26.75,1.91,.19,0x293b49);
     display('DON\'T BE EVIL','slogan',0,6.77,-10.634,26.2,1.76,Math.PI);
-    for(const [x,y,z,w,h,heading] of [
+    for(const [variant,[x,y,z,w,h,heading]] of [
       [-7.65,16.5,-7.62,7.83,5.32,Math.PI],[7.45,21.7,-7.89,8.73,5.52,Math.PI],
       [-7.19,36.8,-5.48,8.41,5.11,Math.PI],[6.36,37.4,-5.76,8.63,5.34,Math.PI],
       [13.11,22.0,-.22,8.49,5.26,Math.PI/2]
-    ]) display('evaluation cloud plate','cloud',x,y,z,w,h,heading,Math.round(y)%3);
+    ].entries()) display('evaluation workflow panel '+variant,'cloud',x,y,z,w,h,heading,variant);
   }
 
   function coorstek({tower,box,beam,display,body,steel,lit,soot}) {
@@ -272,9 +274,14 @@
     return geometry;
   }
 
-  function boardArtwork(ctx,kind,variant) {
-    const width=ctx.canvas.width,height=ctx.canvas.height;
-    const neon=['#89f1ff','#c7a5ff','#ff956c','#a7d6bf','#829dfa'][variant];
+  function boardArtwork(ctx,width,height,kind,variant) {
+    const write = (label,x,y,limit) => globalThis.DrivePortfolioSignText.text(ctx,label,x,y,limit);
+    const programming = globalThis.DrivePortfolioSpectrumProgramming;
+    if (kind==='video' && programming && variant<programming.count) {
+      programming.paint(ctx,width,height,variant,write);
+      return;
+    }
+    const neon=['#89f1ff','#c7a5ff','#ff956c','#a7d6bf','#829dfa'][variant%5];
     ctx.fillStyle='#142433';
     ctx.fillRect(0,0,width,height);
     ctx.strokeStyle=neon;
@@ -283,7 +290,7 @@
     ctx.strokeRect(7,7,width-14,height-14);
     if (kind==='video') {
       ctx.font='bold 21px monospace';
-      ctx.fillText('SPECTRUM  /  LIVE '+(variant+1),21,36);
+      write('SPECTRUM  /  ENGINEERING',21,36,465);
       ctx.strokeStyle='#7da6ca';
       ctx.strokeRect(21,54,286,147);
       const swatches=['#8fb8cd','#90ce8f','#8657a0','#c26870','#44819c','#3d475d','#cbb49a'];
@@ -303,63 +310,101 @@
       ctx.stroke();
       ctx.fillStyle=neon;
       ctx.font='bold 15px monospace';
-      ctx.fillText('ENCODE / PREVIEW',333,71);
-      ctx.fillText('MODEL OUTPUT',333,195);
-      ctx.fillText('STREAM  '+(variant+1)+'/05                       SIGNAL LOCKED',22,232);
+      write('ENCODE / PREVIEW',333,71,164);
+      write('MODEL OUTPUT',333,195,164);
+      write('CALIBRATION                          SIGNAL LOCKED',22,232,465);
       for (let y=11;y<height;y+=5) {
         ctx.fillStyle='#111b2a28';
         ctx.fillRect(11,y,width-22,1);
       }
     } else if (kind==='materials') {
       ctx.fillStyle='#fbd6ae';
-      ctx.font='700 31px monospace';
-      ctx.fillText('PROCESS MODEL',25,51);
-      ctx.font='bold 21px monospace';
-      ctx.fillText('PREDICTED / OBSERVED',25,89);
-      ctx.fillText('BATCH CHARACTERISTICS',25,130);
-      ctx.fillText('COORSTEK  /  SPARK',25,224);
+      ctx.font='800 55px system-ui, sans-serif';
+      write('PROCESS MODEL',24,81,276);
+      ctx.font='bold 38px monospace';
+      write('PREDICTED / OBSERVED',24,138,276);
+      write('COORSTEK  /  SPARK',24,207,276);
       const palette=['#353745','#6e5271','#ac665e','#e7915e','#f4be75'];
       for(let y=0;y<7;y++) for(let x=0;x<8;x++) {
         ctx.fillStyle=palette[(x*x+5*y+Math.floor(x*y/2))%palette.length];
         ctx.fillRect(315+x*19,37+y*24,16,19);
       }
-    } else if(kind==='cloud') {
-      ctx.fillStyle='#152636';
-      ctx.fillRect(0,0,width,height);
-      ctx.strokeStyle=neon;
-      ctx.lineWidth=9;
+    } else if (kind==='cloud') {
+      const names=['POLICY INTAKE','SERVICE MAPPING','IMPACT REVIEW','CHANGE ALERTS','CLOUD INFRASTRUCTURE'];
+      ctx.font='900 37px system-ui, sans-serif';
+      write(names[variant],24,54,464);
+      ctx.strokeStyle='#637b89';
       ctx.beginPath();
-      ctx.moveTo(160,173);
-      ctx.bezierCurveTo(96,174,90,91,153,89);
-      ctx.bezierCurveTo(170,31,254,39,274,82);
-      ctx.bezierCurveTo(307,65,344,75,357,104);
-      ctx.bezierCurveTo(410,107,410,173,352,174);
-      ctx.closePath();
+      ctx.moveTo(25,68);
+      ctx.lineTo(487,68);
       ctx.stroke();
-      for (let i=0;i<5;i++) {
-        const x=173+i*41,y=132+(i%2)*12;
-        ctx.fillStyle=neon;
-        ctx.fillRect(x,y,12,12);
-        ctx.lineWidth=2;
-        if (i!==4) {
-          ctx.beginPath();
-          ctx.moveTo(x+12,y+6);
-          ctx.lineTo(x+41,142+(1-i%2)*12);
-          ctx.stroke();
+      ctx.strokeStyle = neon;
+      ctx.fillStyle = neon;
+      ctx.lineWidth = 3;
+      const trace = points => {
+        ctx.beginPath();
+        for (const [i,[x,y]] of points.entries()) {
+          if (i) ctx.lineTo(x,y);
+          else ctx.moveTo(x,y);
         }
+        ctx.stroke();
+      };
+      if (variant===0) {
+        for (const [x,y] of [[94,115],[126,133],[158,151]]) {
+          ctx.fillStyle='#26394a';
+          ctx.fillRect(x-42,y-24,76,64);
+          ctx.strokeRect(x-42,y-24,76,64);
+          ctx.fillStyle=neon;
+          for (let row=0;row<3;row++) ctx.fillRect(x-30,y-12+row*13,50-row*8,3);
+        }
+        trace([[202,158],[305,158],[305,137],[343,137]]);
+        ctx.strokeRect(343,108,103,58);
+        ctx.fillRect(366,130,58,6);
+      } else if (variant===1) {
+        const points = [[74,148],[171,108],[175,193],[268,148],[363,113],[367,190],[442,154]];
+        for (const [a,b] of [[0,1],[0,2],[1,3],[2,3],[3,4],[3,5],[4,6],[5,6]]) trace([points[a],points[b]]);
+        for (const [x,y] of points) {
+          ctx.fillStyle='#203745';
+          ctx.fillRect(x-13,y-11,26,22);
+          ctx.strokeRect(x-13,y-11,26,22);
+        }
+      } else if (variant===2) {
+        for (const [i,[x,y]] of [[57,103],[57,151],[57,199]].entries()) {
+          ctx.fillStyle=i===1?'#6f5364':'#294357';
+          ctx.fillRect(x,y,396,30);
+          ctx.fillStyle=neon;
+          ctx.fillRect(x+14,y+9,9,11);
+          ctx.fillRect(x+42,y+12,153-i*26,4);
+          ctx.fillRect(x+268,y+12,89+i*11,4);
+        }
+      } else if (variant===3) {
+        trace([[54,149],[143,149],[169,124],[190,168],[216,107],[243,148],[305,148]]);
+        for (const y of [108,149,192]) {
+          trace([[305,148],[343,y],[387,y]]);
+          ctx.strokeRect(387,y-14,69,28);
+          ctx.fillRect(400,y-2,39,4);
+        }
+      } else {
+        ctx.beginPath();
+        ctx.moveTo(149,193);
+        ctx.bezierCurveTo(99,193,103,139,154,133);
+        ctx.bezierCurveTo(177,87,226,89,252,121);
+        ctx.bezierCurveTo(280,106,311,116,324,140);
+        ctx.bezierCurveTo(371,140,384,193,335,193);
+        ctx.closePath();
+        ctx.stroke();
+        for (const x of [194,237,280]) trace([[x,161],[x,213]]);
       }
-      ctx.font='bold 19px monospace';
-      ctx.fillText('EVENT CLOUD / EVALUATION',121,219);
     } else {
       const slogans=kind==='slogan' ? ["DON'T BE EVIL"] : ['RTX / RAYTHEON','SYSTEMS DEPOT  /  IDENTIFICATION REQUIRED'];
       ctx.fillStyle=kind==='slogan' ? '#d4ffe7' : '#f6c495';
       ctx.textAlign='center';
       ctx.textBaseline='middle';
       ctx.font=kind==='slogan'?'900 112px Arial, sans-serif':'900 59px Arial, sans-serif';
-      ctx.fillText(slogans[0],width/2,kind==='slogan'?height*.51:height*.38,width-43);
+      write(slogans[0],width/2,kind==='slogan'?height*.51:height*.37,width-43);
       if (slogans[1]) {
-        ctx.font='700 29px monospace';
-        ctx.fillText(slogans[1],width/2,height*.72,width-43);
+        ctx.font='700 35px monospace';
+        write(slogans[1],width/2,height*.73,width-43);
       }
     }
   }
@@ -433,14 +478,14 @@
         group.add(mesh);
       }
       for(const {name,kind,x,y,z,width,height,heading,variant} of panels) {
-        const key=kind+variant;
+        const key=kind+variant+':'+(width/height).toFixed(2);
         if(!media.has(key)) {
           const face=surface('MeshBasicMaterial',{color:0x59707f,toneMapped:false});
           if(typeof document!=='undefined') {
-            const canvas=document.createElement('canvas');
-            canvas.width=kind==='slogan'?1024:512;
-            canvas.height=kind==='slogan'?160:256;
-            boardArtwork(canvas.getContext('2d'),kind,variant);
+            const signs=globalThis.DrivePortfolioSignText;
+            const w=kind==='slogan'?1024:512, h=kind==='slogan'?160:256;
+            const {canvas,ctx}=signs.canvas(width,height,w,h);
+            boardArtwork(ctx,w,h,kind,variant);
             const map=new THREE.CanvasTexture(canvas);
             map.encoding=THREE.sRGBEncoding;
             map.anisotropy=4;
@@ -508,16 +553,20 @@
         }
       }
     }
-    const titleY=id==='rtx-raytheon'?6.48:4.27;
+    // The compound gate carries the RTX name at the pedestrian entrance.
+    if (id==='rtx-raytheon') {
+      batch(front,pieces);
+      return;
+    }
+    const titleY=4.27;
     box('title cabinet',0,titleY,.19,width-.88,1.12,.25,0x1b2831);
     batch(front,pieces);
     const panel=new THREE.PlaneGeometry(width-1.02,1.01);
     geometries.add(panel);
     const finish=surface('MeshBasicMaterial',{color:0x23313c,toneMapped:false});
     if(typeof document!=='undefined') {
-      const canvas=document.createElement('canvas');
-      canvas.width=1024;canvas.height=172;
-      const ctx=canvas.getContext('2d');
+      const signs=globalThis.DrivePortfolioSignText;
+      const {canvas,ctx}=signs.canvas(width-1.02,1.01,1024,172);
       ctx.fillStyle='#1c252d';
       ctx.fillRect(0,0,1024,172);
       ctx.strokeStyle='#'+ink.toString(16).padStart(6,'0');
@@ -527,9 +576,9 @@
       ctx.font='900 68px Arial, sans-serif';
       ctx.textAlign='center';
       ctx.textBaseline='middle';
-      ctx.fillText(site.title,512,66,920);
-      ctx.font='700 24px monospace';
-      ctx.fillText(site.caption,512,124,920);
+      signs.text(ctx,site.title,512,65,920);
+      ctx.font='700 32px monospace';
+      signs.text(ctx,site.caption,512,127,920);
       const map=new THREE.CanvasTexture(canvas);
       map.encoding=THREE.sRGBEncoding;
       map.anisotropy=4;

@@ -1,8 +1,10 @@
 (function(root,factory) {
-  const district=factory();
+  const signText = typeof module === 'object' && module.exports
+    ? require('./portfolio-sign-text') : root.DrivePortfolioSignText;
+  const district=factory(signText);
   if (typeof module==='object' && module.exports) module.exports=district;
   else root.DrivePortfolioExperienceDistrict=district;
-})(globalThis,function() {
+})(globalThis,function(signText) {
   'use strict';
 
   const cold=0x9bc8cf, dark=0x263642, edge=0x50616a, concrete=0x626b6d, oxidized=0x765847, copper=0xc18c59;
@@ -82,12 +84,9 @@
       return {owner,box,pipe,light,render};
     }
 
-    function screenMaterial(width,height,draw) {
-      if (typeof document==='undefined') return finishes.shine;
-      const canvas=document.createElement('canvas');
-      canvas.width=width;
-      canvas.height=height;
-      const ctx=canvas.getContext('2d');
+    function screenMaterial(faceWidth,faceHeight,width,height,draw) {
+      if (typeof document==='undefined' || !signText) return finishes.shine;
+      const {canvas,ctx}=signText.canvas(faceWidth,faceHeight,width,height);
       ctx.fillStyle='#18252f';
       ctx.fillRect(0,0,width,height);
       draw(ctx,width,height);
@@ -144,20 +143,21 @@
         light(copper,x+off,7.60,z-.385,1.59,.065,.056);
         light(copper,x+off,7.60,z+.385,1.59,.065,.056);
       }
-      const face=screenMaterial(1024,148,(ctx,w,h)=>{
+      const width=13.76, height=1.037;
+      const face=screenMaterial(width,height,1024,148,(ctx,w,h)=>{
         ctx.fillStyle='#899a9d';
         ctx.fillRect(0,10,w,4);
         ctx.fillRect(0,h-14,w,4);
         ctx.textAlign='center';
         ctx.fillStyle='#beedf2';
         ctx.font='800 69px system-ui,sans-serif';
-        ctx.fillText('SERVICE DISTRICT',w/2,86,935);
+        signText.text(ctx,'SERVICE DISTRICT',w/2,86,935);
         ctx.fillStyle='#e9b782';
         ctx.font='700 27px monospace';
-        ctx.fillText('EAST RING / EXPERIENCE',w/2,122);
+        signText.text(ctx,'EAST RING / EXPERIENCE',w/2,122,935);
       });
-      screen(owner,'gantry-north',face,{x,y:8.11,z:z-.357,w:13.76,h:1.037,heading:Math.PI});
-      screen(owner,'gantry-south',face,{x,y:8.11,z:z+.357,w:13.76,h:1.037,heading:0});
+      screen(owner,'gantry-north',face,{x,y:8.11,z:z-.357,w:width,h:height,heading:Math.PI});
+      screen(owner,'gantry-south',face,{x,y:8.11,z:z+.357,w:width,h:height,heading:0});
       render();
     }
 
@@ -170,10 +170,11 @@
       box('iron',oxidized,directoryX,base+1.53,directoryZ,.62,2.81,3.24);
       box('iron',dark,directoryX+.31,base+1.78,directoryZ,.12,2.36,3.20);
       light(cold,directoryX+.38,base+3.06,directoryZ,.08,.045,3.16);
-      const face=screenMaterial(528,384,(ctx,w)=>{
+      const width=2.95, height=2.13;
+      const face=screenMaterial(width,height,528,384,(ctx,w)=>{
         ctx.fillStyle='#bde7ed';
         ctx.font='800 39px system-ui,sans-serif';
-        ctx.fillText('TOWER DIRECTORY',25,56,w-48);
+        signText.text(ctx,'TOWER DIRECTORY',25,56,w-48);
         ctx.strokeStyle='#7a929c';
         ctx.beginPath();
         ctx.moveTo(25,74); ctx.lineTo(w-25,74); ctx.stroke();
@@ -181,12 +182,12 @@
           const row=113+i*51;
           ctx.fillStyle='#dfe7e8';
           ctx.font='700 32px system-ui,sans-serif';
-          ctx.fillText(tenant.title,48,row,w-78);
+          signText.text(ctx,tenant.title,48,row,w-78);
           ctx.fillStyle='#d8a574';
           ctx.fillRect(27,row-19,7,14);
         }
       });
-      screen(owner,'directory',face,{x:directoryX+.379,y:base+1.78,z:directoryZ,w:2.95,h:2.13,heading:Math.PI/2});
+      screen(owner,'directory',face,{x:directoryX+.379,y:base+1.78,z:directoryZ,w:width,h:height,heading:Math.PI/2});
       body(directoryX,base+1.42,directoryZ,.87,2.84,3.42);
       render();
     }

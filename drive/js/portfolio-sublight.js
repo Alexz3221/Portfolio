@@ -183,13 +183,12 @@
 
   function sign(THREE,group,material,x,y,z,width,height,title,line,color) {
     if(typeof document==='undefined') return;
-    const canvas=document.createElement('canvas');
-    canvas.width=512; canvas.height=128;
-    const ctx=canvas.getContext('2d');
+    const signs=globalThis.DrivePortfolioSignText;
+    const {canvas,ctx}=signs.canvas(width,height,512,128);
     ctx.fillStyle='#25201f'; ctx.fillRect(0,0,512,128);
     ctx.fillStyle=color; ctx.fillRect(15,16,6,96);
-    ctx.font='900 48px system-ui,sans-serif'; ctx.fillText(title,36,60,452);
-    ctx.font='700 24px monospace'; ctx.fillText(line,38,99,440);
+    ctx.font='900 48px system-ui,sans-serif'; signs.text(ctx,title,36,60,452);
+    ctx.font='700 27px monospace'; signs.text(ctx,line,38,99,440);
     const map=new THREE.CanvasTexture(canvas);
     map.encoding=THREE.sRGBEncoding;
     const display=new THREE.MeshBasicMaterial({map,toneMapped:false});

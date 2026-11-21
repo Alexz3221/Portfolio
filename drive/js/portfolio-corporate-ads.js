@@ -128,10 +128,11 @@
     function type(value,x,y,size,weight,spec,maxWidth) {
       ctx.save();
       ctx.translate(x,y);
-      ctx.scale(1/scaleX,1);
       ctx.font=weight+' '+size+'px '+spec;
       ctx.textBaseline='middle';
-      ctx.fillText(value,0,0,maxWidth*scaleX);
+      const fit=Math.min(1,maxWidth*scaleX/Math.max(1,ctx.measureText(value).width));
+      ctx.scale(fit/scaleX,fit);
+      ctx.fillText(value,0,0);
       ctx.restore();
     }
 

@@ -9,8 +9,8 @@
     about: {id:'arrival-concourse',title:'Arrival Concourse',stopId:'about'},
     projects: {id:'projects-plaza',title:'Projects Plaza',stopId:'projects'},
     experience: {id:'service-district',title:'Service District',stopId:'experience'},
-    education: {id:'night-market',title:'Night Market',stopId:'education'},
-    skills: {id:'campus',title:'Campus',stopId:'skills'},
+    education: {id:'boulder-campus',title:'Boulder Campus',stopId:'education'},
+    skills: {id:'workshop-quarter',title:'Workshop Quarter',stopId:'skills'},
     contact: {id:'south-street',title:'South Street',stopId:'contact'}
   };
 
@@ -100,7 +100,18 @@
       position:'Course Assistant'
     })
   ];
-  const sites = [...projects,...experience];
+  function degree(id,title,building,approach,dates) {
+    return site('education',id,title,building,approach,{organization:'University of Colorado Boulder',dates});
+  }
+  const education = [
+    degree('bs-computer-science','B.S. Computer Science',['Computing Hall',-86,36],
+      {x:-104.5,z:37,heading:east},'May 2026'),
+    degree('ba-mathematics','B.A. Mathematics',['Mathematics Hall',-130.8,25.2],
+      {x:-111.4,z:23.8,heading:-east},'May 2026'),
+    degree('ms-computer-science','M.S. Computer Science',['Graduate Research Tower',-86.5,59.8],
+      {x:-104.5,z:60,heading:east},'Expected May 2028')
+  ];
+  const sites = [...projects,...experience,...education];
 
   function siteStopsFor(city, entries = sites) {
     if (!city?.skyway) return [];
@@ -110,5 +121,5 @@
 
   const projectStopsFor = city => siteStopsFor(city,projects);
 
-  return {byStopId,districtsFor,sites,projects,experience,projectStopsFor,siteStopsFor};
+  return {byStopId,districtsFor,sites,projects,experience,education,projectStopsFor,siteStopsFor};
 });

@@ -156,19 +156,17 @@
   }
 
   function sign(THREE,group,point,frame,{s,y,width,height,offset,civic}) {
-    const canvas=document.createElement('canvas');
-    canvas.width=768;
-    canvas.height=civic ? 88 : 192;
-    const ctx=canvas.getContext('2d');
+    const signs=globalThis.DrivePortfolioSignText;
+    const {canvas,ctx,width:w,height:h}=signs.canvas(width,height,768,civic ? 88 : 192);
     ctx.fillStyle=civic ? '#51473a' : '#141917';
-    ctx.fillRect(0,0,canvas.width,canvas.height);
+    ctx.fillRect(0,0,w,h);
     ctx.strokeStyle=civic ? '#6e6455' : '#a27a4b';
     ctx.lineWidth=civic ? 3 : 5;
-    ctx.strokeRect(8,8,canvas.width-16,canvas.height-16);
+    ctx.strokeRect(8,8,w-16,h-16);
     if (civic) {
       ctx.fillStyle='#bbac94';
       ctx.font='700 42px monospace';
-      ctx.fillText('MUNICIPAL TELEPHONE EXCHANGE',23,57,720);
+      signs.text(ctx,'MUNICIPAL TELEPHONE EXCHANGE',23,57,720);
       for (let i=0; i<97; i++) {
         ctx.fillStyle=i%5===0 ? '#a891683f' : '#25231f33';
         ctx.fillRect((i*703)%749+8, (i*31)%72+8, 5+i%11,1+i%4);
@@ -176,13 +174,13 @@
     } else {
       ctx.fillStyle='#eebe80';
       ctx.font='900 88px system-ui, sans-serif';
-      ctx.fillText('RELAY',31,100);
+      signs.text(ctx,'RELAY',31,100,507);
       ctx.font='700 34px monospace';
-      ctx.fillText('PRIORITY NETWORK',34,149);
+      signs.text(ctx,'PRIORITY NETWORK',34,149,505);
       ctx.font='700 22px monospace';
       ctx.fillStyle='#c4a276';
-      ctx.fillText('MEMBERS',588,69);
-      ctx.fillText('ONLY',588,105);
+      signs.text(ctx,'MEMBERS',588,69,151);
+      signs.text(ctx,'ONLY',588,105,151);
       ctx.fillStyle='#9f734b';
       ctx.fillRect(562,44,3,96);
     }

@@ -141,10 +141,10 @@ document.querySelector('.city-guide-trigger').focus();
 document.activeElement.dispatchEvent(new KeyboardEvent('keydown', {key:'e', bubbles:true}));
 check(!ui.isOpen(), 'E does not activate a focused guide button');
 document.querySelector('#drive-scene').focus();
-const serviceCity = {stops,skyway:{}};
-const roles = DrivePortfolioDistricts.siteStopsFor(serviceCity,DrivePortfolioDistricts.experience);
+const authoredCity = {stops,skyway:{}};
+const roles = DrivePortfolioDistricts.siteStopsFor(authoredCity,DrivePortfolioDistricts.experience);
 const spectrum = roles.find(stop => stop.id === 'experience-spectrum');
-ui.setCity(serviceCity, 'city');
+ui.setCity(authoredCity, 'city');
 document.querySelector('.city-guide-trigger').click();
 document.querySelector('.city-stop-item[data-stop="experience"]').click();
 check(document.querySelector('#cityPanelTitle').textContent === 'Service District', 'Experience opens the district overview');
@@ -169,6 +169,28 @@ check(document.querySelector('.city-nearby').disabled, 'a passing driver is prom
 ui.update({...spectrum,y:.85}, 0);
 document.dispatchEvent(new KeyboardEvent('keydown', {key:'e', bubbles:true}));
 check(document.querySelector('#cityPanelTitle').textContent === 'Spectrum' && ui.isOpen(), 'E opens the role while parked at its entrance');
+document.dispatchEvent(new KeyboardEvent('keydown', {key:'Escape', bubbles:true}));
+document.querySelector('.city-guide-trigger').click();
+document.querySelector('.city-stop-item[data-stop="education"]').click();
+check(document.querySelector('#cityPanelTitle').textContent === 'Boulder Campus', 'Education opens the campus overview');
+check(document.querySelectorAll('button.city-project[data-stop^="education-"]').length === 3, 'the overview has three degree cards');
+for (const degree of DrivePortfolioDistricts.education) {
+  document.querySelector(`button[data-stop="${degree.stopId}"]`).click();
+  check(document.querySelector('#cityPanelTitle').textContent === degree.title &&
+    document.querySelector('.city-story-content').textContent.includes(`${degree.organization} · ${degree.dates}`), 'the degree panel shows its institution and period');
+  check(document.querySelector('.city-story-landmark').textContent === `${degree.building.name} · Boulder Campus`, 'the degree panel names its building');
+  document.querySelector('.city-back').click();
+}
+check(document.querySelector('#cityPanelTitle').textContent === 'Boulder Campus', 'the degree back button returns to Education');
+const graduateStop = DrivePortfolioDistricts.siteStopsFor(authoredCity,DrivePortfolioDistricts.education).at(-1);
+document.querySelector(`button[data-stop="${graduateStop.id}"]`).click();
+document.querySelector('.city-drive-here').click();
+check(jumped === graduateStop.id && !ui.isOpen(), 'Drive Here uses the individual degree stop');
+ui.update({...graduateStop,y:11.5}, 0);
+check(document.querySelector('.city-nearby').hidden, 'a degree site does not prompt above the road');
+ui.update({...graduateStop,y:.85}, 0);
+document.dispatchEvent(new KeyboardEvent('keydown', {key:'e', bubbles:true}));
+check(document.querySelector('#cityPanelTitle').textContent === graduateStop.title && ui.isOpen(), 'E opens the parked degree stop');
 document.dispatchEvent(new KeyboardEvent('keydown', {key:'Escape', bubbles:true}));
 const centerCity = {stops, bounds:{minX:-500,maxX:500,minZ:-500,maxZ:500},
   overviewRoads:[{x1:-400,z1:0,x2:400,z2:0,width:16}],
@@ -229,7 +251,7 @@ document.querySelector('#drive-scene').dispatchEvent(new KeyboardEvent('keydown'
 check(ui.isOpen(), 'M opens city map');
 document.dispatchEvent(new KeyboardEvent('keydown', {key:'m', bubbles:true}));
 check(!ui.isOpen(), 'M closes city map');
-document.getElementById('results').textContent = failures.length ? 'FAIL: ' + failures.join(', ') : 'PASS: separate city maps, zoom, pan, M hotkey, fast travel, project and role panels, E prompt, Escape';
+document.getElementById('results').textContent = failures.length ? 'FAIL: ' + failures.join(', ') : 'PASS: separate city maps, zoom, pan, M hotkey, fast travel, project, role and degree panels, E prompt, Escape';
 document.documentElement.dataset.result = failures.length ? 'fail' : 'pass';
 if (new URLSearchParams(location.search).has('preview')) {
   if (new URLSearchParams(location.search).has('narrow')) {

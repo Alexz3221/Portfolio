@@ -1,16 +1,21 @@
 (function(root, factory) {
-  const arrival = factory();
+  const signText = typeof module === 'object' && module.exports
+    ? require('./portfolio-sign-text') : root.DrivePortfolioSignText;
+  const arrival = factory(signText);
   if (typeof module === 'object' && module.exports) module.exports = arrival;
   else root.DrivePortfolioArrivalMarket = arrival;
-})(globalThis, function() {
+})(globalThis, function(signText) {
   'use strict';
 
-  function texture(THREE,width,height,draw) {
+  function texture(THREE,width,height,draw,faceSize) {
     if (typeof document === 'undefined') return null;
-    const canvas = document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
-    draw(canvas.getContext('2d'),width,height);
+    const label = faceSize && signText.canvas(...faceSize,width,height);
+    const canvas = label?.canvas || document.createElement('canvas');
+    if (!label) {
+      canvas.width = width;
+      canvas.height = height;
+    }
+    draw(label?.ctx || canvas.getContext('2d'),width,height);
     const map = new THREE.CanvasTexture(canvas);
     map.encoding = THREE.sRGBEncoding;
     map.anisotropy = 4;
@@ -39,7 +44,8 @@
     });
   }
 
-  function labelTexture(THREE,kind) {
+  function labelTexture(THREE,kind,faceWidth,faceHeight) {
+    if (!signText) return null;
     const blade = kind==='blade', menu = kind==='menu';
     return texture(THREE,blade ? 256 : 512,blade ? 256 : 256,(ctx,w,h)=>{
       ctx.fillStyle = blade ? '#462334' : '#2e2429';
@@ -51,27 +57,27 @@
       ctx.fillStyle = '#ffdcaa';
       if (blade) {
         ctx.font = '900 54px system-ui, sans-serif';
-        ctx.fillText('HOT',w*.50,84);
-        ctx.fillText('DUMPLINGS',w*.50,137,w-34);
+        signText.text(ctx,'HOT',w*.50,84,w-34);
+        signText.text(ctx,'DUMPLINGS',w*.50,137,w-34);
         ctx.fillStyle = '#ff9779';
         ctx.font = '700 40px ui-monospace, monospace';
-        ctx.fillText('OPEN',w*.50,214);
+        signText.text(ctx,'OPEN',w*.50,214,w-34);
       } else if (menu) {
         ctx.font = '900 61px system-ui, sans-serif';
-        ctx.fillText('LUCKY STEAM',w*.50,81,w-48);
+        signText.text(ctx,'LUCKY STEAM',w*.50,81,w-48);
         ctx.fillStyle = '#ff9a77';
         ctx.fillRect(34,105,w-68,3);
         ctx.font = '700 29px ui-monospace, monospace';
         ctx.fillStyle = '#fff1cc';
-        ctx.fillText('PORK & GINGER',w*.50,151);
-        ctx.fillText('MUSHROOM & CHIVE',w*.50,193);
+        signText.text(ctx,'PORK & GINGER',w*.50,151,w-48);
+        signText.text(ctx,'MUSHROOM & CHIVE',w*.50,193,w-48);
         ctx.font = '700 18px ui-monospace, monospace';
-        ctx.fillText('CHILI CRISP · JASMINE TEA',w*.50,223);
+        signText.text(ctx,'CHILI CRISP · JASMINE TEA',w*.50,223,w-48);
       } else {
         ctx.font = '900 64px system-ui, sans-serif';
-        ctx.fillText('TEA / CITRUS',w*.50,143,w-48);
+        signText.text(ctx,'TEA / CITRUS',w*.50,143,w-48);
       }
-    });
+    },[faceWidth,faceHeight]);
   }
 
   function geometryForAwning(THREE) {
@@ -261,7 +267,7 @@
     const cabinet = new THREE.MeshStandardMaterial({color:0x59373b,roughness:.60,metalness:.24});
     function sign(group,id,kind,x,y,z,w,h,d,yaw=0,audit=true) {
       const plate = new THREE.Mesh(panelGeometry,[cabinet,new THREE.MeshBasicMaterial({
-        color:0xffffff,map:labelTexture(THREE,kind),toneMapped:false
+        color:0xffffff,map:labelTexture(THREE,kind,w,h),toneMapped:false
       })]);
       plate.name = 'portfolio-arrival-market-'+id;
       plate.position.set(x,y,z);

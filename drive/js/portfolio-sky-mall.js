@@ -1,8 +1,10 @@
 (function(root, factory) {
-  const mall = factory();
+  const signText = typeof module === 'object' && module.exports
+    ? require('./portfolio-sign-text') : root.DrivePortfolioSignText;
+  const mall = factory(signText);
   if (typeof module === 'object' && module.exports) module.exports = mall;
   else root.DrivePortfolioSkyMall = mall;
-})(globalThis, function() {
+})(globalThis, function(signText) {
   'use strict';
 
   const assetBase = typeof document !== 'undefined' && document.currentScript?.src
@@ -126,10 +128,8 @@
       const frame=new THREE.Mesh(track(new THREE.BoxGeometry(width+.16,height+.16,.14)),finishes.steel);
       owned.add(frame);
       let faceMaterial=finishes.emission;
-      if (typeof document !== 'undefined') {
-        const canvas=document.createElement('canvas');
-        canvas.width=768; canvas.height=192;
-        const ctx=canvas.getContext('2d');
+      if (typeof document !== 'undefined' && signText) {
+        const {canvas,ctx}=signText.canvas(width,height,768,192);
         ctx.fillStyle='#111b23';
         ctx.fillRect(0,0,768,192);
         for (let y=0;y<192;y+=4) {
@@ -144,11 +144,11 @@
         const lines=title.split('\n');
         ctx.font=lines.length===1 ? '800 76px system-ui, sans-serif' : '800 61px system-ui, sans-serif';
         for (const [index,line] of lines.entries()) {
-          ctx.fillText(line,384,lines.length===1 ? 101 : 66+index*58,685);
+          signText.text(ctx,line,384,lines.length===1 ? 101 : 66+index*58,685);
         }
         ctx.font='700 28px monospace';
         ctx.fillStyle='#e5edec';
-        ctx.fillText(caption,384,lines.length===1 ? 149 : 161,685);
+        signText.text(ctx,caption,384,lines.length===1 ? 149 : 161,685);
         const map=new THREE.CanvasTexture(canvas);
         map.encoding=THREE.sRGBEncoding;
         textures.add(map);

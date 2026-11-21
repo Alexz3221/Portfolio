@@ -8,8 +8,11 @@
   const escapeHtml = value => String(value).replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
   const projects = districts?.projects || [];
   const experience = districts?.experience || [];
-  const sitesByStopId = new Map([...projects,...experience].map(site => [site.stopId,site]));
-  const siteMetadata = site => [site.position,site.dates].filter(Boolean).join(' · ');
+  const education = districts?.education || [];
+  const sites = districts?.sites || [];
+  const sitesByStopId = new Map(sites.map(site => [site.stopId,site]));
+  const sectionsWithSites = new Set(sites.map(site => site.sectionId));
+  const siteMetadata = site => [site.position ?? site.organization,site.dates].filter(Boolean).join(' · ');
   function siteCards(entries) {
     return `<div class="city-project-grid">${entries.map(site => `<button class="city-project" type="button" data-stop="${escapeHtml(site.stopId)}">
       <strong>${escapeHtml(site.title)}</strong><span>${escapeHtml(siteMetadata(site) || site.summary)}</span><b>${escapeHtml(site.building.name)}</b>
@@ -54,10 +57,7 @@
     },
     education: {
       title: 'Education',
-      body: `<div class="city-school">
-        <div><span>May 2026</span><h3>B.S. Computer Science</h3><h3>B.A. Mathematics</h3><p>University of Colorado Boulder</p></div>
-        <div><span>Expected May 2028</span><h3>M.S. Computer Science</h3><p>University of Colorado Boulder</p></div>
-        </div>`
+      body: `<div class="city-project-level">${siteCards(education)}</div>`
     },
     skills: {
       title: 'Skills',
@@ -607,7 +607,7 @@
       if (map !== 'city' || (!site && (!stop || !story))) return false;
       begin('story', returnFocus);
       currentStoryId = id;
-      const overviewDistrict = id === 'projects' || id === 'experience' ? districts?.byStopId[id] : null;
+      const overviewDistrict = sectionsWithSites.has(id) ? districts.byStopId[id] : null;
       title.textContent = site?.title ?? overviewDistrict?.title ?? stop.title;
       guide.hidden = true;
       storyView.hidden = false;

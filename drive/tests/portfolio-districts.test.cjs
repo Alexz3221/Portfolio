@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const city = require('../js/portfolio-city');
 const physics = require('../js/physics');
 const {stories,nearestStopOnLevel} = require('../js/portfolio-ui');
-const {byStopId,districtsFor,sites,projects,experience,projectStopsFor,siteStopsFor} = require('../js/portfolio-districts');
+const {byStopId,districtsFor,sites,projects,experience,education,projectStopsFor,siteStopsFor} = require('../js/portfolio-districts');
 
 test('each portfolio section has its own district and Aerie Arcade is a Projects Plaza landmark', () => {
   const districts = districtsFor(city);
@@ -17,16 +17,20 @@ test('each portfolio section has its own district and Aerie Arcade is a Projects
   assert.equal(destination.kind, 'landmark');
   assert.ok(!districts.some(district => district.id === destination.id));
   assert.ok(projects.every(project => project.districtId === byStopId.projects.id));
+  assert.equal(byStopId.education.title, 'Boulder Campus');
+  assert.equal(byStopId.skills.title, 'Workshop Quarter');
 });
 
-test('each project and experience entry has a distinct footprint with a drivable approach', () => {
-  const projectLinks = [...stories.projects.body.matchAll(/data-stop="([^"]+)"/g)].map(([,id]) => id);
-  const experienceLinks = [...stories.experience.body.matchAll(/data-stop="([^"]+)"/g)].map(([,id]) => id);
+test('each portfolio site has an overview card and a distinct drivable approach', () => {
+  const cardIds = section => [...stories[section].body.matchAll(/data-stop="([^"]+)"/g)].map(([,id]) => id);
   assert.equal(projects.length, 8);
   assert.equal(experience.length, 6);
-  assert.deepEqual(projectLinks, [...projects.filter(p => p.approach.y === 0),
+  assert.equal(education.length, 3);
+  assert.deepEqual(cardIds('projects'), [...projects.filter(p => p.approach.y === 0),
     ...projects.filter(p => p.approach.y > 0)].map(project => project.stopId));
-  assert.deepEqual(experienceLinks, experience.map(site => site.stopId));
+  for (const [section,entries] of [['experience',experience],['education',education]]) {
+    assert.deepEqual(cardIds(section), entries.map(site => site.stopId));
+  }
   assert.ok(experience.every(site => site.position));
   const boulder = experience.find(site => site.id === 'cu-boulder');
   assert.equal(boulder.position, 'Course Assistant');
@@ -63,11 +67,22 @@ test('each project and experience entry has a distinct footprint with a drivable
   }
 });
 
-test('project and experience proximity honor each site’s elevation and radius', () => {
+test('education degree cards retain their exact degrees and graduation dates', () => {
+  assert.deepEqual(education.map(({title,dates}) => [title,dates]), [
+    ['B.S. Computer Science','May 2026'],
+    ['B.A. Mathematics','May 2026'],
+    ['M.S. Computer Science','Expected May 2028']
+  ]);
+  assert.ok(education.every(site => site.organization === 'University of Colorado Boulder' &&
+    site.districtId === 'boulder-campus'));
+});
+
+test('portfolio proximity honors each site’s elevation and radius', () => {
   const stops = siteStopsFor(city);
-  assert.equal(stops.length, 14);
+  assert.equal(stops.length, 17);
   assert.equal(projectStopsFor(city).length, 8);
   assert.equal(siteStopsFor(city,experience).length, 6);
+  assert.equal(siteStopsFor(city,education).length, 3);
   assert.equal(stops.filter(stop => stop.y === city.skyMall.deck.y).length, 3);
   for (const stop of stops) {
     const {x,y,z} = stop;
@@ -79,11 +94,13 @@ test('project and experience proximity honor each site’s elevation and radius'
   assert.deepEqual(projectStopsFor(null), []);
 });
 
-test('Experience and the nearby RTX / Raytheon stop each open at their own marker', () => {
-  const section = city.stops.find(stop => stop.id === 'experience');
-  const role = siteStopsFor(city,experience).find(stop => stop.id === 'experience-rtx-raytheon');
-  assert.ok(Math.hypot(section.x - role.x,section.z - role.z) < role.interactionRadius);
+test('section markers and close-by sites each open at their own marker', () => {
   const stops = [...city.stops,...siteStopsFor(city)];
-  assert.equal(nearestStopOnLevel({...section,y:.85},stops,true).stop.id, section.id);
-  assert.equal(nearestStopOnLevel({...role,y:.85},stops,true).stop.id, role.id);
+  for (const [sectionId,siteId] of [['experience','experience-rtx-raytheon'],['education','education-bs-computer-science']]) {
+    const section = stops.find(stop => stop.id === sectionId);
+    const site = stops.find(stop => stop.id === siteId);
+    assert.ok(Math.hypot(section.x - site.x,section.z - site.z) < site.interactionRadius);
+    assert.equal(nearestStopOnLevel({...section,y:.85},stops,true).stop.id, sectionId);
+    assert.equal(nearestStopOnLevel({...site,y:.85},stops,true).stop.id, siteId);
+  }
 });

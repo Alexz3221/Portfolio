@@ -1,8 +1,10 @@
 (function(root, factory) {
-  const frontages=factory();
+  const signText = typeof module === 'object' && module.exports
+    ? require('./portfolio-sign-text') : root.DrivePortfolioSignText;
+  const frontages=factory(signText);
   if (typeof module==='object' && module.exports) module.exports=frontages;
   else root.DrivePortfolioProjectsFrontages=frontages;
-})(globalThis,function() {
+})(globalThis,function(signText) {
   'use strict';
 
   const south=Math.PI,east=Math.PI/2;
@@ -290,10 +292,8 @@
         surface.userData.portfolioAdFace=true;
         surface.userData.portfolioAdId='project-site-'+door.id;
         surface.position.set(x,y,z+.102);
-        if (typeof document!=='undefined') {
-          const canvas=document.createElement('canvas');
-          canvas.width=768; canvas.height=128;
-          const context=canvas.getContext('2d');
+        if (typeof document!=='undefined' && signText) {
+          const {canvas,ctx:context}=signText.canvas(width-.06,height-.035,768,128);
           const css=value=>'#'+value.toString(16).padStart(6,'0');
           context.fillStyle=css(background);
           context.fillRect(0,0,768,128);
@@ -306,9 +306,9 @@
           context.textAlign='center';
           context.textBaseline='middle';
           context.font='900 52px Arial, sans-serif';
-          context.fillText(title,384,52,701);
+          signText.text(context,title,384,52,701);
           context.font='600 23px monospace';
-          context.fillText(caption,384,97,692);
+          signText.text(context,caption,384,97,692);
           const map=new THREE.CanvasTexture(canvas);
           map.encoding=THREE.sRGBEncoding;
           map.anisotropy=4;

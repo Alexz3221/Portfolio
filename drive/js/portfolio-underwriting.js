@@ -204,10 +204,8 @@
   }
 
   function addWordmark(THREE,root,frame,position,yaw) {
-    const canvas=document.createElement('canvas');
-    canvas.width=512;
-    canvas.height=256;
-    const ctx=canvas.getContext('2d');
+    const signs=globalThis.DrivePortfolioSignText;
+    const {canvas,ctx}=signs.canvas(3.84,1.73,512,256);
     ctx.fillStyle='#201e1d';
     ctx.fillRect(0,0,512,256);
     ctx.strokeStyle='#aa8365';
@@ -215,13 +213,13 @@
     ctx.strokeRect(8,8,496,240);
     ctx.fillStyle='#ffe4ae';
     ctx.font='900 107px system-ui, sans-serif';
-    ctx.fillText('ZENITH',23,117,458);
+    signs.text(ctx,'ZENITH',23,117,458);
     ctx.fillStyle='#d6af90';
     ctx.font='700 36px ui-monospace, monospace';
-    ctx.fillText('UNDERWRITING',27,171,458);
+    signs.text(ctx,'UNDERWRITING',27,171,458);
     ctx.fillStyle='#806d63';
     ctx.font='700 22px ui-monospace, monospace';
-    ctx.fillText('RECORDS VAULT 07',27,218,458);
+    signs.text(ctx,'RECORDS VAULT 07',27,218,458);
     const map=new THREE.CanvasTexture(canvas);
     map.encoding=THREE.sRGBEncoding;
     map.anisotropy=4;

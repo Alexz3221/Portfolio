@@ -1,8 +1,10 @@
 (function(root,factory) {
-  const tower=factory();
+  const signText = typeof module === 'object' && module.exports
+    ? require('./portfolio-sign-text') : root.DrivePortfolioSignText;
+  const tower=factory(signText);
   if (typeof module==='object' && module.exports) module.exports=tower;
   else root.DrivePortfolioCUTower=tower;
-})(globalThis,function() {
+})(globalThis,function(signText) {
   'use strict';
 
   const x=154.5, z=45;
@@ -72,10 +74,8 @@
       shell.position.set(u,y,v-.075);
       owner.add(shell);
       let label=finishes.light;
-      if (typeof document!=='undefined') {
-        const canvas=document.createElement('canvas');
-        canvas.width=896; canvas.height=216;
-        const ctx=canvas.getContext('2d');
+      if (typeof document!=='undefined' && signText) {
+        const {canvas,ctx}=signText.canvas(w,h,896,216);
         ctx.fillStyle=id==='entry' ? '#252c31' : '#2c2b2a';
         ctx.fillRect(0,0,896,216);
         ctx.strokeStyle='#c39365';
@@ -85,10 +85,10 @@
         for (const side of [28,842]) ctx.fillRect(side,27,24,8);
         ctx.textAlign='center';
         ctx.font='800 74px system-ui,sans-serif';
-        ctx.fillText(title,448,109,806);
+        signText.text(ctx,title,448,109,806);
         ctx.fillStyle='#e1e3df';
         ctx.font='700 30px monospace';
-        ctx.fillText(caption,448,164,794);
+        signText.text(ctx,caption,448,164,794);
         const map=new THREE.CanvasTexture(canvas);
         map.encoding=THREE.sRGBEncoding;
         textures.push(map);

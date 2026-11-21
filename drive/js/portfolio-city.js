@@ -1,12 +1,13 @@
 (function(root, factory) {
   if (typeof module === 'object' && module.exports) {
     module.exports = factory(require('./portfolio-exchange'),require('./portfolio-underwriting'),require('./portfolio-sublight'),
-      require('./portfolio-sky-mall'),require('./portfolio-experience-towers'),require('./portfolio-cu-tower'));
+      require('./portfolio-sky-mall'),require('./portfolio-experience-towers'),require('./portfolio-cu-tower'),
+      require('./portfolio-education-buildings'));
   } else {
     root.DrivePortfolioCity = factory(root.DrivePortfolioExchange,root.DrivePortfolioUnderwriting,root.DrivePortfolioSublight,
-      root.DrivePortfolioSkyMall,root.DrivePortfolioExperienceTowers,root.DrivePortfolioCUTower);
+      root.DrivePortfolioSkyMall,root.DrivePortfolioExperienceTowers,root.DrivePortfolioCUTower,root.DrivePortfolioEducationBuildings);
   }
-})(typeof globalThis !== 'undefined' ? globalThis : this, function(exchange,underwriting,sublight,mall,experience,cuTower) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function(exchange,underwriting,sublight,mall,experience,cuTower,education) {
   'use strict';
 
   const driveBase = typeof document !== 'undefined' && document.currentScript?.src
@@ -25,12 +26,12 @@
     {id:'skills', title:'Skills', x:-52, z:79, heading:west, color:'#b8f19f'},
     {id:'contact', title:'Interests', x:63, z:-108, heading:east, color:'#ff7dc4'}
   ];
-  const holoLocations = [
-    [-7.2,6.15,-51,north,7.4], [0,14.6,47.68,north,29], [125,7.4,25,west,15],
-    [-116.75,7.3,34,east,13], [-42.8,7.4,89,north,12], [63,7.3,-121.65,0,13]
-  ];
-  const holograms = stops.map((stop, i) => {
-    const [x,y,z,heading,width] = holoLocations[i];
+  const holoLocations = {
+    about:[-7.2,6.15,-51,north,7.4], projects:[0,14.6,47.68,north,29],
+    skills:[-42.8,7.4,89,north,12], contact:[63,7.3,-121.65,0,13]
+  };
+  const holograms = stops.filter(stop=>holoLocations[stop.id]).map(stop=>{
+    const [x,y,z,heading,width] = holoLocations[stop.id];
     return {id:stop.id,label:stop.title.toUpperCase(),x,y,z,heading,width,color:stop.color};
   });
 
@@ -207,7 +208,6 @@
   const frontages = [
     [-46,-41,17,18,18,1,'podium'], [-75,-42,21,14,25,2,'steps'],
     [-68,2,24,16,9,1,'slab'], [-85,10,14,17,19,3,'cantilever'],
-    [-87,37,16,22,38,2,'steps'], [-125,28,15,20,51,2,'podium'],
     [-52,31,19,26,49,2,'twins'], [-34,36,15,14,32,1,'podium'],
     [39,31,16,22,45,0,'cantilever'], [58,44,21,21,70,4,'steps'],
     [87,-89,18,12,18,5,'slab'],
@@ -256,7 +256,7 @@
   collisionBlock(campus.northX,campus.north,13,12,22,4,23);
   collisionBlock(campus.northX+1.8,campus.north,10.5,11,33,7,45);
 
-  for (const {x,z,width,depth,baseY,height} of [...experience.colliders,...cuTower.colliders])
+  for (const {x,z,width,depth,baseY,height} of [...experience.colliders,...cuTower.colliders,...education.colliders])
     collisionBlock(x,z,width,depth,height,5,baseY);
   block(131.8,-14.3,6.8,29.0,3.45,0,28.9,true);
   collisionBlock(-69.6,1.8,21.2,12.8,5,1,9);
@@ -376,7 +376,6 @@
     {id:'plaza-west',x:-40,y:13.1,z:14.5,heading:north,width:15,height:5.6,color:'#d7abff'},
     {id:'plaza-east',x:39.8,y:16.2,z:21.2,heading:north,width:13,height:7,color:'#83f5fb'},
     {id:'market-upper',x:-74,y:11.2,z:-34.6,heading:0,width:14,height:4.3,color:'#ff8ea7'},
-    {id:'service-dock',x:122,y:9.1,z:15,heading:west,width:9.2,height:4.1,color:'#ffbb62'},
     {id:'campus-mast',x:-41,y:9.3,z:94,heading:north,width:11,height:4.1,color:'#c2f9bc'},
     {id:'plaza-tower-banner',x:40,y:29.3,z:21.4,heading:north,width:6.4,height:13.4,color:'#b9fcf1'}
   ];
@@ -680,14 +679,10 @@
     return map;
   }
 
-  function signTexture(THREE,head,caption,color) {
+  function signTexture(THREE,head,caption,color,faceWidth,faceHeight) {
     if (typeof document === 'undefined') return null;
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext?.('2d');
-    if (!ctx) return null;
-    canvas.width = 768;
-    canvas.height = 190;
-    const {width:w,height:h} = canvas;
+    const signs = globalThis.DrivePortfolioSignText;
+    const {canvas,ctx,width:w,height:h} = signs.canvas(faceWidth,faceHeight,768,192);
     const accent = new THREE.Color(color).getStyle();
     const gradient = ctx.createLinearGradient(w*.1,0,w*.9,h);
     gradient.addColorStop(0,'#0a1725');
@@ -704,20 +699,19 @@
     ctx.lineWidth = 4;
     ctx.strokeRect(6,6,w-12,h-12);
     const x = 34, limit = w-68;
-    let size = 61;
     ctx.textBaseline = 'middle';
-    ctx.font = `800 ${size}px ui-monospace, monospace`;
-    while (size > 26 && ctx.measureText(head).width > limit) ctx.font = `800 ${--size}px ui-monospace, monospace`;
+    ctx.font = '800 66px ui-monospace, monospace';
     ctx.shadowColor = accent;
     ctx.shadowBlur = 10;
     ctx.fillStyle = '#effefa';
-    ctx.fillText(head,x,h*.42);
+    signs.text(ctx,head,x,h*.40,limit);
     ctx.shadowBlur = 0;
     ctx.fillStyle = accent;
-    ctx.font = '700 25px ui-monospace, monospace';
-    ctx.fillText(caption,x,h*.71,limit);
+    ctx.font = '700 33px ui-monospace, monospace';
+    signs.text(ctx,caption,x,h*.73,limit);
     const texture = new THREE.CanvasTexture(canvas);
     texture.encoding = THREE.sRGBEncoding;
+    texture.anisotropy = 4;
     return texture;
   }
 
@@ -1071,7 +1065,7 @@
     }
 
     function sign(x,y,z,w,h,heading,head,caption,color,{poleSpan=0,bracket=false}={}) {
-      const texture = signTexture(THREE,head,caption,color);
+      const texture = signTexture(THREE,head,caption,color,w,h);
       const panel = new THREE.MeshBasicMaterial({map:texture,color:texture ? 0xffffff : color, toneMapped:false});
       const depth=Math.min(.48,.22+h*.059);
       const housing=new THREE.BoxGeometry(w,h,depth);
@@ -1458,12 +1452,16 @@
       const point=t=>[ax+(bx-ax)*t,ay+(by-ay)*t-4*sag*t*(1-t),az+(bz-az)*t];
       for (let i=0;i<10;i++) cables.push(...point(i/10),...point((i+1)/10));
     }
-    for (const offset of [-.62,0,.58]) {
-      cable(-9,7.75+offset,-109,9.4,8+offset,-82,1.05);
-      cable(8.7,9+offset,-101,-10.8,10.2+offset,-78,.94);
-      cable(-11,11.4+offset,-70,11.8,10.8+offset,-56,1.2);
-      cable(-61,6.8+offset,-33,-87,6+offset,-7,1);
-      cable(125,9.1+offset,-8,100,7.7+offset,11,.72);
+    function cableAnchor(rib,x) {
+      const terminal = rib.y-.22;
+      instance('portfolio-utility-brackets',materials.metal,x,rib.y+.11,rib.z,.15,.68,.17);
+      instance('portfolio-utility-insulators',materials.copper,x,terminal,rib.z,.24,.19,.24);
+      return [x,terminal,rib.z];
+    }
+    for (const [from,to] of [[entryRibs[0],entryRibs[1]],[entryRibs[2],entryRibs[3]]]) {
+      for (const offset of [-.48,0,.48]) {
+        cable(...cableAnchor(from,-6.48+offset),...cableAnchor(to,6.48+offset),.86);
+      }
     }
     const cableGeometry = new THREE.BufferGeometry();
     cableGeometry.setAttribute('position',new THREE.Float32BufferAttribute(cables,3));
@@ -1476,10 +1474,10 @@
     for (const x of [62,93]) instance('portfolio-stop-masts',materials.metal,x,3.3,-73,.42,6.6,.42);
     glow(81,-66,25,22,0xff976d,.86);
     const marquees = [
-      [-23,5.7,-13,11,2.2,north,'NIGHT MARKET','EDUCATION',0xf7a2d4,8.5],
+      [-23,5.7,-13,11,2.2,north,'NIGHT MARKET','WEST RING',0xf7a2d4,8.5],
       [24,5.7,-4,11,2.2,north,'SERVICE DISTRICT','EXPERIENCE / TEST BAY',0xffbf79,8.5],
       [-82,4.4,-9.1,6.5,1.8,north,'MARKET','FOOD / REPAIRS',0xff90ae,5.6],
-      [-30,3.8,66.5,7.5,2.1,east,'CAMPUS','SKILLS',0xc1eda9,5.6],
+      [-30,3.8,66.5,7.5,2.1,east,'WORKSHOP QUARTER','SKILLS',0xc1eda9,5.6],
       [112,5.3,-95,10.2,2.1,0,'SOUTH STREET','INTERESTS',0xfa93a7,21.4]
     ];
     for (const [x,y,z,w,h,facing,head,sub,color,poleSpan] of marquees) {

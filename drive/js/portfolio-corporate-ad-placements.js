@@ -39,8 +39,9 @@
       mount:{x:10.58,y:3.22,z:-58.5}},
     // The east ring opens into the test bay and service forecourt.
     {id:'lumen',x:112,y:13.85,z:-68.1,width:20.5,height:7.4,heading:north,artShare:.45},
-    {id:'shiftwell',x:122.25,y:9.75,z:-58.8,width:4.2,height:6.4,heading:west,
-      mount:{x:122.34,y:6.01,z:-59.06}},
+    // Its wall mount sits above the CoorsTek process display.
+    {id:'shiftwell',x:122.25,y:11.50,z:-58.8,width:4.2,height:6.4,heading:west,
+      mount:{x:125.20,y:7.68,z:-59.06}},
     {id:'vista',x:124.3,y:15.55,z:19.0,width:17.8,height:6.4,heading:west,artShare:.45},
     {id:'loop',x:126.9,y:7.25,z:62.8,width:4.2,height:6.2,heading:west},
     // Short displays ahead of the west ring and Switchyard Park.

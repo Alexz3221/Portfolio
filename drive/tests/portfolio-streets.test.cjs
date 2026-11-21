@@ -128,7 +128,8 @@ test('ground-floor building approaches reach the street network and meet both pu
   for (let x=32.25;x<=33.85;x+=.06) assert.ok(sidewalkHeight(x,28)>.165,`plaza join at x=${x}`);
   for (let z=38.15;z<=42;z+=.06) assert.ok(sidewalkHeight(-130,z)>.165,`park join at z=${z}`);
   assert.ok(sidewalkHeight(-51.8,1.3)>.165,'paved corner between the Market frontage and side walk');
-  assert.ok(sidewalkHeight(-44,5)<.01,'open courtyard beyond the Market frontage');
+  for (const [x,z] of [[-44,5],[-44.55,8.25],[-42.8,11],[-39.9,9],[-33.55,5.98]])
+    assert.ok(sidewalkHeight(x,z)>.165,`continuous Corner Press approach at ${x}, ${z}`);
   assert.equal(streets.surfaceHeight(world,-50,-31.8),0,'leaves the Skyway support base clear');
   for (const {x1,z1,x2,z2} of city.networkRoads) {
     assert.equal(streets.surfaceHeight(world,(x1+x2)/2,(z1+z2)/2),0);

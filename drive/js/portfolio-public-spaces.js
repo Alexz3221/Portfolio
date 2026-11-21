@@ -1,14 +1,18 @@
 (function(root, factory) {
-  const api = factory();
+  const signText = typeof module === 'object' && module.exports
+    ? require('./portfolio-sign-text') : root.DrivePortfolioSignText;
+  const api = factory(signText);
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.DrivePortfolioPublicSpaces = api;
-})(globalThis, function() {
+})(globalThis, function(signText) {
   'use strict';
 
   const footprints = {
     plaza:{minX:4.4,maxX:33.81,minZ:15.65,maxZ:43.9},
     plazaWest:{minX:-26.45,maxX:-4.4,minZ:14.4,maxZ:43.9},
     plazaWestApproach:{minX:-40.30,maxX:-18.6,minZ:8.65,maxZ:28.05},
+    plazaWestJoin:{minX:-54.65,maxX:-23.90,minZ:-2.85,maxZ:16.25},
+    campusParkJoin:{minX:-137.5,maxX:-117.5,minZ:34.35,maxZ:40.5},
     park:{minX:-147,maxX:-118.35,minZ:40,maxZ:73}
   };
   const walkY = .185;
@@ -35,6 +39,7 @@
       pavers.encoding = THREE.sRGBEncoding;
       pavers.wrapS = pavers.wrapT = THREE.RepeatWrapping;
       pavers.anisotropy = 4;
+      globalThis.DrivePortfolioStreets?.finishPlazaJoin?.(THREE,world,pavers);
     }
     const materials = {
       matte:new THREE.MeshStandardMaterial({color:0xffffff,roughness:.86}),
@@ -222,18 +227,15 @@
     function plaque(id,title,subtitle,color,x,y,z,w,h,yaw) {
       const geometry=new THREE.BoxGeometry(w,h,.158);
       let material=materials.metal;
-      if (typeof document!=='undefined') {
-        const canvas=document.createElement('canvas');
-        canvas.width=512;
-        canvas.height=128;
-        const ctx=canvas.getContext('2d');
+      if (typeof document!=='undefined' && signText) {
+        const {canvas,ctx}=signText.canvas(w,h,512,128);
         ctx.fillStyle='#1d262a'; ctx.fillRect(0,0,512,128);
         ctx.strokeStyle=color; ctx.lineWidth=4; ctx.strokeRect(7,7,498,114);
         ctx.fillStyle=color; ctx.textAlign='center';
-        ctx.font='800 49px system-ui'; ctx.fillText(title,256,subtitle ? 69 : 83,471);
+        ctx.font='800 49px system-ui'; signText.text(ctx,title,256,subtitle ? 69 : 83,471);
         if (subtitle) {
           ctx.fillStyle='#e7d6c4'; ctx.font='700 23px ui-monospace, monospace';
-          ctx.fillText(subtitle,256,103,458);
+          signText.text(ctx,subtitle,256,103,458);
         }
         const texture=new THREE.CanvasTexture(canvas);
         texture.encoding=THREE.sRGBEncoding;
@@ -469,19 +471,18 @@
       solid(-119.65,walkY+.68,z,.24,1.36,.24);
     }
 
-    if (typeof document !== 'undefined') {
-      const canvas = document.createElement('canvas');
-      canvas.width=512; canvas.height=128;
-      const ctx=canvas.getContext('2d');
+    if (typeof document !== 'undefined' && signText) {
+      const width=4.47, height=.89;
+      const {canvas,ctx}=signText.canvas(width,height,512,128);
       ctx.fillStyle='#17221e'; ctx.fillRect(0,0,512,128);
       ctx.strokeStyle='#afea91'; ctx.lineWidth=4; ctx.strokeRect(8,8,496,112);
       ctx.fillStyle='#daf4bd'; ctx.textAlign='center';
-      ctx.font='800 44px system-ui'; ctx.fillText('SWITCHYARD PARK',256,61);
-      ctx.font='600 22px monospace'; ctx.fillText('WEST RING',256,95);
+      ctx.font='800 44px system-ui'; signText.text(ctx,'SWITCHYARD PARK',256,61,476);
+      ctx.font='600 22px monospace'; signText.text(ctx,'WEST RING',256,95,476);
       const map = new THREE.CanvasTexture(canvas);
       map.encoding = THREE.sRGBEncoding;
       const display = new THREE.MeshBasicMaterial({map,toneMapped:false});
-      const geometry = new THREE.BoxGeometry(4.47,.89,.19);
+      const geometry = new THREE.BoxGeometry(width,height,.19);
       const sign = new THREE.Mesh(geometry,[materials.metal,materials.metal,materials.metal,materials.metal,display,display]);
       sign.name = 'portfolio-switchyard-label';
       sign.position.set(-119.65,walkY+2.92,54.91);

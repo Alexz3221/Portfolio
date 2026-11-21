@@ -61,7 +61,6 @@
     {at:[-55.8,94.5,0],face:'north',floors:[6.3,9.75,13.2,16.65,20.1],cols:4,style:'campus',balconies:true},
     {at:[-55.8,94.5,0],face:'east',floors:[6.3,9.75,13.2,16.65,20.1],cols:3,style:'campus'},
     {at:[-43,101,0],face:'north',floors:[5.45,8.8,12.15],cols:3,style:'campus',balconies:true},
-    {at:[-125,28,0],face:'east',floors:[4.72],cols:6,style:'campus'}
   ];
 
   // Each neighbor has its own window proportions, cladding and street frontage.

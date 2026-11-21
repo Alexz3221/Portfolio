@@ -1,11 +1,14 @@
 (function(root, factory) {
-  const storefronts = factory();
+  const signText = typeof module === 'object' && module.exports
+    ? require('./portfolio-sign-text') : root.DrivePortfolioSignText;
+  const storefronts = factory(signText);
   if (typeof module === 'object' && module.exports) module.exports = storefronts;
   else root.DrivePortfolioStorefronts = storefronts;
-})(globalThis, function() {
+})(globalThis, function(signText) {
   'use strict';
 
   const east = Math.PI / 2, west = -east, north = Math.PI;
+  const fasciaFace = [3.8,.398], bladeFace = [.81,.43], noticeFace = [.72,.43];
   const shopTypes = {
     food:     {frame:0x754840,panel:0xff9562,interior:'#c98865'},
     store:    {frame:0x304d4d,panel:0x71ffdb,interior:'#7ca8a6'},
@@ -31,7 +34,6 @@
     [-34,28.89,north,6.35,'CORNER PRESS','INDEPENDENT PRINT','media'],
     [39,19.88,north,6.20,'LUMA SUPPLY','BATTERIES / FILTERS','store'],
     [33.78,28.0,west,5.60,'LITTLE HOURS','ESPRESSO & TEA','food'],
-    [-117.39,34.3,east,6.55,'READING ROOM','OPEN TO THE PUBLIC','pharmacy'],
     [-40.2,93.37,north,6.10,'CHANNEL 9','STUDIOS / WORKSHOPS','media']
   ];
   const fixtures = [
@@ -39,7 +41,7 @@
     [-8.89,-115.5,east], [8.40,-98.8,west], [-9.89,-74.2,east], [13.53,-82.9,west],
     [-11.40,-59.4,east], [10.89,-45.0,west], [-74.8,-34.89,0], [-61,-6.11,north],
     [-56.7,-6.11,north], [-38.9,28.89,north], [34.9,19.88,north], [125.5,-50.4,west],
-    [125.5,-69.7,west], [96.10,-89,west], [-117.39,39.6,east]
+    [125.5,-69.7,west], [96.10,-89,west]
   ];
   const waste = [
     [-8.14,-110.0,east], [7.62,-109.0,west], [-8.16,-101.7,east], [7.65,-91.0,west],
@@ -54,8 +56,8 @@
   ];
 
   function makeAtlas(THREE) {
-    if (typeof document === 'undefined') return null;
-    const size = 1024, tileWidth = 256, tileHeight = 128, gutter = 4;
+    if (typeof document === 'undefined' || !signText) return null;
+    const size = 1024, tileWidth = 256, tileHeight = 128, gutter = 4, uvInset = 1;
     const canvas = document.createElement('canvas');
     canvas.width = canvas.height = size;
     const ctx = canvas.getContext('2d');
@@ -73,11 +75,21 @@
       ctx.clip();
       paint(width,height);
       ctx.restore();
-      return [(x+1)/size, 1-(y+height-1)/size, (x+width-1)/size, 1-(y+1)/size];
+      return [(x+uvInset)/size, 1-(y+height-uvInset)/size,
+        (x+width-uvInset)/size, 1-(y+uvInset)/size];
+    }
+
+    function textTile([faceWidth,faceHeight],paint) {
+      return (w,h) => {
+        // The whole tile includes the texels trimmed by the quad's UVs.
+        const face = signText.canvas(faceWidth*w/(w-2*uvInset),faceHeight*h/(h-2*uvInset),w,h);
+        paint(face.ctx,w,h);
+        ctx.drawImage(face.canvas,0,0,w,h);
+      };
     }
 
     function signPainter(name, subtitle, color, large) {
-      return (w,h) => {
+      return textTile(large ? bladeFace : fasciaFace,(ctx,w,h) => {
         ctx.fillStyle = '#151922';
         ctx.fillRect(0,0,w,h);
         ctx.fillStyle = color;
@@ -86,14 +98,14 @@
         ctx.font = `900 ${large ? 27 : 20}px Arial, sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText(name,w/2,h*.34,w-29);
+        signText.text(ctx,name,w/2,h*.34,w-29);
         ctx.fillStyle = '#edebe0';
         ctx.font = `600 ${large ? 11 : 10}px monospace`;
-        ctx.fillText(subtitle,w/2,h*.75,w-34);
+        signText.text(ctx,subtitle,w/2,h*.75,w-34);
         ctx.globalAlpha = .15;
         ctx.fillStyle = '#0b1118';
         for (let y=2; y<h; y+=4) ctx.fillRect(0,y,w,1);
-      };
+      });
     }
     const signs = shops.map(([, , , ,name,subtitle,type],index) => {
       const color = '#' + shopTypes[type].panel.toString(16);
@@ -144,7 +156,7 @@
           }
         }
       })]));
-    const notices = tile(shops.length+Object.keys(shopTypes).length,(w,h) => {
+    const notices = tile(shops.length+Object.keys(shopTypes).length,textTile(noticeFace,(ctx,w,h) => {
       ctx.fillStyle = '#865967';
       ctx.fillRect(3,0,75,h);
       ctx.fillStyle = '#628481';
@@ -153,15 +165,15 @@
       ctx.fillRect(171,0,w-171,h-3);
       ctx.font = 'bold 16px Arial, sans-serif';
       ctx.fillStyle = '#ddd3b4';
-      ctx.fillText('LATE',12,23);
-      ctx.fillText('SHIFT',12,43);
-      ctx.fillText('LOST',94,23);
-      ctx.fillText('CAT',94,43);
-      ctx.fillText('NIGHT',177,24);
-      ctx.fillText('BUS',177,43);
+      signText.text(ctx,'LATE',12,23,62);
+      signText.text(ctx,'SHIFT',12,43,62);
+      signText.text(ctx,'LOST',94,23,62);
+      signText.text(ctx,'CAT',94,43,62);
+      signText.text(ctx,'NIGHT',177,24,62);
+      signText.text(ctx,'BUS',177,43,62);
       ctx.fillStyle = '#dfd8be';
       for (const x of [12,94,177]) for (let y=58;y<103;y+=8) ctx.fillRect(x,y,52-(y%7)*2,2);
-    });
+    }));
     const texture = new THREE.CanvasTexture(canvas);
     texture.name = 'Portfolio City storefront and notice atlas';
     texture.encoding = THREE.sRGBEncoding;
@@ -280,13 +292,13 @@
         light(doorX,2.185,.67,.55,.028,.23,style.panel);
       }
       if (atlas) {
-        display(0,2.70,.655,3.8,.398,atlas.signs[index].fascia);
+        display(0,2.70,.655,...fasciaFace,atlas.signs[index].fascia);
         display(windowX,1.36,.431,windowWidth-.20,1.36,atlas.rooms[type]);
         if (index % 3 === 0 || type==='media') {
           for (const y of [1.98,2.51]) cube(edge-.05,y,.37,.092,.062,.72,0x343844);
           cube(edge-.05,2.22,.86,.18,.57,.92,style.frame);
-          display(edge+.043,2.22,.86,.81,.43,atlas.signs[index].blade,1);
-          display(edge-.143,2.22,.86,.81,.43,atlas.signs[index].blade,-1);
+          display(edge+.043,2.22,.86,...bladeFace,atlas.signs[index].blade,1);
+          display(edge-.143,2.22,.86,...bladeFace,atlas.signs[index].blade,-1);
           light(edge-.06,1.925,.83,.151,.038,.72,style.panel);
         }
       }
@@ -305,7 +317,7 @@
       for (let y=1.82;y<2.29;y+=.092) cube(.23,y,.540,.88,.036,.052,0x70716f);
       cube(.68,1.36,.19,.31,.40,.28,0x4d4f58);
       light(.71,1.43,.342,.047,.04,.02,index%3 ? 0x91d7b3 : 0xffae71);
-      if (atlas && index%2===0) display(-.93,1.44,.119,.72,.43,atlas.notices);
+      if (atlas && index%2===0) display(-.93,1.44,.119,...noticeFace,atlas.notices);
     }
 
     for (const [x,z,yaw,color] of vendorTables) {
