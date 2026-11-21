@@ -5,6 +5,11 @@
 })(globalThis, function () {
   'use strict';
 
+  const modelPath = typeof document !== 'undefined' && document.currentScript?.src
+    ? new URL('../assets/portfolio-car-model/comet-night.glb', document.currentScript.src).href
+    : 'assets/portfolio-car-model/comet-night.glb';
+  const modelWheels = ['wheel-back-right','wheel-front-right','wheel-back-left','wheel-front-left'];
+
   function loft(THREE, sections) {
     const vertices = sections.flat(2), indices = [];
     const count = sections[0].length;
@@ -274,7 +279,43 @@
     underglow.position.y = .36;
     group.add(underglow);
 
-    return {group, wheels, brakeMaterials:[rearLamp]};
+    const brakeMaterials = [rearLamp];
+    const shellParts = group.children.filter(child => child !== underglow && !wheels.some(({pivot}) => child === pivot));
+    let modelState = 'unloaded';
+    function load() {
+      if (modelState !== 'unloaded' || !THREE.GLTFLoader) return;
+      modelState = 'loading';
+      new THREE.GLTFLoader().load(modelPath, ({scene}) => {
+        const body = scene.getObjectByName('body');
+        const wheelMeshes = modelWheels.map(name => scene.getObjectByName(name));
+        if (!body?.isMesh || wheelMeshes.some(mesh => !mesh?.isMesh)) {
+          modelState = 'unloaded';
+          return;
+        }
+        const wheelMaterial = wheelMeshes[0].material;
+        wheelMaterial.envMap = envMap;
+        wheelMaterial.envMapIntensity = .6;
+        wheelMaterial.emissiveIntensity = 2.4;
+        body.material = wheelMaterial.clone();
+        body.material.color.multiplyScalar(2.8);
+        body.material.metalness *= .68;
+        body.material.envMapIntensity = 1.15;
+        body.material.emissiveIntensity = 3.4;
+        for (const mesh of [body, ...wheelMeshes]) mesh.castShadow = mesh.receiveShadow = true;
+        for (const part of shellParts) part.visible = false;
+        for (const [index, {wheel}] of wheels.entries()) {
+          for (const child of wheel.children) child.visible = false;
+          wheel.add(wheelMeshes[index]);
+        }
+        group.add(body);
+        const lamps = bodyParts(THREE, group);
+        // These lenses follow the two narrow taillight slots in the imported body.
+        for (const side of [-1,1]) lamps.box(rearLamp, side * .557, .975, -2.613, .316, .019, .014);
+        lamps.finish();
+        modelState = 'ready';
+      }, undefined, () => { modelState = 'unloaded'; });
+    }
+    return {group, wheels, brakeMaterials, load};
   }
 
   return {create};

@@ -204,7 +204,7 @@
               <div class="city-stop-list"></div>
             </div>
             <section class="city-centers" hidden aria-label="City fast travel">
-              <div class="city-centers-head"><h3>Fast travel</h3><span>CENTERS + STREET JUMPS</span></div>
+              <div class="city-centers-head"><h3>Fast travel</h3></div>
               <div class="city-center-list"></div>
             </section>
           </div>
@@ -469,7 +469,11 @@
         item.dataset.center = center.id;
         item.dataset.kind = center.kind;
         item.setAttribute('aria-label', `Fast travel to ${center.title}`);
-        item.innerHTML = `<span>${String(index + 1).padStart(2, '0')} / ${center.kind === 'street' ? 'STREET JUMP' : 'CENTER'}</span><strong>${escapeHtml(center.title)}</strong><small>JUMP TO STREET ↗</small>`;
+        if (center.kind === 'skyway') {
+          item.innerHTML = `<strong>${escapeHtml(center.title)}</strong><small>DRIVE TO RAMP ↗</small>`;
+        } else {
+          item.innerHTML = `<span>${String(index + 1).padStart(2, '0')} / ${center.kind === 'street' ? 'STREET JUMP' : 'CENTER'}</span><strong>${escapeHtml(center.title)}</strong><small>JUMP TO STREET ↗</small>`;
+        }
         centerList.appendChild(item);
       });
       resetMapView();
@@ -483,6 +487,7 @@
       map = nextMap;
       const active = isCityMap();
       const isPortfolio = map === 'city';
+      const skyway = cityMap?.skyway;
       host.hidden = guideButton.hidden = !active;
       document.body.classList.toggle('city-map-active', active);
       nearby.hidden = true;
@@ -491,13 +496,14 @@
 
       guideButton.textContent = isPortfolio ? 'CITY GUIDE' : 'CITY MAP';
       kicker.textContent = isPortfolio ? 'PORTFOLIO CITY' : 'CITIES: SKYLINES';
-      guideIntro.textContent = isPortfolio ? 'Open a stop here, or drive up to it and slow down.' :
-        'Pick a street or district to jump there. Zoom in to see individual roads.';
+      if (!isPortfolio) guideIntro.textContent = 'Pick a street or district to jump there. Zoom in to see individual roads.';
+      else if (skyway?.entrances?.length) guideIntro.textContent = 'Pick a portfolio stop or fast-travel to a Skyway ramp.';
+      else guideIntro.textContent = 'Open a stop here, or drive up to it and slow down.';
       minimap.setAttribute('aria-label', isPortfolio ? 'Open the portfolio city guide' : 'Open the Cities: Skylines map');
       minimapHint.hidden = !isPortfolio;
       minimapHint.textContent = '';
       mapViewport.setAttribute('aria-label', isPortfolio ?
-        'Interactive city map. Zoom or pan the map, then choose a portfolio stop.' :
+        'Interactive city map. Zoom or pan the map, then choose a portfolio stop or Skyway ramp.' :
         'Interactive city map. Zoom or pan the map, then choose a district or street for fast travel.');
       guideLayout.classList.toggle('city-guide-map-only', !isPortfolio);
       mapStops.hidden = stopList.hidden = !isPortfolio;
@@ -505,9 +511,12 @@
       bounds=cityMap?.bounds || {minX:-edge,maxX:edge,minZ:-edge,maxZ:edge};
       locations = isPortfolio ? (cityMap?.stops || stops || []).filter(stop => stories[stop.id]) : [];
       byId=new Map(locations.map(stop=>[stop.id,stop]));
-      centers = !isPortfolio && typeof onJump === 'function' ? deriveCenters(cityMap) : [];
+      centers = typeof onJump !== 'function' ? [] : isPortfolio
+        ? (skyway?.entrances || []).map(entrance => ({...entrance, kind:'skyway'})) : deriveCenters(cityMap);
+      centerKey.textContent = isPortfolio ? '◆ SKYWAY RAMP' : '◆ CENTER · ◇ JUMP';
       centersById=new Map(centers.map(center=>[center.id,center]));
       mapRoads = [cityMap?.networkRoads, cityMap?.overviewRoads, cityMap?.roadSegments].find(roads => roads?.length) || [];
+      if (isPortfolio && skyway?.overviewRoads?.length) mapRoads = mapRoads.concat(skyway.overviewRoads);
       if (!mapRoads.length && !cityMap?.roadCenters && cityMap?.routeSamples?.length) {
         mapRoads = cityMap.routeSamples.slice(1).map((point, index) => ({
           x1:cityMap.routeSamples[index].x, z1:cityMap.routeSamples[index].z, x2:point.x, z2:point.z

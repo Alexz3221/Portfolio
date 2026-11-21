@@ -8,7 +8,7 @@ Five cars share a 120 Hz rigid-body, four-wheel raycast suspension engine: Comet
 
 The selector offers two separate cities, the mountain, and a Racetrack / stunt course group:
 
-- **Portfolio City** is the default map. Follow the lit arrival street beneath two catwalks to the Projects plaza. The side routes pass a market, a campus, and a test bay with a jump and movable pylons. Floating 3D signs and colored parking bays mark portfolio stops. Use the City Guide to open a stop directly or slow down near one and press E.
+- **Portfolio City** is the default map. The arrival street leads to the Projects plaza. The Skyway connects the Night Market to the Service District through two tower portals. You can start at either ramp from the City Guide. The side routes pass storefronts, campus skybridges, and a test bay with a jump and movable pylons. Raised letters and colored parking bays mark portfolio stops. Use the City Guide to open a stop directly or slow down near one and press E.
 - **Cities: Skylines** is the imported free-drive map. Select it in the menu or open `/drive/?map=skylines` directly. The first visit loads the terrain and nearby streets. Its map offers district and street jumps.
 - **Cliffside mountain** is an 894 m winding ledge with 7 m asphalt, real collision cliffs, and a steep ascent and descent. Falling off requires a reset.
 - **Racetrack / stunt course** is a 1.19 km ordered route with a 9 m overpass, slalom gates, an 8 m jump gap, a lower crossing, and a narrow balance bridge. Its road slabs are the colliders; there is no paved shortcut around a stunt. Approach the orange jump around 52–63 mph and slow down for the blue bridge.
@@ -29,7 +29,7 @@ Open **Records** in Ghost Challenge on the stunt course. **Copy race link** shar
 
 Portfolio City has a flat collision plane beneath its roads and jump ramp. Mountain and racetrack retain 200 m half-width boundaries. The mountain road follows its heightfield triangle sampler. Changing maps resets onto the selected route. Changing cars preserves position and orientation while stopping momentum. World geometry, materials, and textures are disposed on rebuild.
 
-Portfolio City uses a planar reflection pass for signs, buildings, and cars in the asphalt. Weathered concrete, painted steel, and ceramic tiles add detail to the lower walls. Its Comet Night edition has original bodywork and uses the Comet driving setup. See the [model and texture sources](assets/portfolio/SOURCE.md) and [display art, wall textures, and type](assets/portfolio-type/SOURCE.md).
+Portfolio City joins street and curb surfaces through bends and intersections. Its wet asphalt captures planar reflections from the current camera when it moves. Weathered concrete, painted steel, and ceramic tiles add detail to the lower walls. The [Comet Night edition](assets/portfolio-car-model/SOURCE.md) adapts a licensed model by 4d_Bob and uses the Comet driving setup. See the [model and texture sources](assets/portfolio/SOURCE.md) and [display art, wall textures, and type](assets/portfolio-type/SOURCE.md).
 
 ## Imported city
 
@@ -73,3 +73,5 @@ node --check js/portfolio-ui.js
 ```
 
 Automated tests cover car motion and collisions, the built-in City, imported terrain and nearby collision bodies, road junction and ramp geometry, map and car switching, converter output, the cliff route, stunt slabs and obstacles, cameras, touch controls, model loading, and resource disposal. `DRIVE_FULL_ROAD_AUDIT=1 node --test tests/road-surface-coverage.test.cjs` checks asphalt and terrain coverage at spawn and seven fast-travel districts. `tests/portfolio-ui-smoke.html` exercises the guide, cards, map zoom/pan, M hotkey, fast travel, E prompt, and Escape in a browser. `tests/road-preview.html?x=1840.721&z=-1052.141&span=100` gives a top-down WebGL view of a known tight bend. Check the imported City, cliff, stunt route, and mobile controls in a WebGL browser before deployment.
+
+Open `/drive/?audit=1` to check the rendered Portfolio City. The browser console reports solid geometry crossing marked sign faces or the central clearance of ground and elevated lanes. Run `await auditPortfolioCity()` in the console after editing a live scene to repeat the check. The test suite also covers the road joins, moving-camera reflections, and Skyway crossings.

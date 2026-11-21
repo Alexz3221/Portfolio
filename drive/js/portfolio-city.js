@@ -22,8 +22,8 @@
     {id:'contact', title:'Contact', x:63, z:-108, heading:east, color:'#ff7dc4'}
   ];
   const holoLocations = [
-    [-7.2,6.15,-51,north,7.4], [0,11.8,45.2,north,29], [125,7.4,25,west,15],
-    [-121,7.3,34,east,13], [-52,7.4,89,north,12], [63,7.3,-123,0,13]
+    [-7.2,6.15,-51,north,7.4], [0,14.6,47.68,north,29], [125,7.4,25,west,15],
+    [-116.75,7.3,34,east,13], [-42.8,7.4,89,north,12], [63,7.3,-121.65,0,13]
   ];
   const holograms = stops.map((stop, i) => {
     const [x,y,z,heading,width] = holoLocations[i];
@@ -52,6 +52,16 @@
   const playBay = {x:78,z:-53,w:40,d:38};
   const shops = {x:-75,z:-20,w:29,d:22};
   const pavedAreas = [plaza,playBay,shops];
+  const skyway = {
+    west:{id:'skyway-west',title:'Skyway West',x:-108,z:-27.5,heading:east},
+    east:{id:'skyway-east',title:'Skyway East',x:112,z:-27.5,heading:west},
+    width:9.2,
+    levels:[[-104,.06],[-98,.44],[-91,1.45],[-76,4.9],[-60,8.6],[-49,10.85],[-43,11.5],
+      [-16,11.5],[16,11.5],[51,11.5],[58,10.8],[71,8.2],[89,4.1],[101,1.35],[107,.40],[112,.06]]
+  };
+  const skywayRoad = road(skyway.levels[0][0],skyway.west.z,skyway.levels.at(-1)[0],skyway.east.z,skyway.width);
+  skyway.entrances = [skyway.west,skyway.east];
+  skyway.overviewRoads = [{...skywayRoad,mode:'ELEVATED'}];
   const playProps = [
     {x:80,z:-49}, {x:86,z:-49}, {x:92,z:-49}, {x:83,z:-44},
     {x:89,z:-44}, {x:81,z:-63}, {x:88,z:-63}, {x:93,z:-65}
@@ -67,7 +77,7 @@
     for (const area of pavedAreas) {
       if (Math.abs(x-area.x) <= area.w/2 && Math.abs(z-area.z) <= area.d/2) return 0;
     }
-    let nearest = Infinity;
+    let nearest = distanceToCenter(x,z,skywayRoad) + roadHalfWidth - skywayRoad.width/2;
     for (const street of networkRoads)
       nearest = Math.min(nearest,distanceToCenter(x,z,street) + roadHalfWidth - street.width/2);
     return Math.max(0,nearest);
@@ -127,6 +137,47 @@
   ];
   for (const geometry of frontages) tower(...geometry,true);
 
+  // The transfer buildings have open slots where the road passes through them.
+  // Each distinct volume doubles as collision, including the open portal walls.
+  const portals = [
+    {x:-31.5,z:skyway.west.z,w:11.5,d:16,h:66,style:2,color:0xffae77},
+    {x:36.5,z:skyway.east.z,w:17.5,d:18,h:91,style:4,color:0x86ece8}
+  ];
+  for (const {x,z,w,d,h,style} of portals) {
+    block(x,z,w,d,9.5,style,0,true);
+    const opening = skyway.width+1.8, wing = (d-opening)/2;
+    for (const side of [-1,1]) block(x,z+side*(opening+wing)/2,w,wing,13,style,9.5);
+    block(x,z,w,d,h*.37,style,22.5,true);
+    block(x-1.4,z+.9,w*.76,d*.74,h*.23,style,22.5+h*.37,true);
+    block(x+1.2,z-1.1,w*.46,d*.46,h*.17,style,22.5+h*.60,true);
+  }
+
+  const marketTerrace = {x:-61.2,z:14.5,width:13,depth:8.3};
+  block(marketTerrace.x,marketTerrace.z,13,8.3,17,2,0,true);
+  block(-64.45,14.5,6.15,8.3,43,1,17,true);
+  block(-57.25,14.5,4.45,8.3,58,2,17,true);
+  block(-60.5,14.5,13,8.3,2.5,3,42,true);
+  // The west bend needs its own silhouette even with the rest of the market
+  // behind the driver. These stepped setbacks climb alongside the approach.
+  block(-92.5,-43.5,11.2,14,16,1,0,true);
+  block(-94.0,-44.0,8.5,10.8,17,2,16,true);
+  block(-95.2,-46.0,6.1,8.8,18,2,33,true);
+  block(-96.0,-47.4,4.7,5.3,11,3,51,true);
+
+  const campus = {southX:-63.5,northX:-55.8,south:62.4,north:94.5};
+  block(campus.southX,campus.south,15,13,31,7,0,true);
+  block(campus.southX-.9,campus.south,10.8,10,39,7,31,true);
+  block(campus.northX,campus.north,13,12,45,4,0,true);
+  block(campus.northX+1.8,campus.north,10.5,11,33,7,45,true);
+
+  const relayTower = {x:133.3,z:-30.4};
+  block(relayTower.x,relayTower.z,16.8,15.2,12.8,5,0,true);
+  block(relayTower.x,relayTower.z,10.6,10.6,43,4,12.8,true);
+  block(relayTower.x,relayTower.z,6.8,6.8,20,4,55.8,true);
+  block(129.0,1.2,13.5,12,22,5,0,true);
+  block(130.3,2.7,11,9.6,34,0,22,true);
+  block(131.8,-14.3,6.8,29.0,3.45,0,28.9,true);
+
   const rnd = randomFrom(0x23052d);
   function clearFootprint(x,z,w,d) {
     const nearStreet = networkRoads.some(street => distanceToCenter(x,z,street) < street.width/2 + Math.hypot(w,d)/2+3);
@@ -158,9 +209,9 @@
     {z:-63, y:18.3, width:23.2, depth:3.0}
   ];
   for (const span of catwalks) block(0,span.z,span.width,span.depth,.58,3,span.y,true);
-  block(-16,48,4,7,15,4,0,true);
-  block(16,48,4,7,15,4,0,true);
-  block(0,51,36,6,2.2,4,16.4,true);
+  block(-18.7,48,3.35,7,15,4,0,true);
+  block(18.7,48,3.35,7,15,4,0,true);
+  block(0,51,36,6,13.5,4,8.5,true);
 
   const assetPlacements = [
     ...[-66,-37,9,32].flatMap(z => [-1,1].map(side => ({id:'streetlight',x:side*(z < -42 ? 9 : 23),z,y:.06,heading:side*Math.PI/2,height:6.7}))),
@@ -183,12 +234,12 @@
 
   const adPlacements = [
     {id:'entry-ribs',x:0,y:10.1,z:-94.5,heading:north,width:14,height:3.0,color:'#c4ecfd'},
-    {id:'entry-east-low',x:8.32,y:4.0,z:-105,heading:west,width:8.0,height:3.2,color:'#ff6e82'},
-    {id:'entry-east-high',x:8.30,y:9.15,z:-102,heading:west,width:12,height:4.8,color:'#fdcf6c'},
-    {id:'entry-west-low',x:-8.82,y:4.4,z:-99,heading:east,width:11,height:3.4,color:'#b8f4fe'},
-    {id:'entry-west-column',x:-8.81,y:10.6,z:-110,heading:east,width:3.8,height:8.3,color:'#ff71af'},
-    {id:'arrival-crown',x:24,y:15,z:-67.12,heading:north,width:15,height:6.8,color:'#ff9a80'},
-    {id:'arrival-server',x:-23,y:12.2,z:-87.60,heading:north,width:18,height:7,color:'#9cd8fc'},
+    {id:'entry-east-low',x:8.15,y:4.85,z:-105,heading:west,width:8.0,height:3.2,color:'#ff6e82'},
+    {id:'entry-east-high',x:8.15,y:10.55,z:-104.5,heading:west,width:12,height:4.8,color:'#fdcf6c'},
+    {id:'entry-west-low',x:-8.67,y:4.95,z:-104.5,heading:east,width:9.2,height:3.4,color:'#b8f4fe'},
+    {id:'entry-west-column',x:-8.64,y:11.30,z:-108.15,heading:east,width:3.8,height:8.3,color:'#ff71af'},
+    {id:'arrival-crown',x:13.25,y:15,z:-79,heading:west,width:12,height:6.8,color:'#ff9a80'},
+    {id:'arrival-server',x:-23,y:12.2,z:-87.86,heading:north,width:18,height:7,color:'#9cd8fc'},
     {id:'arrival-vert',x:-11.2,y:8.0,z:-62,heading:east,width:3.4,height:8.0,color:'#ff93c9'},
     {id:'arrival-bridge',x:0,y:16.95,z:-64.8,heading:north,width:15,height:3.3,color:'#e0fff0'},
     {id:'plaza-west',x:-40,y:13.1,z:14.5,heading:north,width:15,height:5.6,color:'#d7abff'},
@@ -199,14 +250,67 @@
     {id:'plaza-tower-banner',x:40,y:29.3,z:21.4,heading:north,width:6.4,height:13.4,color:'#b9fcf1'}
   ];
 
-  const highwaySegments = [
+  const testRamp = [
     {x:72,z:-63,width:8,length:15,topStart:.14,topEnd:2.8},
     {x:72,z:-54,width:8,length:3,topStart:2.8,topEnd:2.8}
   ];
-  for (const ramp of highwaySegments) {
+  for (const ramp of testRamp) {
     ramp.pitch = -Math.atan2(ramp.topEnd-ramp.topStart,ramp.length);
     ramp.slopeLength = Math.hypot(ramp.length,ramp.topEnd-ramp.topStart);
     ramp.centerY = (ramp.topStart+ramp.topEnd)/2 - .25*Math.cos(ramp.pitch);
+  }
+
+  const skywaySegments = skyway.levels.slice(1).map(([x2,topEnd],index) => {
+    const [x1,topStart] = skyway.levels[index];
+    const z=skyway.west.z, length=x2-x1;
+    const pitch=-Math.atan2(topEnd-topStart,length);
+    return {x1,x2,z1:z,z2:z,x:(x1+x2)/2,z,topStart,topEnd,width:skyway.width,length,pitch,yaw:east,
+      slopeLength:Math.hypot(length,topEnd-topStart),centerY:(topStart+topEnd)/2-.25/Math.cos(pitch)};
+  });
+  const highwaySegments = [...testRamp,...skywaySegments];
+  const guardrails = skywaySegments.filter(segment=>Math.min(segment.topStart,segment.topEnd)>=.40).flatMap(segment =>
+    [-1,1].map(side=>({x:segment.x,z:segment.z+side*(segment.width/2-.12),
+      y:(segment.topStart+segment.topEnd)/2+.44/Math.cos(segment.pitch),width:.24,height:.92,
+      length:segment.slopeLength+.085,pitch:segment.pitch,yaw:segment.yaw})));
+  const supports = [[-80,-30.8,3.25],[-50,-31.8,10.25],[-14,-28,11.12],[14,-28,11.12],
+    [56,-27.5,10.6],[75,-27.5,6.34],[92,-27.5,3.0]].map(([x,z,height]) =>
+    ({x,z,y:height/2,width:1.58,depth:1.72,height}));
+
+  function constrainCamera(focus,eye) {
+    const dx=eye.x-focus.x, dy=eye.y-focus.y, dz=eye.z-focus.z;
+    const distance=Math.hypot(dx,dy,dz);
+    if (distance<.52) return 1;
+    const pad=.15;
+    let nearest=1;
+    function clip(minX,maxX,minY,maxY,minZ,maxZ,slope=0) {
+      let entry=0,exit=nearest;
+      const relativeY=focus.y-slope*focus.x, relativeDy=dy-slope*dx;
+      for (const [origin,delta,low,high] of [[focus.x,dx,minX,maxX],[relativeY,relativeDy,minY,maxY],[focus.z,dz,minZ,maxZ]]) {
+        if (Math.abs(delta)<1e-6) {
+          if (origin<low || origin>high) return;
+          continue;
+        }
+        const first=(low-origin)/delta,last=(high-origin)/delta;
+        entry=Math.max(entry,Math.min(first,last));
+        exit=Math.min(exit,Math.max(first,last));
+        if (exit<entry) return;
+      }
+      // A wide orbit can start against a wall. Prefer escape in that case.
+      if (entry>1e-4) nearest=entry;
+    }
+    for (const {x,z,width,depth,baseY,height} of buildings) {
+      const minX=x-width/2-pad,maxX=x+width/2+pad,minZ=z-depth/2-pad,maxZ=z+depth/2+pad;
+      if (Math.max(focus.x,eye.x)<minX || Math.min(focus.x,eye.x)>maxX ||
+          Math.max(focus.z,eye.z)<minZ || Math.min(focus.z,eye.z)>maxZ) continue;
+      clip(minX,maxX,baseY-pad,baseY+height+pad,minZ,maxZ);
+    }
+    for (const {x1,x2,z,width,length,topStart,topEnd} of skywaySegments) {
+      const slope=(topEnd-topStart)/length;
+      const level=topStart-slope*x1;
+      const trim=Math.min(topStart,topEnd)>3.5 ? 1.16 : .51;
+      clip(x1-pad,x2+pad,level-trim-pad,level+pad,z-width/2-pad,z+width/2+pad,slope);
+    }
+    return nearest===1 ? 1 : Math.max(.04,nearest-.45/distance);
   }
 
   const facades = [
@@ -426,6 +530,7 @@
       metal:new THREE.MeshStandardMaterial({color:surfaceColor(0x494e62),roughness:.5,metalness:.42}),
       steel:new THREE.MeshStandardMaterial({color:surfaceColor(0x232a39),roughness:.56,metalness:.55}),
       copper:new THREE.MeshStandardMaterial({color:surfaceColor(0x685251),roughness:.52,metalness:.36}),
+      underside:new THREE.MeshStandardMaterial({color:surfaceColor(0x48505c),roughness:.73,emissive:0x1b2432,emissiveIntensity:.22}),
       paint:new THREE.MeshBasicMaterial({color:surfaceColor(0x667a89),toneMapped:false}),
       light:new THREE.MeshBasicMaterial({color:0xffffff,toneMapped:false})
     };
@@ -433,6 +538,11 @@
     function instance(name,material,x,y,z,w,h,d,yaw=0,color=null,pitch=0) {
       if (!batches.has(name)) batches.set(name,{material,list:[]});
       batches.get(name).list.push({x,y,z,w,h,d,yaw,color,pitch});
+    }
+    function beam(name,material,from,to,width,height,color=null) {
+      const dx=to[0]-from[0],dy=to[1]-from[1],dz=to[2]-from[2];
+      instance(name,material,(from[0]+to[0])/2,(from[1]+to[1])/2,(from[2]+to[2])/2,
+        width,height,Math.hypot(dx,dy,dz),Math.atan2(dx,dz),color,-Math.atan2(dy,Math.hypot(dx,dz)));
     }
     function flush() {
       for (const [name,{material,list}] of batches) {
@@ -490,23 +600,44 @@
       return material;
     }
 
-    function sign(x,y,z,w,h,heading,head,caption,color) {
+    function sign(x,y,z,w,h,heading,head,caption,color,{poleSpan=0,bracket=false}={}) {
       const texture = signTexture(THREE,head,caption,color);
-      const material = new THREE.MeshBasicMaterial({map:texture,color:texture ? 0xffffff : color, toneMapped:false, fog:false});
-      const mesh = new THREE.Mesh(new THREE.PlaneGeometry(w,h),material);
+      const panel = new THREE.MeshBasicMaterial({map:texture,color:texture ? 0xffffff : color, toneMapped:false});
+      const depth=Math.min(.48,.22+h*.059);
+      const housing=new THREE.BoxGeometry(w,h,depth);
+      housing.clearGroups();
+      housing.addGroup(0,24,0);
+      housing.addGroup(24,12,1);
+      const mesh = new THREE.Mesh(housing,[materials.steel,panel]);
       mesh.name = 'portfolio-sign';
+      mesh.userData.portfolioAdFace = true;
+      mesh.userData.portfolioAdId = head.toLowerCase().replace(/[^a-z0-9]+/g,'-')+'@'+x+','+z;
       mesh.position.set(x,y,z);
       mesh.rotation.y = heading;
       world.add(mesh);
+      for (const direction of [-1,1]) instance('portfolio-sign-lips',materials.metal,
+        x,y+direction*(h/2+.026),z,w+.18,.105,depth+.11,heading);
+      if (poleSpan) {
+        const rightX=Math.cos(heading),rightZ=-Math.sin(heading),height=y-h/2+.2;
+        for (const side of [-1,1]) instance('portfolio-sign-poles',materials.metal,
+          x+rightX*side*poleSpan/2,height/2,z+rightZ*side*poleSpan/2,.24,height,.24);
+        instance('portfolio-sign-lips',materials.metal,x,height-.14,z,poleSpan+.25,.26,.24,heading);
+      }
+      if (bracket) instance('portfolio-sign-lips',materials.metal,
+        x-Math.sin(heading)*depth*.75,y-h*.34,z-Math.cos(heading)*depth*.75,w*.84,.23,depth*1.28,heading);
       return mesh;
     }
 
     instance('portfolio-foundation',materials.foundation,0,.004,0,edge*2,.008,edge*2);
+    const streets=globalThis.DrivePortfolioStreets;
+    if (streets) streets.build(THREE,world,{roads:networkRoads,areas:pavedAreas,asphalt:materials.asphalt,curb:materials.concrete});
     for (const street of networkRoads) {
       const angle = Math.atan2(street.x2-street.x1,street.z2-street.z1);
       const x=(street.x1+street.x2)/2, z=(street.z1+street.z2)/2;
-      instance('portfolio-curbs',materials.concrete,x,.016,z,street.width+2,.026,street.length+2,angle);
-      instance('portfolio-streets',materials.asphalt,x,.035,z,street.width,.018,street.length+1,angle);
+      if (!streets) {
+        instance('portfolio-curbs',materials.concrete,x,.016,z,street.width+2,.026,street.length+2,angle);
+        instance('portfolio-streets',materials.asphalt,x,.035,z,street.width,.018,street.length+1,angle);
+      }
       const dx=Math.sin(angle), dz=Math.cos(angle);
       for (let along=-street.length/2+9; along<street.length/2-9; along+=11) {
         const px=x+dx*along, pz=z+dz*along;
@@ -515,7 +646,7 @@
         instance('portfolio-lanes',materials.paint,px,.05,pz,.14,.01,3.5,angle);
       }
     }
-    for (const a of pavedAreas) instance('portfolio-plazas',materials.asphalt,a.x,.058,a.z,a.w,.022,a.d);
+    if (!streets) for (const a of pavedAreas) instance('portfolio-plazas',materials.asphalt,a.x,.058,a.z,a.w,.022,a.d);
     function wayMarker(x,z,heading,color,span=1) {
       const sideX=Math.cos(heading),sideZ=-Math.sin(heading);
       for (const side of [-1,1]) instance('portfolio-wayfinding',materials.light,
@@ -634,13 +765,141 @@
       }
     }
 
-    for (const segment of highwaySegments) {
+    for (const segment of testRamp) {
       instance('portfolio-ramp',materials.metal,segment.x,segment.centerY,segment.z,segment.width,.5,segment.slopeLength,0,null,segment.pitch);
       for (const side of [-1,1]) {
         instance('portfolio-neon',materials.light,segment.x+side*(segment.width*.5-.09),
           (segment.topStart+segment.topEnd)/2+.03,segment.z,.15,.05,segment.slopeLength,0,0xff9858,segment.pitch);
       }
     }
+
+    // The through road changes grade beside the market and service streets,
+    // holds level through the transfer towers, then drops back to the ring road.
+    const skywayAsphalt=materials.asphalt.clone();
+    for (const segment of skywaySegments) {
+      const {x,z,width,pitch,yaw,slopeLength,centerY,topStart,topEnd}=segment;
+      const top=(topStart+topEnd)/2;
+      instance('portfolio-skyway-deck',skywayAsphalt,x,centerY,z,width,.5,slopeLength+.035,yaw,null,pitch);
+      if (Math.min(topStart,topEnd)>3.5) {
+        instance('portfolio-skyway-underframe',materials.underside,x,top-.75,z,width*.94,.78,slopeLength+.045,yaw,null,pitch);
+        for (const side of [-1,1]) instance('portfolio-skyway-fascia',materials.metal,x,top-.28,z+side*(width/2+.11),.21,.79,slopeLength+.04,yaw,null,pitch);
+        for (let u=2.3;u<segment.length-1;u+=4.6) {
+          const xx=segment.x1+u, yy=topStart+(topEnd-topStart)*u/segment.length-1.17;
+          instance('portfolio-skyway-underframe-ribs',materials.metal,xx,yy,z,.21,.13,width*.92,0,null,0);
+          for (const side of [-1,1]) instance('portfolio-skyway-underside-lamps',materials.light,
+            xx,yy-.091,z+width*side*.34,1.22,.075,.135,0,side<0 ? 0xf9a683 : 0xb0fae9,-pitch);
+        }
+      }
+      for (let u=2.4;u<segment.length-1;u+=6.0) instance('portfolio-skyway-markings',materials.paint,
+        segment.x1+u,topStart+(topEnd-topStart)*u/segment.length+.021,z,.13,.014,2.25,yaw,null,pitch);
+    }
+    for (const rail of guardrails) {
+      const {x,y,z,width,height,length,yaw,pitch}=rail;
+      instance('portfolio-skyway-rails',materials.steel,x,y,z,width,height,length,yaw,null,pitch);
+      const side=Math.sign(z-skyway.west.z);
+      instance('portfolio-skyway-edge-lights',materials.light,x,y-.30,z-side*.12,.045,.053,length,yaw,side<0 ? 0x9ef5eb : 0xffba82,pitch);
+      instance('portfolio-skyway-rail-cap',materials.metal,x,y+.41,z,width+.05,.11,length,yaw,null,pitch);
+    }
+    for (const support of supports) {
+      const {x,y,z,width,height,depth}=support;
+      instance('portfolio-skyway-piers',materials.steel,x,y,z,width,height,depth);
+      instance('portfolio-skyway-pier-caps',materials.metal,x,height-.20,z,1.75,.44,2.4);
+      beam('portfolio-skyway-braces',materials.metal,[x,height-1.9,z],[x,height,skyway.west.z],.57,.52);
+      if (height>6) instance('portfolio-skyway-pier-lights',materials.light,x,1.58,z-.872,.128,2.4,.053,0,0xf98865);
+    }
+    const skywayZ=skyway.west.z;
+    sign(0,12.0,skywayZ-4.91,9.4,1.27,north,'SKYWAY','UPPER LEVEL',0xa1eadf,{bracket:true});
+    sign(-100,4.55,skywayZ-7.0,5.6,1.72,west,'SKYWAY WEST','SERVICE DISTRICT',0xffbf81,{poleSpan:3.4});
+    sign(104,4.55,skywayZ+7.0,5.6,1.72,east,'SKYWAY EAST','NIGHT MARKET',0x88f1e8,{poleSpan:3.4});
+    for (const {x,z,w,color} of portals) {
+      for (const side of [-1,1]) {
+        const mouthX=x+side*(w/2+.065);
+        for (const frameSide of [-1,1]) {
+          instance('portfolio-skyway-portal-rims',materials.metal,mouthX,16.3,z+frameSide*5.19,.48,10.3,.41);
+          instance('portfolio-skyway-portal-lights',materials.light,mouthX+side*.275,16.3,z+frameSide*5.19,.06,9.2,.10,0,color);
+        }
+        instance('portfolio-skyway-portal-rims',materials.metal,mouthX,21.40,z,.50,.43,10.8);
+        instance('portfolio-skyway-portal-lights',materials.light,mouthX+side*.28,21.33,z,.065,.075,10.3,0,color);
+        const signHeading=side*east;
+        sign(mouthX+side*.34,23.95,z,8.9,1.88,signHeading,x<0 ? 'CANOPY WORKS' : 'MORROW TRANSFER','SKYWAY',color,{bracket:true});
+      }
+      for (let dx=-w/2+1.2;dx<w/2;dx+=4.8) instance('portfolio-skyway-tunnel-lamps',materials.light,x+dx,22.36,z,.26,.09,9.38,0,color);
+    }
+
+    // Exterior floors and diagonal fins give the portal towers distinct profiles
+    // above the openings, and keep floors legible from the plaza below.
+    for (const {x,z,w,d,h,color} of portals) {
+      const front=z+d/2+.13;
+      for (const side of [-1,1]) {
+        const startX=x+side*(w/2-.38);
+        const tipX=x+side*w*.19;
+        beam('portfolio-transfer-rakers',materials.metal,[startX,23.2,front],[tipX,h-1,front-3.22],.59,.73);
+        beam('portfolio-transfer-raker-lights',materials.light,[startX,23.2,front+.46],[tipX,h-1,front-2.78],.12,.15,color);
+      }
+      for (let y=29;y<45;y+=4.25) instance('portfolio-transfer-gallery',materials.steel,x,y,front,w*.93,.31,1.14);
+      for (const y of [27,41,54]) instance('portfolio-transfer-air-slots',materials.light,x,y,front+.31,w*.70,.22,.10,0,color);
+      const mastX=x+1.2, mastZ=z-1.1;
+      const roof=22.5+h*.77;
+      instance('portfolio-transfer-masts',materials.metal,mastX,roof+3.1,mastZ,.36,6.2,.36);
+      instance('portfolio-transfer-mast-lights',materials.light,mastX,roof+6.21,mastZ,.20,.25,.20,0,0xff6049);
+    }
+
+    const marketFront=marketTerrace.z-marketTerrace.depth/2-.28;
+    for (const [x,w,first,last] of [[-64.45,6.35,17,61],[-57.25,4.65,19,74]]) {
+      for (let y=first;y<last;y+=4.35) {
+        instance('portfolio-market-terrace-balconies',materials.steel,x,y,marketFront-.55,w,.27,1.72);
+        instance('portfolio-market-terrace-railing',materials.metal,x,y+.61,marketFront-1.34,w,.9,.13);
+        instance('portfolio-market-terrace-lights',materials.light,x-w*.27,y+.62,marketFront-1.43,.79,.106,.042,0,y%3>1.4 ? 0xf38d97 : 0xfeb582);
+      }
+    }
+    beam('portfolio-market-terrace-frame',materials.copper,[-68,59,marketFront-1.30],[-55.2,75.0,marketFront-1.30],.44,.45);
+    beam('portfolio-market-terrace-lights',materials.light,[-68,59,marketFront-1.58],[-55.2,75.0,marketFront-1.58],.11,.105,0xff9c82);
+
+    for (const [x1,x2,y,width,style,accent] of [
+      [campus.southX,campus.northX,24.1,8.4,7,0xbbe9a7],
+      [campus.southX-.65,campus.northX+1.5,53.4,6.4,4,0xa9e7d8]
+    ]) {
+      const dx=x2-x1,dz=campus.north-campus.south,length=Math.hypot(dx,dz);
+      const yaw=Math.atan2(dx,dz),x=(x1+x2)/2,z=(campus.north+campus.south)/2;
+      instance('portfolio-campus-bridge-'+style,facadeMaterials[style],x,y+1.8,z,width,3.6,length,yaw);
+      instance('portfolio-campus-bridge-underside',materials.underside,x,y-.18,z,width+.15,.39,length,yaw);
+      for (const side of [-1,1]) {
+        const offset=side*(width/2+.16), px=offset*dz/length, pz=-offset*dx/length;
+        for (const rise of [.4,3.0]) instance('portfolio-campus-clamps',materials.copper,x+px,y+rise,z+pz,.28,.21,length,yaw);
+        instance('portfolio-campus-bridge-lights',materials.light,x+px*1.05,y+.51,z+pz*1.05,.08,.079,length,yaw,accent);
+        instance('portfolio-campus-bridge-lights',materials.light,x+px*.79,y-.383,z+pz*.79,.10,.075,length*.74,yaw,accent);
+        for (let t=.19;t<.78;t+=.135) {
+          const bx=x1+px+t*dx,bz=campus.south+pz+t*dz;
+          beam('portfolio-campus-diagonals',materials.metal,[bx,y+.27,bz],[bx+dx*.10,y+3.02,bz+dz*.10],.26,.36);
+        }
+      }
+    }
+    for (const side of [-1,1]) instance('portfolio-service-bridge-lights',materials.light,
+      131.8+side*3.44,32.3,-14.3,.095,.9,27.8,0,0x8ce9da);
+    for (const [x,y,z,width] of [[-92.5,16,-37,11.5],[-94,33,-38.6,8.85],[-95.2,51,-41.4,6.45],[-96,62,-44.8,5.0]]) {
+      instance('portfolio-market-terrace-railing',materials.copper,x,y+.41,z,width,.85,.13);
+      instance('portfolio-market-terrace-lights',materials.light,x,y+.61,z+.08,width*.87,.091,.074,0,0xfab18e);
+    }
+    const relayAssembly = new THREE.Group();
+    relayAssembly.name='portfolio-service-beacon';
+    relayAssembly.position.set(relayTower.x,0,relayTower.z);
+    world.add(relayAssembly);
+    const relayBands = [
+      {y:16.4,top:6.35,bottom:7.85,h:6.6}, {y:35.2,top:5.8,bottom:6.8,h:4.5},
+      {y:56.1,top:6.95,bottom:5.5,h:4.2}, {y:67.7,top:5.1,bottom:6.85,h:4.65},
+      {y:73.2,top:2.55,bottom:5.05,h:3.3}
+    ];
+    for (const {y,top,bottom,h} of relayBands) {
+      const housing = new THREE.Mesh(new THREE.CylinderGeometry(top,bottom,h,12),materials.steel);
+      housing.position.y=y;
+      relayAssembly.add(housing);
+      const beacon = new THREE.Mesh(new THREE.TorusGeometry(top+.055,.105,6,24),new THREE.MeshBasicMaterial({color:0xbfead6,toneMapped:false}));
+      beacon.rotation.x=Math.PI/2;
+      beacon.position.y=y+h/2;
+      relayAssembly.add(beacon);
+    }
+    instance('portfolio-transfer-masts',materials.metal,relayTower.x,80.5,relayTower.z,.39,9.9,.38);
+    instance('portfolio-transfer-mast-lights',materials.light,relayTower.x,85.45,relayTower.z,.30,.27,.30,0,0xff674e);
 
     for (const stop of stops) {
       const color=stop.color;
@@ -653,13 +912,13 @@
       }
       glow(stop.x,stop.z,13,20,color,.64,angle);
     }
-    for (const x of [-16,16]) {
-      instance('portfolio-project-supports',materials.steel,x,7.5,45.7,3.5,15,.78);
+    for (const x of [-18.7,18.7]) {
+      instance('portfolio-project-supports',materials.steel,x,7.5,45.7,3.15,15,.78);
       instance('portfolio-project-tower-light',materials.light,x,8,45.16,.20,14.5,.13,0,0x63eedb);
-      for (const y of [3.1,7.7,12.2]) instance('portfolio-project-clamps',materials.copper,x,y,45.3,4.22,.58,1.02);
+      for (const y of [3.1,7.7,12.2]) instance('portfolio-project-clamps',materials.copper,x,y,45.3,3.75,.58,1.02);
     }
-    instance('portfolio-project-fascia',materials.steel,0,17.25,47.93,36,1.2,.33);
-    instance('portfolio-project-fascia-light',materials.light,0,16.78,47.71,32.5,.13,.14,0,0xb7f8e8);
+    instance('portfolio-project-fascia',materials.steel,0,22.32,47.93,36,.67,.33);
+    instance('portfolio-project-fascia-light',materials.light,0,22.16,47.71,32.5,.13,.14,0,0xb7f8e8);
     glow(0,38,30,39,0x6af9e2,.78);
 
     for (const {z,y,width,depth} of catwalks) {
@@ -691,18 +950,19 @@
     cableMesh.name='portfolio-utility-cables';
     world.add(cableMesh);
 
-    sign(80,7.2,-73,16,4,0,'BUMP TEST','PYLONS / JUMP RAMP',0xff976d);
+    sign(80,7.2,-73,16,4,0,'BUMP TEST','PYLONS / JUMP RAMP',0xff976d,{bracket:true});
+    instance('portfolio-sign-lips',materials.metal,77.5,5.98,-73.40,31.5,.32,.52);
     for (const x of [62,93]) instance('portfolio-stop-masts',materials.metal,x,3.3,-73,.42,6.6,.42);
     glow(81,-66,25,22,0xff976d,.86);
     const marquees = [
-      [-23,5.7,-13,11,2.2,north,'NIGHT MARKET','EDUCATION',0xf7a2d4],
-      [24,5.7,-4,11,2.2,north,'SERVICE DISTRICT','EXPERIENCE / TEST BAY',0xffbf79],
-      [-82,4.4,-9.1,6.5,1.8,north,'MARKET','FOOD / REPAIRS',0xff90ae],
-      [-30,3.8,75,7.5,2.1,east,'CAMPUS','SKILLS',0xc1eda9],
-      [112,5.3,-95,10.2,2.1,0,'SOUTH STREET','CONTACT',0xfa93a7]
+      [-23,5.7,-13,11,2.2,north,'NIGHT MARKET','EDUCATION',0xf7a2d4,8.5],
+      [24,5.7,-4,11,2.2,north,'SERVICE DISTRICT','EXPERIENCE / TEST BAY',0xffbf79,8.5],
+      [-82,4.4,-9.1,6.5,1.8,north,'MARKET','FOOD / REPAIRS',0xff90ae,5.6],
+      [-30,3.8,66.5,7.5,2.1,east,'CAMPUS','SKILLS',0xc1eda9,5.6],
+      [112,5.3,-95,10.2,2.1,0,'SOUTH STREET','CONTACT',0xfa93a7,21.4]
     ];
-    for (const [x,y,z,w,h,facing,head,sub,color] of marquees) {
-      sign(x,y,z,w,h,facing,head,sub,color);
+    for (const [x,y,z,w,h,facing,head,sub,color,poleSpan] of marquees) {
+      sign(x,y,z,w,h,facing,head,sub,color,{poleSpan});
       glow(x,z-4,w*1.2,28,color,.84);
     }
 
@@ -744,6 +1004,6 @@
     return {update,dispose};
   }
 
-  return {edge, roadHalfWidth, spawn, routeSamples, stops, buildings, networkRoads, highwaySegments,
+  return {edge, roadHalfWidth, spawn, routeSamples, stops, buildings, networkRoads, highwaySegments, guardrails, supports, skyway, constrainCamera,
     playProps, holograms, adPlacements, assetPlacements, distanceToRoad, build};
 });

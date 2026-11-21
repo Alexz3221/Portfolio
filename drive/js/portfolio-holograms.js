@@ -70,168 +70,150 @@
     return texture;
   }
 
-  function haloTexture(THREE) {
-    const canvas = document.createElement('canvas');
-    canvas.width = canvas.height = 64;
-    const ctx = canvas.getContext('2d');
-    const halo = ctx.createRadialGradient(32,32,0,32,32,32);
-    halo.addColorStop(0,'rgba(255,255,255,.7)');
-    halo.addColorStop(.34,'rgba(255,255,255,.37)');
-    halo.addColorStop(.65,'rgba(255,255,255,.08)');
-    halo.addColorStop(1,'rgba(255,255,255,0)');
-    ctx.fillStyle = halo;
-    ctx.fillRect(0,0,64,64);
-    return new THREE.CanvasTexture(canvas);
+  function block(THREE, group, geometry, material, x, y, z, width, height, depth) {
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.position.set(x, y, z);
+    mesh.scale.set(width, height, depth);
+    group.add(mesh);
+    return mesh;
   }
 
-  function addAdverts(THREE, world, adverts) {
-    if (!adverts.length || typeof document === 'undefined') return;
-    const shell = new THREE.MeshStandardMaterial({color:0x212634, metalness:.66, roughness:.43});
-    const box = new THREE.BoxGeometry(1, 1, 1);
-    const plane = new THREE.PlaneGeometry(1, 1);
-    const glow = haloTexture(THREE);
-    const screens = businesses.map(design => new THREE.MeshBasicMaterial({map:adTexture(THREE, design), toneMapped:false, fog:true}));
-    const glows = businesses.map(design => new THREE.SpriteMaterial({map:glow, color:design.color, opacity:.26,
-      transparent:true, blending:THREE.AdditiveBlending, depthWrite:false, toneMapped:false}));
-    for (const [index, {x,y,z,width,heading,height}] of adverts.entries()) {
+  function displayGeometry(THREE) {
+    const geometry = new THREE.BoxGeometry(1, 1, 1);
+    geometry.clearGroups();
+    geometry.addGroup(0, 24, 0);
+    geometry.addGroup(24, 12, 1);
+    return geometry;
+  }
+
+  function addAdverts(THREE, world, adverts, box, cabinet, shell) {
+    if (!adverts.length) return;
+    const screens = businesses.map(design => new THREE.MeshBasicMaterial({
+      map:typeof document === 'undefined' ? null : adTexture(THREE, design), toneMapped:false
+    }));
+    const brackets = new THREE.InstancedMesh(box, shell, adverts.length * 2);
+    brackets.name = 'portfolio-ad-brackets';
+    const transform = new THREE.Object3D();
+    for (const [index, {id,x,y,z,width,heading,height}] of adverts.entries()) {
       const mount = new THREE.Group();
       mount.name = 'portfolio-street-ad';
       mount.position.set(x,y,z);
       mount.rotation.y = heading;
-      const backing = new THREE.Mesh(box, shell);
       const h = height || width * .5;
-      backing.scale.set(width+.22, h+.22, .35);
-      mount.add(backing);
-      const sign = new THREE.Mesh(plane, screens[index % screens.length]);
-      sign.scale.set(width, h, 1);
-      sign.position.z = .18;
-      mount.add(sign);
-      const halo = new THREE.Sprite(glows[index % glows.length]);
-      halo.position.z = .27;
-      halo.scale.set(width * 1.46, h * 1.8, 1);
-      mount.add(halo);
+      const display = block(THREE, mount, cabinet, [shell, screens[index % screens.length]], 0,0,0,width+.18,h+.18,.52);
+      display.name = 'portfolio-ad-display';
+      display.userData.portfolioAdFace = true;
+      display.userData.portfolioAdId = id;
+      // Bridge cabinets hang from the catwalk above. Wall cabinets sit on two rear brackets.
+      const suspension = id === 'entry-ribs' ? 6.2 : id === 'arrival-bridge' ? 1.7 : 0;
+      for (const [sideIndex, side] of [-1,1].entries()) {
+        const offset = side * width * .38;
+        const zOffset = suspension ? -1.06 : -.52;
+        transform.position.set(x+offset*Math.cos(heading)+zOffset*Math.sin(heading),
+          y+(suspension ? h/2+suspension/2-.16 : 0),
+          z-offset*Math.sin(heading)+zOffset*Math.cos(heading));
+        transform.rotation.y = heading;
+        transform.scale.set(suspension ? .16 : .45, suspension || h*.76, suspension ? 2.1 : 1.14);
+        transform.updateMatrix();
+        brackets.setMatrixAt(index*2+sideIndex, transform.matrix);
+      }
       world.add(mount);
     }
+    world.add(brackets);
   }
 
-  function create(THREE, world, signs, {reducedMotion = false, adverts = []} = {}) {
-    addAdverts(THREE, world, adverts);
-    const clock = {value:0};
-    const pictures = [];
+  function addBackdrop(THREE, group, box, cabinet, shell, accent, loadTexture) {
+    const image = loadTexture();
+    image.repeat.set(1, .66);
+    image.offset.set(0, .17);
+    const art = new THREE.MeshBasicMaterial({map:image, color:0xe7e3e8, toneMapped:false});
+    const screen = block(THREE, group, cabinet, [shell, art], 0,-.60,0,32,10.5,.68);
+    screen.name = 'portfolio-district-display';
+    screen.userData.portfolioAdFace = true;
+    screen.userData.portfolioAdId = 'projects';
+    for (const x of [-16.18,16.18]) {
+      block(THREE, group, box, shell, x,-.60,-.05,.45,10.95,.89);
+      block(THREE, group, box, accent, x,-.60,.405,.07,9.95,.08);
+    }
+    for (const y of [-5.95,4.77]) block(THREE, group, box, shell, 0,y,-.05,32.7,.25,.9);
+  }
+
+  function create(THREE, world, signs, {adverts = []} = {}) {
+    const box = new THREE.BoxGeometry(1,1,1);
+    const cabinet = displayGeometry(THREE);
+    const shell = new THREE.MeshStandardMaterial({color:0x212634, metalness:.53, roughness:.46});
+    addAdverts(THREE, world, adverts, box, cabinet, shell);
+    const lettering = [];
     let disposed = false;
-    const entries = signs.map((sign, index) => {
-      const {id, x, y, z, heading, width, color, label} = sign;
-      const hero = id === 'projects';
-      const tint = new THREE.Color(color).convertSRGBToLinear();
+    function loadArtwork() {
+      const image = new THREE.TextureLoader().load('assets/portfolio-type/district-display.webp', asset => {
+        if (disposed) asset.dispose();
+      });
+      image.encoding = THREE.sRGBEncoding;
+      image.anisotropy = 4;
+      return image;
+    }
+
+    for (const {id,x,y,z,heading,width,color,label} of signs) {
+      const projects = id === 'projects';
+      const tint = new THREE.Color(color);
       const group = new THREE.Group();
       group.name = 'portfolio-hologram-' + id;
       group.position.set(x, y, z);
       group.rotation.y = heading;
       world.add(group);
 
-      const letters = new THREE.Group();
-      letters.position.y = hero ? width * .175 : 0;
-      letters.position.z = .15;
-      group.add(letters);
-
-      const border = new THREE.LineBasicMaterial({color:tint, toneMapped:false, transparent:true, opacity:.72});
-      const extentX = width * .56, extentY = hero ? width * .105 : width * .105 + .36;
-      const ticks = [];
-      for (const xx of [-extentX, extentX]) for (const yy of [-extentY, extentY]) {
-        const sx = -Math.sign(xx), sy = -Math.sign(yy);
-        ticks.push(xx + sx * 1.1, yy, -.25, xx, yy, -.25, xx, yy, -.25, xx, yy + sy * .56, -.25);
-      }
-      const frame = new THREE.BufferGeometry();
-      frame.setAttribute('position', new THREE.Float32BufferAttribute(ticks, 3));
-      letters.add(new THREE.LineSegments(frame, border));
-
-      if (hero) {
-        const image = new THREE.TextureLoader().load('assets/portfolio-type/district-display.webp', asset => {
-          if (disposed) asset.dispose();
-          else artwork.uniforms.ready.value = 1;
-        });
-        pictures.push(image);
-        const artwork = new THREE.ShaderMaterial({
-          toneMapped:false,
-          uniforms:{picture:{value:image}, tick:clock, ready:{value:0}},
-          vertexShader:`varying vec2 texcoord; void main(){ texcoord=uv;
-            gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.); }`,
-          fragmentShader:`varying vec2 texcoord; uniform float tick, ready; uniform sampler2D picture;
-            void main(){
-              vec2 p=texcoord;
-              float offset=sin(p.y*300.+tick*1.65)*.0011;
-              p=vec2(p.x+offset, (p.y-.5)*.69+.5);
-              vec3 art=texture2D(picture,p).rgb;
-              vec3 grain=vec3(.036,.054,.078)*(1.+.24*sin(texcoord.y*220.+tick*.6));
-              vec3 rgb=mix(grain,pow(art,vec3(2.05))*.82,ready);
-              float scan=.89+.11*sin(texcoord.y*820.);
-              float edge=smoothstep(.0,.06,texcoord.x)*smoothstep(.0,.06,1.-texcoord.x);
-              gl_FragColor=vec4(rgb*scan*mix(.54,1.,edge),1.);
-              #include <encodings_fragment>
-            }`
-        });
-        const screen = new THREE.Mesh(new THREE.PlaneGeometry(width * 1.04, width * .36), artwork);
-        screen.name = 'portfolio-district-display';
-        screen.position.set(0, -width * .055, -.68);
-        group.add(screen);
-        const glowImage = haloTexture(THREE);
-        pictures.push(glowImage);
-        const halo = new THREE.Sprite(new THREE.SpriteMaterial({map:glowImage, color:0xff4155, opacity:.32,
-          transparent:true, blending:THREE.AdditiveBlending, depthWrite:false, toneMapped:false}));
-        halo.position.copy(screen.position);
-        halo.position.z += .1;
-        halo.scale.set(width * 1.7, width * .66, 1);
-        group.add(halo);
-      }
-
-      const front = new THREE.ShaderMaterial({
-        uniforms:{tick:clock, color:{value:tint}}, toneMapped:false,
-        vertexShader:`varying vec3 letter; void main(){letter=position;
-          gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}`,
-        fragmentShader:`varying vec3 letter; uniform vec3 color; uniform float tick;
-          void main(){
-            float line=.90+.10*sin(letter.y*245.);
-            float pulse=.80+.20*pow(.5+.5*sin(letter.y*14.-tick*1.4),5.);
-            gl_FragColor=vec4(mix(color,vec3(.83,.94,.98),.32)*line*pulse,1.);
-            #include <encodings_fragment>
-          }`
+      const face = new THREE.MeshBasicMaterial({color:tint, toneMapped:false});
+      const lip = new THREE.MeshStandardMaterial({
+        color:tint.clone().multiplyScalar(.44), emissive:tint, emissiveIntensity:.14, metalness:.32, roughness:.52
       });
-      const side = new THREE.MeshBasicMaterial({color:tint.clone().multiplyScalar(.36), toneMapped:false});
-      const wire = new THREE.MeshBasicMaterial({color:tint, toneMapped:false, transparent:true, opacity:.21, depthWrite:false});
-      font(THREE).then(face => {
-        if (disposed) { front.dispose(); side.dispose(); wire.dispose(); return; }
-        const geometry = new THREE.TextGeometry(label.toUpperCase(), {font:face, size:1, height:.125,
-          curveSegments:5, bevelEnabled:true, bevelThickness:.011, bevelSize:.012, bevelSegments:1});
+      const labelY = projects ? 6.0 : 0;
+      const railWidth = width + (projects ? 2.4 : .72);
+      const rearZ = projects ? -6.7 : -.22;
+      block(THREE, group, box, shell, 0,labelY,.02,railWidth,projects ? .90 : .50,.51);
+      if (projects) {
+        addBackdrop(THREE, group, box, cabinet, shell, face, loadArtwork);
+        block(THREE, group, box, shell, 0,labelY,rearZ+.20,railWidth,.90,.45);
+      } else {
+        const postX = width*.52;
+        const supports = id === 'about' ? [postX] : [-postX,postX];
+        for (const post of supports) {
+          block(THREE, group, box, shell, post,-y/2,.03,.32,y,.44);
+          block(THREE, group, box, shell, post,-y+.16,.03,.58,.32,.72);
+        }
+        block(THREE, group, box, face, 0,-.34,.03,railWidth,.055,.42);
+      }
+
+      lettering.push(font(THREE).then(typeface => {
+        if (disposed) { lip.dispose(); return; }
+        const geometry = new THREE.TextGeometry(label.toUpperCase(), {font:typeface, size:1, height:.09,
+          curveSegments:4, bevelEnabled:true, bevelThickness:.01, bevelSize:.011, bevelSegments:1});
         geometry.computeBoundingBox();
         const scale = width / Math.max(.1, geometry.boundingBox.max.x - geometry.boundingBox.min.x);
+        const height = scale * (geometry.boundingBox.max.y - geometry.boundingBox.min.y);
         geometry.center();
-        const text = new THREE.Mesh(geometry, [front, side]);
-        text.scale.setScalar(scale);
-        letters.add(text);
-        const echo = new THREE.Mesh(geometry, wire);
-        echo.position.set(.10, -.04, -scale * .17);
-        echo.scale.copy(text.scale);
-        letters.add(echo);
+        if (!projects) {
+          // The opaque spine keeps the oppositely oriented words from showing
+          // through each other's letter gaps as the driver circles the sign.
+          block(THREE, group, box, shell, 0,labelY,.027,width+.48,height+.25,.49);
+        }
+        const letterDepth = .055 * scale;
+        for (const side of [1,-1]) {
+          const text = new THREE.Mesh(geometry, [face,lip]);
+          text.name = side > 0 ? 'portfolio-sign-lettering-front' : 'portfolio-sign-lettering-rear';
+          text.userData.portfolioAdFace = true;
+          text.userData.portfolioAdId = id + (side > 0 ? '-label' : '-rear');
+          text.position.set(0,labelY,side > 0 ? .28+letterDepth : rearZ-letterDepth);
+          text.rotation.y = side > 0 ? 0 : Math.PI;
+          text.scale.setScalar(scale);
+          group.add(text);
+        }
       }).catch(error => {
-        front.dispose(); side.dispose(); wire.dispose();
+        lip.dispose();
         if (!disposed) console.warn('Could not build portfolio sign:', error);
-      });
-      return {letters, base:letters.position.y, phase:index * .86};
-    });
-
-    function update(delta) {
-      if (reducedMotion) return;
-      clock.value += delta;
-      for (const {letters, base, phase} of entries) {
-        letters.position.y = base + .12 * Math.sin(clock.value * .83 + phase);
-      }
+      }));
     }
-
-    function dispose() {
-      disposed = true;
-      pictures.forEach(image => image.dispose());
-    }
-    return {update, dispose};
+    return {ready:Promise.all(lettering), dispose() { disposed = true; }};
   }
 
   return {create};

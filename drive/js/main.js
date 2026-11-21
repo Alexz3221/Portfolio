@@ -27,7 +27,7 @@
   let city = portfolioCity, skylinesCity = null, skylinesLoad = null;
   let mapRequest = 0;
   const maps = {
-    city: {name: 'Portfolio City', caption: 'Follow the road lights to Projects.', ground: 0x121620, fog: 0x191a2b, skyLow: 0x161b2b, skyHigh: 0x030611, seed: 41732},
+    city: {name: 'Portfolio City', caption: 'Projects ahead · Skyway in City Guide', ground: 0x121620, fog: 0x191a2b, skyLow: 0x161b2b, skyHigh: 0x030611, seed: 41732},
     skylines: {name: 'Cities: Skylines', caption: 'Free drive. Open the map to jump to a district.', ground: 0x202a38, fog: 0x0c1728, skyLow: 0x263447, skyHigh: 0x050b18, seed: 65941},
     mountain: {name: 'Cliffside mountain', caption: 'A narrow road along the cliff.', ground: 0x817969, fog: 0x9caeae, skyLow: 0xcbd8d2, skyHigh: 0x416b92, mountain: 0x83908b, seed: 93217,
       roadHalfWidth: 3.5, shoulderWidth: .5, points: DrivePhysics.mountainPoints},
@@ -590,10 +590,10 @@
     }
     if (isPortfolioCity()) {
       portfolioHolograms = globalThis.DrivePortfolioHolograms?.create(THREE, world, city.holograms || [], {
-        reducedMotion:window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches,
         adverts:city.adPlacements || []
       });
       portfolioAssets = globalThis.DrivePortfolioAssets?.attach(THREE, world, city.assetPlacements || []);
+      globalThis.DrivePortfolioStorefronts?.attach(THREE, world);
       portfolioWet = globalThis.DrivePortfolioWet?.create(THREE, renderer, scene, world, sky, {
         compact:window.matchMedia?.('(pointer: coarse)')?.matches || window.innerWidth < 700
       });
@@ -1267,7 +1267,8 @@
     }
     selectedCar = type;
     const useCustom = usesPortfolioComet(type);
-    if (!useCustom) loadCarAsset(type);
+    if (useCustom) portfolioComet.load?.();
+    else loadCarAsset(type);
     document.querySelector('#modelStatus').textContent = modelStatus(type);
     Object.entries(carModels).forEach(([name, model]) => { model.group.visible = name === type && !useCustom; });
     if (portfolioComet) portfolioComet.group.visible = useCustom;
@@ -1465,6 +1466,7 @@
 
   const target = new THREE.Vector3();
   const desired = new THREE.Vector3();
+  const cameraAnchor = new THREE.Vector3();
   function updateCamera(delta) {
     if (orbit.pointer === null) orbit.idle += delta;
     else orbit.idle = 0;
@@ -1496,6 +1498,12 @@
     else camera.position.lerp(desired, 1 - Math.exp(-5 * delta));
     if (physics) camera.position.y=Math.max(camera.position.y,
       physics.terrainHeight(camera.position.x,displayZ(camera.position.z))+1.5);
+    if (cameraMode !== 2 && isPortfolioCity() && city.constrainCamera) {
+      cameraAnchor.copy(vehicle.position);
+      cameraAnchor.y += 1.35;
+      const clearance = city.constrainCamera(cameraAnchor, camera.position);
+      if (clearance < 1) camera.position.lerpVectors(cameraAnchor, camera.position, clearance);
+    }
     camera.lookAt(target);
     // Keep the enclosing sky centered on the camera and within its far plane.
     sky.position.copy(camera.position);
@@ -1511,7 +1519,6 @@
     cityVisual?.update?.(mirroredCityView()
       ? {position:{x:camera.position.x,y:camera.position.y,z:-camera.position.z}} : camera, delta);
     portfolioPlay?.update(driveDelta);
-    portfolioHolograms?.update(delta);
     portfolio?.update(physics.body.position, motion.speed, motion.heading);
     if (!document.hidden) portfolioWet?.update(camera, delta);
     renderer.render(scene, camera);
@@ -1546,4 +1553,19 @@
   resize();
   updateCamera(1);
   animate();
+  if (window.location?.search && new URLSearchParams(window.location.search).get('audit') === '1') {
+    window.auditPortfolioCity = async function () {
+      await import('./portfolio-scene-audit.js?v=1');
+      const generation = worldGeneration;
+      await portfolioHolograms?.ready;
+      if (!isPortfolioCity() || generation !== worldGeneration) {
+        throw new Error('Open Portfolio City before checking scene clipping.');
+      }
+      return globalThis.DrivePortfolioSceneAudit.run(THREE, world, city);
+    };
+    window.auditPortfolioCity().then(report => {
+      console.info('Portfolio City clipping audit', report.checked);
+      console.table([...report.signs, ...report.corridors]);
+    }).catch(error => console.warn(error.message));
+  }
 })();

@@ -51,3 +51,34 @@ test('the portfolio test bay has moveable pylons and a driveable jump', () => {
   play.dispose();
   assert.equal(simulation.world.bodies.length, count - pylons.length);
 });
+
+test('the skyway crosses both tower portals in both directions above the open lower street', () => {
+  const simulation = physics.create({map:'city', city, distanceToRoad:city.distanceToRoad, roadHalfWidth:city.roadHalfWidth});
+  for (const [start, direction] of [[city.skyway.west,1], [city.skyway.east,-1]]) {
+    simulation.reset(start.x, start.z, start.heading);
+    let abovePlaza = false;
+    for (let frame=0; frame<2200; frame++) {
+      const state = simulation.step(1/120, {throttle:.52});
+      const {x,y,z} = simulation.body.position;
+      assert.ok(Math.abs(z-start.z) < .35, `${start.id} remains in its lane`);
+      if (Math.abs(x)<8 && state.grounded===4 && y>11.5) abovePlaza = true;
+      if ((x-start.x)*direction>216 && y<1.6) break;
+    }
+    assert.ok(abovePlaza, `${start.id} drives on an elevated deck through the plaza`);
+    assert.ok((simulation.body.position.x-start.x)*direction>216 && simulation.body.position.y<1.6,
+      `${start.id} returns to the opposite ground-level street`);
+  }
+  simulation.reset(0,-40,0);
+  for (let frame=0; frame<900 && simulation.body.position.z<-21; frame++) {
+    simulation.step(1/120,{throttle:.52});
+    assert.ok(simulation.body.position.y<1.5, 'lower approach stays below the raised deck');
+  }
+  assert.ok(simulation.body.position.z>=-21, 'the lower route continues through the crossing');
+});
+
+test('the chase camera clears the skyway slab and retains an open view down the street', () => {
+  const focus = {x:-72,y:1.5,z:-21.5};
+  assert.ok(city.constrainCamera(focus,{x:-72,y:4.9,z:-32}) < .95);
+  assert.equal(city.constrainCamera(focus,{x:-72,y:4.2,z:-16}),1);
+  assert.equal(city.constrainCamera({x:5,y:13.2,z:-27.5},{x:-7,y:16,z:-27.5}),1);
+});

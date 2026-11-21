@@ -1,0 +1,7 @@
+# Portfolio City Comet Night edition
+
+`comet-night.glb` adapts [Cyberpunk car](https://sketchfab.com/3d-models/cyberpunk-car-b4301ff99d214d16a7a43708a5866bf0) by [4d_Bob](https://sketchfab.com/3d_Bob), licensed under [Creative Commons Attribution 4.0 International](https://creativecommons.org/licenses/by/4.0/). The creator describes the model as a retrofuturistic school project and expressly invites reuse. The [Sketchfab model record](https://api.sketchfab.com/v3/models/b4301ff99d214d16a7a43708a5866bf0) also lists the author, download availability and CC BY 4.0 license.
+
+The input was the [SceneView assets-v1 release GLB](https://github.com/sceneview/sceneview/releases/download/assets-v1/cyberpunk_car.glb), credited under CC BY 4.0 in the [SceneView asset register](https://github.com/sceneview/sceneview/blob/main/assets/CREDITS.md). The GLB itself identifies 4d_Bob, the same Sketchfab ID and CC BY 4.0. Input SHA-256 `16dec5200c2f5f882e3ce90ee59bdf6b2e467c863fb57aa32e861facfe7a4101`.
+
+For the browser, the body dimensions were fitted to the Comet's existing chassis and the tires, rims and hubs were separated into four independently animated wheel meshes. The game's lighting reuses the original emissive map and adds brake-responsive lenses over the existing taillight slots. The base color is encoded as a JPEG and the roughness and normal maps are resized to 512 pixels. The GLB retains 11,424 triangles and its original paint design.
