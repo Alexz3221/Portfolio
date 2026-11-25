@@ -1,30 +1,16 @@
 # alex / stuff
 
-A small static home for projects, experiments, and notes.
+Portfolio landing page and AI experiment index. The GitHub Pages workflow publishes it from main.
 
-## Routes
+## Projects
 
-- `/` — a hello and a short project list
-- `/drive/` — the playable Three.js driving experiment
-- `/projects/local-ai/` — the local creative tools
-- `/lab/` — the separate interpretability project
-- `/blog/` — notes and story scraps
-- `/reader/` — password protected novel reader; its API stores chapters on a separate hosted service
+- [Car Go Vroom](https://alexz3221.github.io/Car-Go-Vroom/) has its own [game repository](https://github.com/Alexz3221/Car-Go-Vroom).
+- [Unnecessary Lore](https://alexz3221.github.io/Unnecessary-Lore/) has its own [blog repository](https://github.com/Alexz3221/Unnecessary-Lore).
+- [One More Chapter](https://alexz3221.github.io/One-More-Chapter/) has its own [reader front end repository](https://github.com/Alexz3221/One-More-Chapter). Its existing protected API holds the library.
+- [Tidal Archipelago](https://alexz3221.github.io/Tidal-Archipelago-Web/) is served from the [Unity Web build repository](https://github.com/Alexz3221/Tidal-Archipelago-Web).
 
-The local tool links point to the visitor's own `127.0.0.1`. No model or GPU endpoint is exposed by GitHub Pages.
+Former project entry points are compatibility redirects. The AI Studio tools run on the visitor’s machine and require the local app.
 
-## Write a blog post
+## Preview
 
-1. Add `blog/posts/your-slug.md`. Plain paragraphs, `##` headings, `-` lists, `>` quotes, and Markdown links are supported.
-2. Add its slug, title, date, and short description to `blog/posts.json` (newest first).
-3. Commit to `main`; the Pages workflow publishes it.
-
-## Run locally
-
-From the repository root:
-
-```sh
-python -m http.server 8000
-```
-
-Open `http://localhost:8000/`.
+Serve this directory over HTTP to preview the landing page. The project links go to their individual Pages sites.

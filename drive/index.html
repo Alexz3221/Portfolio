@@ -2,115 +2,15 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-title" content="Car Go Vroom">
-  <link rel="manifest" href="manifest.webmanifest">
-  <meta name="theme-color" content="#090e16">
-  <meta name="stunt-records-api" content="https://alex-novel-reader.clinkballer.chatgpt.site/api/stunt">
-  <meta name="description" content="Drive through a neon portfolio city, explore a separate Cities: Skylines map, or race ghosts on the stunt course.">
-  <title>Car Go Vroom / Alex</title>
-  <link rel="stylesheet" href="css/style.css?v=16">
-  <link rel="stylesheet" href="css/portfolio.css?v=12">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Car Go Vroom</title>
+  <link rel="stylesheet" href="../css/home.css?v=5">
+  <script src="../js/redirect.js" defer></script>
 </head>
 <body>
-  <canvas id="drive-scene" tabindex="0" aria-label="3D driving playground. Use W A S D or the arrow keys to drive. Drag or swipe the scene to look around."></canvas>
-  <header class="drive-header"><a href="https://www.linkedin.com/in/alex-zhou2/" target="_blank" rel="noopener noreferrer" aria-label="Alex on LinkedIn">alex.</a><a class="drive-home" href="../">home ↗</a><span>CAR GO VROOM</span><button id="cameraButton" type="button" title="Change camera (C)">CAMERA / CHASE</button><button id="fullscreenButton" type="button" aria-controls="screenHelp" aria-expanded="false" aria-pressed="false" hidden>FULL SCREEN</button></header>
-  <section id="screenHelp" class="screen-help" aria-labelledby="screenHelpTitle" hidden><h2 id="screenHelpTitle">Play in app view</h2><p id="screenHelpMessage" role="status"></p><p>On iPhone, open this page in Safari, tap Share, then Add to Home Screen. Enable Open as Web App if shown, then launch the new Home Screen icon to play without Safari’s address and tab bars.</p><p>On other supported phones, use your browser menu’s Install app or Add to Home Screen option. This does not add offline support.</p><button id="screenHelpClose" type="button">Close</button></section>
-  <section class="route-picker" aria-label="Choose a map"><label for="mapSelect">CHOOSE A MAP</label><select id="mapSelect"><option value="city">Portfolio City</option><option value="skylines">Cities: Skylines</option><option value="mountain">Cliffside mountain</option><option value="racetrack">Racetrack / stunt course</option></select><div id="coursePicker" class="course-picker" hidden><label for="courseSelect">CHOOSE A COURSE</label><select id="courseSelect"><option value="racetrack">Stunt course</option><option value="rainbowroad">Rainbow Road</option><option value="racegame">Race Game Circuit</option><option value="bangkok">Bangkok Rush</option></select></div><p id="mapDescription" role="status">Follow the road lights to Projects.</p><button id="resetButton" type="button" title="Return to the road (R)">↺ BACK TO ROAD</button></section>
-  <section id="ghostPanel" class="ghost-panel" aria-labelledby="ghostPanelTitle" hidden>
-    <div class="ghost-panel-header"><h2 id="ghostPanelTitle">GHOST CHALLENGE</h2><button id="stuntRecordsOpen" type="button" aria-haspopup="dialog" hidden>Records</button></div>
-    <label class="ghost-toggle" for="ghostEnabled"><input id="ghostEnabled" type="checkbox" checked><span>Race a ghost</span></label>
-    <div class="ghost-fields">
-      <label for="ghostSource">OPPONENT</label>
-      <select id="ghostSource"><option value="course">Course ghost</option><option value="best">My best lap</option><option id="stuntGhostOption" value="shared" hidden disabled>Shared ghost</option></select>
-      <div id="courseGhostFields" class="ghost-fields">
-        <label for="ghostCar">COURSE GHOST CAR</label>
-        <select id="ghostCar"><option value="match">Match my car</option><option value="comet">Comet</option><option value="rally">Rally</option><option value="pickup">Pickup</option><option value="hypercar">Hypercar</option></select>
-        <label for="ghostPace">COURSE GHOST PACE</label>
-        <select id="ghostPace"><option value="relaxed">Relaxed</option><option value="standard" selected>Standard</option><option value="quick">Quick</option></select>
-      </div>
-    </div>
-    <button id="ghostStartButton" type="button">RESET TO START</button>
-    <p class="ghost-best"><span>MY BEST</span><strong id="ghostBestValue" aria-live="polite">—</strong></p>
-    <p class="ghost-note">Best times are saved in this browser.</p>
-    <p id="ghostStatus" role="status" aria-live="polite">Drive across the line to start a timed lap.</p>
-    <p id="stuntLinkStatus" class="ghost-note" role="status" hidden></p>
-  </section>
-  <dialog id="stuntRecords" class="stunt-records" aria-labelledby="stuntRecordsTitle">
-    <header><h2 id="stuntRecordsTitle">Stunt course records</h2><button id="stuntRecordsClose" type="button" autofocus>Close</button></header>
-    <section class="stunt-record-card" aria-labelledby="stuntMyBestTitle">
-      <h3 id="stuntMyBestTitle">Your best lap</h3>
-      <p id="stuntMyBest"></p>
-      <div class="stunt-record-actions"><button id="stuntShareBest" type="button" disabled>Copy race link</button></div>
-      <form id="stuntPublishForm" hidden>
-        <label for="stuntRacerName">Public driver name</label>
-        <div class="stunt-record-actions"><input id="stuntRacerName" maxlength="24" autocomplete="nickname" required><button id="stuntPublish" type="submit" disabled>Post best lap</button></div>
-      </form>
-      <p id="stuntActionStatus" role="status" hidden></p>
-      <div id="stuntShareField" hidden><label for="stuntShareUrl">Race link</label><input id="stuntShareUrl" type="url" readonly></div>
-    </section>
-    <section aria-labelledby="stuntBoardTitle">
-      <div class="stunt-board-header"><h3 id="stuntBoardTitle">Community leaderboard</h3><button id="stuntBoardRefresh" type="button">Refresh</button></div>
-      <p id="stuntBoardStatus" role="status"></p>
-      <ol id="stuntBoard"></ol>
-    </section>
-  </dialog>
-  <aside class="drive-hud"><div class="hud-top"><span class="hud-label">SPEED</span><span class="hud-fps"><span id="fpsValue">–</span> FPS</span></div><strong><span id="speedValue">0</span> <small>mph</small></strong><span id="topSpeedValue">141 mph target top speed</span><span id="modelStatus" role="status">Loading car model…</span><span id="surfaceValue">on the road</span><div id="ghostHud" class="ghost-hud" hidden><span>TIME <strong id="ghostTimeValue">0:00.0</strong></span><span id="ghostGapRow">TO GHOST <strong id="ghostGapValue">—</strong></span></div><a class="model-credit" href="credits.html" target="_blank" rel="noopener">Model credits ↗</a></aside>
-  <section class="garage" aria-label="Choose a car"><p>pick a car <span>1 / 2 / 3 / 4</span></p><div class="garage-options"><button class="active" data-car="comet" type="button"><i class="swatch comet"></i><span>Comet<small>141 mph</small></span></button><button data-car="rally" type="button"><i class="swatch rally"></i><span>Rally<small>115 mph</small></span></button><button data-car="pickup" type="button"><i class="swatch pickup"></i><span>Pickup<small>99 mph</small></span></button><button data-car="hypercar" type="button"><i class="swatch hypercar"></i><span><span id="garageHypercarName">DeLorean</span><small>205 mph</small></span></button></div></section>
-  <div class="drive-help">WASD / ARROWS TO DRIVE <span>·</span> SPACE TO BRAKE <span>·</span> E TO EXPLORE A NEARBY STOP <span>·</span> M FOR MAP <span>·</span> C FOR CAMERA · DRAG TO LOOK (RETURNS AFTER 4s) <span>·</span> F TO FLIP IN PLACE <span>·</span> R TO RESET <span>·</span> IN AIR: ↑↓ PITCH</div>
-  <div class="touch-controls" aria-label="Touch driving controls"><div><button data-key="arrowleft" type="button" aria-label="Steer left">←</button><button data-key="arrowright" type="button" aria-label="Steer right">→</button></div><div><button data-key=" " type="button" aria-label="Brake">■</button><button data-key="arrowdown" type="button" aria-label="Reverse">↓</button><button data-key="arrowup" type="button" aria-label="Accelerate">↑</button></div></div>
-  <div class="load-message" id="loadMessage">Loading the road…</div>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
-  <script src="js/vendor/GLTFLoader.js"></script>
-  <script src="js/vehicle-assets.js?v=6"></script>
-  <script src="js/u9-xtreme-asset.js?v=2"></script>
-  <script src="js/vendor/cannon.min.js"></script>
-  <script src="js/city.js?v=1"></script>
-  <script src="js/vendor/polygon-clipping-0.15.7.min.js"></script>
-  <script src="js/portfolio-sign-text.js?v=1"></script>
-  <script src="js/portfolio-neighborhoods.js?v=3"></script>
-  <script src="js/portfolio-streets.js?v=8"></script>
-  <script src="js/portfolio-sidewalk-props.js?v=1"></script>
-  <script src="js/portfolio-sidewalk-life.js?v=1"></script>
-  <script src="js/portfolio-exchange-concrete.js?v=1"></script>
-  <script src="js/portfolio-exchange.js?v=2"></script>
-  <script src="js/portfolio-underwriting.js?v=2"></script>
-  <script src="js/portfolio-sublight.js?v=2"></script>
-  <script src="js/portfolio-sky-mall.js?v=3"></script>
-  <script src="js/portfolio-spectrum-programming.js?v=1"></script>
-  <script src="js/portfolio-experience-towers.js?v=2"></script>
-  <script src="js/portfolio-cu-tower.js?v=2"></script>
-  <script src="js/portfolio-education-buildings.js?v=1"></script>
-  <script src="js/portfolio-city.js?v=17"></script>
-  <script src="js/portfolio-storefronts.js?v=6"></script>
-  <script src="js/portfolio-facades.js?v=4"></script>
-  <script src="js/portfolio-projects-frontages.js?v=2"></script>
-  <script src="js/portfolio-district-landmarks.js?v=2"></script>
-  <script src="js/portfolio-experience-district.js?v=3"></script>
-  <script src="js/portfolio-education-campus.js?v=1"></script>
-  <script src="js/portfolio-arrival-sidewalks.js?v=3"></script>
-  <script src="js/portfolio-arrival-market.js?v=2"></script>
-  <script src="js/portfolio-public-spaces.js?v=6"></script>
-  <script src="js/portfolio-airship.js?v=2"></script>
-  <script src="js/portfolio-play.js?v=1"></script>
-  <script src="js/portfolio-holograms.js?v=3"></script>
-  <script src="js/portfolio-sky-ads.js?v=2"></script>
-  <script src="js/portfolio-corporate-ad-placements.js?v=4"></script>
-  <script src="js/portfolio-sky-campaign-placements.js?v=1"></script>
-  <script src="js/portfolio-corporate-ads.js?v=5"></script>
-  <script src="js/portfolio-wet.js?v=5"></script>
-  <script src="js/portfolio-car.js?v=3"></script>
-  <script src="js/portfolio-assets.js?v=4"></script>
-  <script src="js/imported-city.js?v=13"></script>
-  <script src="js/physics.js?v=27"></script>
-  <script src="js/imported-courses.js?v=7"></script>
-  <script src="js/mobile-ui.js?v=1"></script>
-  <script src="js/portfolio-districts.js?v=4"></script>
-  <script src="js/portfolio-ui.js?v=21"></script>
-  <script src="js/personal-best.js?v=2"></script>
-  <script src="js/stunt-records.js?v=2"></script>
-  <script src="js/main.js?v=52"></script>
+  <main class="hello">
+    <h1>Car Go Vroom</h1>
+    <p><a class="featured-action" href="https://alexz3221.github.io/Car-Go-Vroom/" data-destination>Continue to Car Go Vroom</a></p>
+  </main>
 </body>
 </html>

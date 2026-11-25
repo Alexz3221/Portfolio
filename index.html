@@ -4,17 +4,18 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#101214">
-  <meta name="description" content="Alex Zhou’s projects and writing.">
+  <meta name="description" content="Alex Zhou’s games, AI experiments, and writing.">
   <title>Alex Zhou</title>
-  <link rel="stylesheet" href="css/home.css?v=4">
+  <link rel="stylesheet" href="css/home.css?v=5">
 </head>
 <body>
   <header class="header">
     <a class="name" href="./">alex<span>.</span></a>
     <nav aria-label="Navigation">
       <a href="#stuff">Projects</a>
-      <a href="blog/">Blog</a>
-      <a href="blog/?section=reviews">Media Reviews</a>
+      <a href="#experiments">AI experiments</a>
+      <a href="https://alexz3221.github.io/Unnecessary-Lore/">Blog</a>
+      <a href="https://alexz3221.github.io/Unnecessary-Lore/?section=reviews">Media Reviews</a>
       <a href="https://github.com/Alexz3221" target="_blank" rel="noopener noreferrer">GitHub</a>
       <a href="https://www.linkedin.com/in/alex-zhou2/" target="_blank" rel="noopener noreferrer">LinkedIn</a>
     </nav>
@@ -28,47 +29,92 @@
 
     <section class="stuff" id="stuff" aria-labelledby="projects-title">
       <h2 class="section-title" id="projects-title">Projects</h2>
-      <a class="featured" href="drive/">
+      <a class="featured" href="https://alexz3221.github.io/Car-Go-Vroom/">
         <div class="featured-copy">
           <h3>Car Go Vroom</h3>
           <p>Explore the neon portfolio city or race ghosts on the stunt course.</p>
           <span class="featured-action">Play the game <span aria-hidden="true">→</span></span>
         </div>
-        <div class="featured-media"><img src="drive/assets/city-preview.jpg?v=7" width="920" height="550" alt=""></div>
+        <div class="featured-media"><img src="assets/city-preview.jpg" width="920" height="550" alt=""></div>
       </a>
 
       <ul class="project-list">
-        <li><a class="project" href="drive/?map=skylines">
+        <li><a class="project" href="https://alexz3221.github.io/Car-Go-Vroom/?map=skylines">
           <span class="project-name">Cities: Skylines</span>
           <span class="project-type">Free drive in the imported city.</span>
           <span class="arrow" aria-hidden="true">→</span>
         </a></li>
-        <li><a class="project" href="projects/local-ai/#adventure">
-          <span class="project-name">Oops, That’s Canon</span>
-          <span class="project-type">Interactive stories with choices and editable scenes.</span>
-          <span class="arrow" aria-hidden="true">→</span>
-        </a></li>
-        <li><a class="project" href="projects/local-ai/#image">
-          <span class="project-name">Computer, Draw a Little Guy</span>
-          <span class="project-type">Generate images and turn references into prompts.</span>
-          <span class="arrow" aria-hidden="true">→</span>
-        </a></li>
-        <li><a class="project" href="lab/">
-          <span class="project-name">One Neuron Over</span>
-          <span class="project-type">Experiments with individual language-model neurons.</span>
-          <span class="arrow" aria-hidden="true">→</span>
-        </a></li>
-        <li><a class="project" href="reader/">
+        <li><a class="project" href="https://alexz3221.github.io/One-More-Chapter/">
           <span class="project-name">One More Chapter</span>
-          <span class="project-type">A private reader for translated novels.</span>
+          <span class="project-type">A private novel reader with local AI translation.</span>
           <span class="arrow" aria-hidden="true">→</span>
         </a></li>
-        <li><a class="project" href="blog/">
+        <li><a class="project" href="https://alexz3221.github.io/Unnecessary-Lore/">
           <span class="project-name">Unnecessary Lore</span>
           <span class="project-type">Blog posts and story drafts.</span>
           <span class="arrow" aria-hidden="true">→</span>
         </a></li>
       </ul>
+    </section>
+
+    <section class="stuff" id="experiments" aria-labelledby="experiments-title">
+      <h2 class="section-title" id="experiments-title">AI experiments</h2>
+      <a class="experiment-feature" href="https://alexz3221.github.io/Tidal-Archipelago-Web/">
+        <div>
+          <h3>Tidal Archipelago</h3>
+          <p>Change the tides and watch thousands of creatures forage, migrate, and pass on traits.</p>
+        </div>
+        <span class="featured-action">Play in browser</span>
+      </a>
+
+      <div class="experiment-group">
+        <h3>Creative tools</h3>
+        <p class="experiment-note">These tools open when Adventure Studio is running on your computer.</p>
+        <ul class="project-list">
+          <li id="adventure"><a class="project" href="http://127.0.0.1:8765/?workspace=story" target="_blank" rel="noopener noreferrer">
+            <span class="project-name">Oops, That’s Canon</span>
+            <span class="project-type">Play branching AI stories, edit scenes, and rewind choices.</span>
+            <span class="arrow" aria-hidden="true">→</span>
+          </a></li>
+          <li id="image"><a class="project" href="http://127.0.0.1:8765/?workspace=image" target="_blank" rel="noopener noreferrer">
+            <span class="project-name">Computer, Draw a Little Guy</span>
+            <span class="project-type">Generate images and turn references into prompts.</span>
+            <span class="arrow" aria-hidden="true">→</span>
+          </a></li>
+        </ul>
+      </div>
+
+      <div class="experiment-group" id="one-neuron-over">
+        <h3>One Neuron Over</h3>
+        <p class="experiment-note">Local experiments with how individual language-model neurons affect responses.</p>
+        <ul class="project-list">
+          <li><a class="project" href="http://127.0.0.1:8765/steering/" target="_blank" rel="noopener noreferrer">
+            <span class="project-name">Steer</span>
+            <span class="project-type">Change a neuron’s contribution and compare responses.</span>
+            <span class="arrow" aria-hidden="true">→</span>
+          </a></li>
+          <li><a class="project" href="http://127.0.0.1:8765/find/" target="_blank" rel="noopener noreferrer">
+            <span class="project-name">Find</span>
+            <span class="project-type">Look for neurons linked to a concept and test them on new prompts.</span>
+            <span class="arrow" aria-hidden="true">→</span>
+          </a></li>
+          <li><a class="project" href="http://127.0.0.1:8765/sweep/" target="_blank" rel="noopener noreferrer">
+            <span class="project-name">Sweep</span>
+            <span class="project-type">Test a range of neurons in both directions and save the responses.</span>
+            <span class="arrow" aria-hidden="true">→</span>
+          </a></li>
+          <li><a class="project" href="http://127.0.0.1:8765/chat/" target="_blank" rel="noopener noreferrer">
+            <span class="project-name">Steered chat</span>
+            <span class="project-type">Carry a steering intervention into a longer conversation.</span>
+            <span class="arrow" aria-hidden="true">→</span>
+          </a></li>
+          <li><a class="project" href="http://127.0.0.1:8765/steering/#library" target="_blank" rel="noopener noreferrer">
+            <span class="project-name">Neuron library</span>
+            <span class="project-type">Keep useful neuron coordinates and notes for later runs.</span>
+            <span class="arrow" aria-hidden="true">→</span>
+          </a></li>
+        </ul>
+      </div>
     </section>
   </main>
 </body>
